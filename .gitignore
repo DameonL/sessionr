@@ -1,0 +1,21 @@
+# --- .NET / Azure Functions (api) ---
+api/bin/
+api/obj/
+api/local.settings.json
+api/sessionapp.dev.db*
+*.user
+
+# --- Node / Vite ---
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# --- Azure Static Web Apps CLI ---
+.swa/
+
+# --- Editors / OS ---
+.vs/
+.DS_Store
+.vscode
