@@ -1,10 +1,12 @@
+import type { RepertoireItem } from './api'
+
 export interface SuggestionReasonPiece {
   text: string
   tooltip: string
 }
 
 export interface SuggestionCandidate {
-  userTuneId: number
+  userTuneId: string
   title: string
   tuneType: string
   key: string
@@ -12,7 +14,7 @@ export interface SuggestionCandidate {
 }
 
 export interface NextTuneSuggestion {
-  userTuneId: number
+  userTuneId: string
   title: string
   tuneType: string
   key: string
@@ -207,9 +209,9 @@ export function scoreNextTune(
 }
 
 export function suggestNextPracticeTunes(
-  draftIds: number[],
+  draftIds: string[],
   candidates: SuggestionCandidate[],
-  repertoire: any[]
+  repertoire: RepertoireItem[]
 ): NextTuneSuggestion[] {
   const filteredCandidates = candidates.filter((c) => !draftIds.includes(c.userTuneId))
 

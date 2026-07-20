@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import Link from 'next/link'
 import abcjs from 'abcjs'
 import {
   INSTRUMENTS,
   loadInstruments,
   saveInstruments,
   synthInstrumentOptions,
-} from './instruments.ts'
+} from './instruments'
 import {
   ALL_METRONOME_SOUNDS,
   BEAT_SOUNDS,
@@ -18,11 +19,11 @@ import {
   playMetronomeClick,
   saveMetronomePrefs,
   type MetronomeSound,
-} from '../services/metronome.ts'
-import { fixAbcRepeats } from '../services/abcTools.ts'
+} from '../services/metronome'
+import { fixAbcRepeats } from '../services/abcTools'
 
 export interface SetPlayerItem {
-  userTuneId: number
+  userTuneId: string
   title: string
   abc: string
   repetitions: number
@@ -30,20 +31,31 @@ export interface SetPlayerItem {
 
 type PlayerStatus = 'stopped' | 'playing' | 'paused'
 
+interface ExtendedTuneObject extends abcjs.TuneObject {
+  setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
+}
+
 /**
  * Renders every tune in a set and plays the whole medley: each tune its
  * configured number of times, then straight into the next, with the current
  * note highlighted and the active tune scrolled into view.
  */
-export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
+export function SetPlayer({
+  items,
+  linkHref,
+}: {
+  items: SetPlayerItem[]
+  /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
+  linkHref?: (item: SetPlayerItem) => string | null
+}) {
   const sheetRefs = useRef<(HTMLDivElement | null)[]>([])
-  const visualObjsRef = useRef<any[]>([])
+  const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([])
   const durationsRef = useRef<number[]>([])
-  const synthsRef = useRef<any[]>([])
-  const timerRef = useRef<any>(null)
+  const synthsRef = useRef<(abcjs.MidiBuffer | null)[]>([])
+  const timerRef = useRef<abcjs.TimingCallbacks | null>(null)
   const highlightedRef = useRef<Element[]>([])
   const isDraggingRef = useRef(false)
-  const noteTimingsRef = useRef<any[][]>([])
+  const noteTimingsRef = useRef<abcjs.NoteTimingEvent[][]>([])
   const repeatRef = useRef(false)
   const repeatLimitRef = useRef<number | null>(null)
   const setPassRef = useRef(1)
@@ -95,8 +107,8 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index]
       if (!host) return null
-      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), { responsive: 'resize' })[0]
-      const timings = (visualObj as any).setTiming(visualObj.getBpm())
+      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), { responsive: 'resize' })[0] as ExtendedTuneObject
+      const timings = visualObj.setTiming(visualObj.getBpm())
       noteTimingsRef.current[index] = timings
       return visualObj
     })
@@ -235,6 +247,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       const synths = await Promise.all(
         items.map(async (_, index) => {
           const visualObj = visualObjsRef.current[index]
+          if (!visualObj) throw new Error('Visual object not initialized')
           const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100))
           const synth = new abcjs.synth.CreateSynth()
           await synth.init({
@@ -287,6 +300,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
   ) {
     const visualObj = visualObjsRef.current[index]
     const synth = synthsRef.current[index]
+    if (!visualObj || !synth) return
     const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100))
     let pass = startPass
 
@@ -321,7 +335,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           }
         }
       },
-      eventCallback: (ev: any) => {
+      eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
         clearHighlights()
         if (ev) {
           const ms = timer.currentMillisecond()
@@ -341,10 +355,10 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           }
           const host = sheetRefs.current[index]
           const svg = host?.querySelector('svg') as SVGSVGElement | null
-          if (ev.left !== null && svg) {
+          if (typeof ev.left === 'number' && typeof ev.top === 'number' && typeof ev.height === 'number' && svg) {
             updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height)
           }
-          return
+          return undefined
         }
         // End of one pass through the tune.
         synth.stop()
@@ -376,6 +390,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
         } else {
           stop()
         }
+        return undefined
       },
     })
     timerRef.current = timer
@@ -398,7 +413,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
     }
   }
 
-  function onTempoInput(e: Event) {
+  function onTempoInput(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setTempoPercent(percent)
     if (status !== 'stopped') {
@@ -407,12 +422,12 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
     }
   }
 
-  function onSwingInput(e: Event) {
+  function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setSwingPercent(percent)
   }
 
-  function onSwingChange(e: Event) {
+  function onSwingChange(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setSwingPercent(percent)
     if (status !== 'stopped') {
@@ -421,7 +436,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
   }
 
   function onInstrumentChange(part: keyof typeof instruments) {
-    return (e: Event) => {
+    return (e: ChangeEvent<HTMLSelectElement>) => {
       const next = { ...instruments, [part]: Number((e.target as HTMLSelectElement).value) }
       setInstruments(next)
       saveInstruments(next)
@@ -437,9 +452,9 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
   }
 
   return (
-    <div ref={containerRef} class={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
+    <div ref={containerRef} className={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
       {isFullscreen && (
-        <div class="fullscreen-controls">
+        <div className="fullscreen-controls">
           <button
             onClick={() =>
               status === 'playing' ? pause() : status === 'paused' ? resume() : play()
@@ -455,7 +470,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           </button>
         </div>
       )}
-      <div class="player-controls">
+      <div className="player-controls">
         <button
           onClick={() =>
             status === 'playing' ? pause() : status === 'paused' ? resume() : play()
@@ -467,7 +482,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           ■ Stop
         </button>
         <button
-          class={repeat ? 'toggled' : ''}
+          className={repeat ? 'toggled' : ''}
           aria-pressed={repeat}
           onClick={() => {
             const next = !repeat
@@ -478,7 +493,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           🔁 Repeat set
         </button>
         <button
-          class={useMetronome ? 'toggled' : ''}
+          className={useMetronome ? 'toggled' : ''}
           aria-pressed={useMetronome}
           onClick={() => {
             const next = !useMetronome
@@ -535,7 +550,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
                 setRepeatLimit(num && num > 0 ? num : null)
                 repeatLimitRef.current = num && num > 0 ? num : null
               }}
-              class="reps-input"
+              className="reps-input"
               title="Number of times to repeat the set (leave empty for infinite)"
             />
           </label>
@@ -551,7 +566,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
             max="130"
             step="5"
             value={tempoPercent}
-            onInput={onTempoInput}
+            onChange={onTempoInput}
           />
         </label>
         <label>
@@ -562,13 +577,22 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
             max="75"
             step="1"
             value={swingPercent}
-            onInput={onSwingInput}
-            onChange={onSwingChange}
+            onChange={onSwingInput}
+            onMouseUp={() => {
+              if (status !== 'stopped') {
+                play(tempoPercent)
+              }
+            }}
+            onTouchEnd={() => {
+              if (status !== 'stopped') {
+                play(tempoPercent)
+              }
+            }}
           />
         </label>
       </div>
-      <div class="player-seek">
-        <span class="time-label">{formatTime(positionSec)}</span>
+      <div className="player-seek">
+        <span className="time-label">{formatTime(positionSec)}</span>
         <input
           type="range"
           min="0"
@@ -583,19 +607,23 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           onTouchStart={() => {
             isDraggingRef.current = true
           }}
-          onInput={(e) => {
+          onChange={(e) => {
             const val = Number((e.target as HTMLInputElement).value)
             setPositionSec(val)
             updateVisualsForTime(val)
           }}
-          onChange={(e) => {
+          onMouseUp={(e) => {
             isDraggingRef.current = false
-            seek(Number((e.target as HTMLInputElement).value))
+            seek(Number((e.currentTarget as HTMLInputElement).value))
+          }}
+          onTouchEnd={(e) => {
+            isDraggingRef.current = false
+            seek(Number((e.currentTarget as HTMLInputElement).value))
           }}
         />
-        <span class="time-label">{formatTime(currentTotalSec)}</span>
+        <span className="time-label">{formatTime(currentTotalSec)}</span>
       </div>
-      <div class="player-controls">
+      <div className="player-controls">
         {(['melody', 'chords', 'bass'] as const).map((part) => (
           <label key={part}>
             {part[0].toUpperCase() + part.slice(1)}
@@ -609,34 +637,41 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           </label>
         ))}
       </div>
-      {error && <p class="error">{error}</p>}
+      {error && <p className="error">{error}</p>}
 
-      <div class="set-player-tunes-list">
-        {items.map((item, index) => (
+      <div className="set-player-tunes-list">
+        {items.map((item, index) => {
+          const href = linkHref ? linkHref(item) : `/tune/${item.userTuneId}`
+          return (
           <div
             key={item.userTuneId}
-            class={`set-player-tune ${activeIndex === index ? 'active' : ''}`}
+            className={`set-player-tune ${activeIndex === index ? 'active' : ''}`}
           >
-            <div class="set-header">
+            <div className="set-header">
               <h2>
-                <a class="quiet-link" href={`/tune/${item.userTuneId}`}>
-                  {index + 1}. {item.title}
-                </a>
+                {href ? (
+                  <Link className="quiet-link" href={href}>
+                    {index + 1}. {item.title}
+                  </Link>
+                ) : (
+                  <span>{index + 1}. {item.title}</span>
+                )}
               </h2>
-              <span class="tune-meta">
+              <span className="tune-meta">
                 {activeIndex === index
                   ? `pass ${activePass} of ${item.repetitions}`
                   : `× ${item.repetitions}`}
               </span>
             </div>
             <div
-              class="sheet-music"
+              className="sheet-music"
               ref={(el) => {
                 sheetRefs.current[index] = el
               }}
             />
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -691,7 +726,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
     const host = sheetRefs.current[targetIndex]
     const svg = host?.querySelector('svg') as SVGSVGElement | null
 
-    if (bestEvent && bestEvent.left !== null) {
+    if (bestEvent && typeof bestEvent.left === 'number' && typeof bestEvent.top === 'number' && typeof bestEvent.height === 'number') {
       for (const group of bestEvent.elements ?? []) {
         for (const el of group) {
           el.classList.add('highlight')

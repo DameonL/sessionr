@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/Private/">
+    <Project Path="Private/SessionApp.Api.Private.csproj" />
+  </Folder>
+  <Folder Name="/Public/">
+    <Project Path="Public/SessionApp.Api.Public.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/SessionApp.Api.Shared.csproj" />
+  </Folder>
+</Solution>

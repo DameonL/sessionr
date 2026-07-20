@@ -1,0 +1,62 @@
+"use client";
+
+import { useQuery } from '@tanstack/react-query'
+import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import { getGroupSet } from '../services/api'
+import { currentUserId } from '../state/appState'
+
+// Dynamically import SetPlayer to prevent abcjs SSR errors
+const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
+
+/** Bookmarkable page for a full group set: /groupset/{groupSetId} */
+export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
+  const id = groupSetId ?? ''
+  const userId = currentUserId.value
+
+  const set = useQuery({ queryKey: ['group-set', id, userId], queryFn: () => getGroupSet(id, userId) })
+
+  if (set.isLoading) {
+    return <p>Loading…</p>
+  }
+  if (set.isError || !set.data) {
+    return (
+      <section>
+        <p className="error">Could not load this set list.</p>
+      </section>
+    )
+  }
+
+  const { title, items, analysis, groupId } = set.data
+
+  return (
+    <section>
+      <div style={{ marginBottom: '1rem' }}>
+        <Link href={`/group/${groupId}`}>← Back to group</Link>
+      </div>
+      <div className="set-header">
+        <h1>{title}</h1>
+        <span className="tune-meta">{analysis.totalPlaytime} min</span>
+      </div>
+      {analysis.transitions.length > 0 && (
+        <ul className="transitions">
+          {analysis.transitions.map((t) => (
+            <li key={`${t.fromTitle}-${t.toTitle}`} className="tune-meta">
+              {t.fromKey} → {t.toKey}: {t.label}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <SetPlayer
+        items={items.map(({ groupTuneId, title: tuneTitle, abc, repetitions }) => ({
+          userTuneId: groupTuneId,
+          title: tuneTitle,
+          abc,
+          repetitions,
+        }))}
+        linkHref={() => null}
+      />
+    </section>
+  )
+}

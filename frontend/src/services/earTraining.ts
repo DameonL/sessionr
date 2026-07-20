@@ -1,5 +1,5 @@
 import abcjs from 'abcjs'
-import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignature } from './abcTools.ts'
+import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignature } from './abcTools'
 
 /**
  * Turns a tune's ABC into the material the ear trainer needs: an ordered

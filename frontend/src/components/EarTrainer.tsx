@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import abcjs from 'abcjs'
 import {
@@ -6,16 +6,30 @@ import {
   logPractice,
   saveEarTrainingProgress,
   type RepertoireItem,
-} from '../services/api.ts'
-import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining.ts'
-import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector.ts'
-import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments.ts'
-import { currentUserId } from '../state/appState.ts'
+} from '../services/api'
+import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining'
+import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
+import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments'
+import { currentUserId } from '../state/appState'
 
 const EAR_INSTRUMENT_KEY = 'sessionapp.ear-instrument'
 
 interface EarTrainerProps {
   item: RepertoireItem
+}
+
+interface ExtendedTuneObject extends abcjs.TuneObject {
+  setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
+}
+
+interface EarDebug {
+  simulate(midi: number, cents?: number): void;
+  current(): number | null;
+  phase(): string;
+}
+
+interface WindowWithEarDebug extends Window {
+  __earDebug?: EarDebug;
 }
 
 type Phase = 'idle' | 'target' | 'listening' | 'phrase-playback' | 'complete'
@@ -44,12 +58,12 @@ export function EarTrainer({ item }: EarTrainerProps) {
   const tune = useMemo(() => buildEarTrainingTune(item.abc), [item.abc])
 
   const sheetRef = useRef<HTMLDivElement>(null)
-  const visualObjRef = useRef<any>(null)
+  const visualObjRef = useRef<ExtendedTuneObject | null>(null)
   const noteElsRef = useRef<SVGElement[]>([])
   const alignmentOkRef = useRef(true)
   const listenerRef = useRef<PitchListener | null>(null)
-  const synthRef = useRef<any>(null)
-  const timerRef = useRef<any>(null)
+  const synthRef = useRef<abcjs.MidiBuffer | null>(null)
+  const timerRef = useRef<abcjs.TimingCallbacks | null>(null)
   const phaseRef = useRef<Phase>('idle')
   const phraseIndexRef = useRef(0)
   const noteIndexRef = useRef(0)
@@ -132,7 +146,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
       responsive: 'resize',
       add_classes: true,
     })
-    visualObjRef.current = objs[0]
+    visualObjRef.current = objs[0] as ExtendedTuneObject
 
     const noteEls = Array.from(
       host.querySelectorAll<SVGElement>('.abcjs-note:not(.abcjs-rest)'),
@@ -168,14 +182,15 @@ export function EarTrainer({ item }: EarTrainerProps) {
   // Hands-free driver for development: __earDebug.simulate(midi) behaves
   // exactly like a stable mic detection.
   useEffect(() => {
-    if (!import.meta.env.DEV) return
-    ;(window as any).__earDebug = {
+    if (process.env.NODE_ENV !== 'development') return
+    const win = window as WindowWithEarDebug
+    win.__earDebug = {
       simulate: (midi: number, cents = 0) => handleDetectedNote(midi, midiToHz(midi), cents),
       current: () => currentNote()?.midi ?? null,
       phase: () => phaseRef.current,
     }
     return () => {
-      delete (window as any).__earDebug
+      delete win.__earDebug
     }
   }, [])
 
@@ -244,12 +259,12 @@ export function EarTrainer({ item }: EarTrainerProps) {
     let durationMs = 600
     const visualObj = visualObjRef.current
     if (visualObj && tune) {
-      const timings = visualObj.setTiming(visualObj.getBpm()) || []
+      const timings = (visualObj as ExtendedTuneObject).setTiming(visualObj.getBpm()) || []
       const phrase = tune.phrases[phraseIndex]
       if (phrase) {
-        const noteEvents = timings.filter((t: any) => {
+        const noteEvents = timings.filter((t: abcjs.NoteTimingEvent) => {
           if (t.type !== 'event') return false
-          const token = phrase.excerptAbc.substring(t.startChar, t.endChar).trim()
+          const token = phrase.excerptAbc.substring(t.startChar ?? 0, t.endChar ?? 0).trim()
           return /^[\^=_A-Ga-g]/.test(token)
         })
         const targetNoteEvent = noteEvents[noteIndexRef.current]
@@ -355,11 +370,12 @@ export function EarTrainer({ item }: EarTrainerProps) {
           await synth.prime()
           const timer = new abcjs.TimingCallbacks(visualObj, {
             qpm: bpm,
-            eventCallback: (ev: any) => {
+            eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
               if (!ev) {
                 timer.stop()
                 window.setTimeout(resolve, MIC_RESUME_DELAY_MS)
               }
+              return undefined
             },
           })
           timerRef.current = timer
@@ -426,8 +442,8 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   if (!tune) {
     return (
-      <div class="card">
-        <p class="error">
+      <div className="card">
+        <p className="error">
           This tune's notation can't be used for ear training yet (unsupported ABC).
         </p>
       </div>
@@ -441,10 +457,10 @@ export function EarTrainer({ item }: EarTrainerProps) {
     : 0
 
   return (
-    <div class="card">
-      <div class="set-header">
+    <div className="card">
+      <div className="set-header">
         <h2>{item.title}</h2>
-        <span class="tune-meta">
+        <span className="tune-meta">
           {phase === 'complete'
             ? `${tune.phrases.length} phrases learned`
             : `Phrase ${Math.min(phraseIndex + 1, tune.phrases.length)} of ${tune.phrases.length}` +
@@ -452,15 +468,15 @@ export function EarTrainer({ item }: EarTrainerProps) {
         </span>
       </div>
 
-      {phase !== 'complete' && <div class="sheet-music" ref={sheetRef} />}
+      {phase !== 'complete' && <div className="sheet-music" ref={sheetRef} />}
 
-      {feedback && <p class="badge badge-queue">{feedback}</p>}
-      {phase === 'listening' && <p class="tune-meta">🎤 Listening — play the note on your instrument…</p>}
-      {phase === 'target' && <p class="tune-meta">🔊 Listen…</p>}
-      {phase === 'phrase-playback' && <p class="tune-meta">🎵 Playing the phrase…</p>}
+      {feedback && <p className="badge badge-queue">{feedback}</p>}
+      {phase === 'listening' && <p className="tune-meta">🎤 Listening — play the note on your instrument…</p>}
+      {phase === 'target' && <p className="tune-meta">🔊 Listen…</p>}
+      {phase === 'phrase-playback' && <p className="tune-meta">🎵 Playing the phrase…</p>}
 
       {phase === 'idle' && (
-        <div class="detail-controls">
+        <div className="detail-controls">
           <button onClick={begin}>▶ Start ear training</button>
           <button onClick={hearPhrase}>🎵 Hear the phrase first</button>
           <label>
@@ -482,14 +498,14 @@ export function EarTrainer({ item }: EarTrainerProps) {
       )}
 
       {(phase === 'listening' || phase === 'target') && (
-        <div class="detail-controls">
+        <div className="detail-controls">
           <button onClick={playCurrentTarget} disabled={phase === 'target'}>
             🔊 Hear note again
           </button>
           <button onClick={hearPhrase} disabled={phase === 'target'}>
             🎵 Hear phrase
           </button>
-          <button class="danger" onClick={revealCurrent}>
+          <button className="danger" onClick={revealCurrent}>
             Reveal note
           </button>
         </div>
@@ -497,19 +513,19 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
       {phase === 'complete' && (
         <div>
-          <p class="badge badge-queue">🎉 You've learned "{item.title}" by ear!</p>
-          <div class="detail-controls">
+          <p className="badge badge-queue">🎉 You've learned "{item.title}" by ear!</p>
+          <div className="detail-controls">
             <button disabled={practiceMutation.isPending} onClick={() => practiceMutation.mutate()}>
               ✓ Log practice
             </button>
             <button onClick={startOver}>↻ Start over</button>
           </div>
-          {practiceMutation.isSuccess && <p class="tune-meta">Practice logged.</p>}
+          {practiceMutation.isSuccess && <p className="tune-meta">Practice logged.</p>}
         </div>
       )}
 
-      {micError && <p class="error">{micError}</p>}
-      {audioError && <p class="error">{audioError}</p>}
+      {micError && <p className="error">{micError}</p>}
+      {audioError && <p className="error">{audioError}</p>}
     </div>
   )
 }

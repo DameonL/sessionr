@@ -2,7 +2,7 @@
   "name": "sessionapp",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,magenta --kill-others \"cd api && func start --port 7071\" \"cd frontend && npm run dev\""
+    "dev": "concurrently -n api-private,api-public,web -c cyan,blue,magenta --kill-others \"cd api/Private && func start --port 7072\" \"cd api/Public/ && func start --port 7071\" \"cd frontend && npm run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

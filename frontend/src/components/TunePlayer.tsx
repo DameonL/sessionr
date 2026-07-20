@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import abcjs from 'abcjs'
 import {
   INSTRUMENTS,
@@ -6,7 +6,7 @@ import {
   saveInstruments,
   synthInstrumentOptions,
   type Instruments,
-} from './instruments.ts'
+} from './instruments'
 import {
   ALL_METRONOME_SOUNDS,
   BEAT_SOUNDS,
@@ -19,8 +19,8 @@ import {
   playMetronomeClick,
   saveMetronomePrefs,
   type MetronomeSound,
-} from '../services/metronome.ts'
-import { fixAbcRepeats } from '../services/abcTools.ts'
+} from '../services/metronome'
+import { fixAbcRepeats } from '../services/abcTools'
 
 interface TunePlayerProps {
   abc: string
@@ -28,6 +28,10 @@ interface TunePlayerProps {
 }
 
 type PlayerStatus = 'stopped' | 'playing' | 'paused'
+
+interface ExtendedTuneObject extends abcjs.TuneObject {
+  setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
+}
 
 /** A/B loop bounds as fractions of the tune (tempo-invariant). */
 interface Loop {
@@ -51,16 +55,16 @@ interface Trainer {
 export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   const processedAbc = useMemo(() => fixAbcRepeats(abc), [abc])
   const sheetRef = useRef<HTMLDivElement>(null)
-  const visualObjRef = useRef<any>(null)
-  const synthRef = useRef<any>(null)
-  const timerRef = useRef<any>(null)
+  const visualObjRef = useRef<ExtendedTuneObject | null>(null)
+  const synthRef = useRef<abcjs.MidiBuffer | null>(null)
+  const timerRef = useRef<abcjs.TimingCallbacks | null>(null)
   const highlightedRef = useRef<Element[]>([])
   const repeatRef = useRef(false)
   const loopRef = useRef<Loop | null>(null)
   const trainerRef = useRef<Trainer | null>(null)
   const passRef = useRef(1)
   const isDraggingRef = useRef(false)
-  const noteTimingsRef = useRef<any[]>([])
+  const noteTimingsRef = useRef<abcjs.NoteTimingEvent[]>([])
   const repeatLimitRef = useRef<number | null>(null)
   const repeatPassRef = useRef(1)
   const useMetronomeRef = useRef(false)
@@ -119,11 +123,11 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   useEffect(() => {
     if (sheetRef.current) {
       const objs = abcjs.renderAbc(sheetRef.current, processedAbc, { responsive: 'resize' })
-      const visualObj = objs[0]
+      const visualObj = objs[0] as ExtendedTuneObject
       visualObjRef.current = visualObj
       // Compute the duration at natural tempo so the slider is meaningful
       // before the first play.
-      const timings = (visualObj as any).setTiming(visualObj.getBpm()) || []
+      const timings = visualObj.setTiming(visualObj.getBpm()) || []
       noteTimingsRef.current = timings
       setBaseTotalSec(visualObj.getTotalTime() ?? 0)
       // Default trainer target: the tune's target BPM relative to its
@@ -206,7 +210,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
     try {
       if (!sheetRef.current) return
       const objs = abcjs.renderAbc(sheetRef.current, processedAbc, { responsive: 'resize' })
-      const visualObj = objs[0]
+      const visualObj = objs[0] as ExtendedTuneObject
       visualObjRef.current = visualObj
 
       const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100))
@@ -259,11 +263,11 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             onPassComplete(activeLoop.a)
           }
         },
-        eventCallback: (ev: any) => {
+        eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
           clearHighlights()
           if (!ev) {
             onPassComplete(loopRef.current?.a ?? 0, true)
-            return
+            return undefined
           }
           for (const group of ev.elements ?? []) {
             for (const el of group) {
@@ -272,9 +276,10 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             }
           }
           const svg = sheetRef.current?.querySelector('svg') as SVGSVGElement | null
-          if (ev.left !== null && svg) {
+          if (typeof ev.left === 'number' && typeof ev.top === 'number' && typeof ev.height === 'number' && svg) {
             updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height)
           }
+          return undefined
         },
       })
       if (playId !== playIdRef.current) {
@@ -359,26 +364,24 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
     }
   }
 
-  function onTempoInput(e: Event) {
+  function onTempoInput(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setTempoPercent(percent)
   }
 
-  function onTempoChange(e: Event) {
-    const percent = Number((e.target as HTMLInputElement).value)
-    setTempoPercent(percent)
+  function triggerTempoCommit() {
     if (status !== 'stopped') {
       const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
-      play(percent, instruments, currentFraction)
+      play(tempoPercent, instruments, currentFraction)
     }
   }
 
-  function onSwingInput(e: Event) {
+  function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setSwingPercent(percent)
   }
 
-  function onSwingChange(e: Event) {
+  function onSwingChange(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setSwingPercent(percent)
     if (status !== 'stopped') {
@@ -388,7 +391,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   }
 
   function onInstrumentChange(part: keyof Instruments) {
-    return (e: Event) => {
+    return (e: ChangeEvent<HTMLSelectElement>) => {
       const next = { ...instruments, [part]: Number((e.target as HTMLSelectElement).value) }
       setInstruments(next)
       saveInstruments(next)
@@ -438,9 +441,9 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   }
 
   return (
-    <div ref={containerRef} class={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
+    <div ref={containerRef} className={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
       {isFullscreen && (
-        <div class="fullscreen-controls">
+        <div className="fullscreen-controls">
           <button
             onClick={() =>
               status === 'playing' ? pause() : status === 'paused' ? resume() : startPlayback()
@@ -456,11 +459,11 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
           </button>
         </div>
       )}
-      <div class="sheet-music" ref={sheetRef} />
+      <div className="sheet-music" ref={sheetRef} />
 
-      <div class="player-seek">
-        <span class="time-label">{formatTime(positionSec)}</span>
-        <div class="seek-track">
+      <div className="player-seek">
+        <span className="time-label">{formatTime(positionSec)}</span>
+        <div className="seek-track">
           <input
             type="range"
             min="0"
@@ -475,30 +478,34 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             onTouchStart={() => {
               isDraggingRef.current = true
             }}
-            onInput={(e) => {
+            onChange={(e) => {
               const val = Number((e.target as HTMLInputElement).value)
               setPositionSec(val)
               updateVisualsForTime(val)
             }}
-            onChange={(e) => {
+            onMouseUp={(e) => {
               isDraggingRef.current = false
-              seek(Number((e.target as HTMLInputElement).value))
+              seek(Number((e.currentTarget as HTMLInputElement).value))
+            }}
+            onTouchEnd={(e) => {
+              isDraggingRef.current = false
+              seek(Number((e.currentTarget as HTMLInputElement).value))
             }}
           />
           {markA !== null && (
-            <span class="loop-marker" style={{ left: `${markA * 100}%` }} title="Loop start" />
+            <span className="loop-marker" style={{ left: `${markA * 100}%` }} title="Loop start" />
           )}
           {loop && (
             <>
-              <span class="loop-marker" style={{ left: `${loop.a * 100}%` }} title="Loop A" />
-              <span class="loop-marker" style={{ left: `${loop.b * 100}%` }} title="Loop B" />
+              <span className="loop-marker" style={{ left: `${loop.a * 100}%` }} title="Loop A" />
+              <span className="loop-marker" style={{ left: `${loop.b * 100}%` }} title="Loop B" />
             </>
           )}
         </div>
-        <span class="time-label">{formatTime(totalSec)}</span>
+        <span className="time-label">{formatTime(totalSec)}</span>
       </div>
 
-      <div class="player-controls">
+      <div className="player-controls">
         <button onClick={() => (status === 'playing' ? pause() : status === 'paused' ? resume() : startPlayback())}>
           {status === 'playing' ? '⏸ Pause' : '▶ Play'}
         </button>
@@ -506,7 +513,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
           ■ Stop
         </button>
         <button
-          class={repeat ? 'toggled' : ''}
+          className={repeat ? 'toggled' : ''}
           aria-pressed={repeat}
           onClick={() => {
             const next = !repeat
@@ -517,7 +524,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
           🔁 Repeat
         </button>
         <button
-          class={useMetronome ? 'toggled' : ''}
+          className={useMetronome ? 'toggled' : ''}
           aria-pressed={useMetronome}
           onClick={() => {
             const next = !useMetronome
@@ -574,7 +581,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
                 setRepeatLimit(num && num > 0 ? num : null)
                 repeatLimitRef.current = num && num > 0 ? num : null
               }}
-              class="reps-input"
+              className="reps-input"
               title="Number of times to repeat (leave empty for infinite)"
             />
           </label>
@@ -583,7 +590,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
           ⛶ Fullscreen
         </button>
         <button
-          class={loop || markA !== null ? 'toggled' : ''}
+          className={loop || markA !== null ? 'toggled' : ''}
           disabled={status === 'stopped'}
           onClick={markLoopPoint}
           title="Mark loop start, then loop end, at the current position"
@@ -599,8 +606,9 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             max="150"
             step="5"
             value={tempoPercent}
-            onInput={onTempoInput}
-            onChange={onTempoChange}
+            onChange={onTempoInput}
+            onMouseUp={triggerTempoCommit}
+            onTouchEnd={triggerTempoCommit}
           />
         </label>
         <label>
@@ -611,15 +619,26 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             max="75"
             step="1"
             value={swingPercent}
-            onInput={onSwingInput}
-            onChange={onSwingChange}
+            onChange={onSwingInput}
+            onMouseUp={() => {
+              if (status !== 'stopped') {
+                const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
+                play(tempoPercent, instruments, currentFraction)
+              }
+            }}
+            onTouchEnd={() => {
+              if (status !== 'stopped') {
+                const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
+                play(tempoPercent, instruments, currentFraction)
+              }
+            }}
           />
         </label>
       </div>
 
-      <div class="player-controls">
+      <div className="player-controls">
         <button
-          class={trainer.armed ? 'toggled' : ''}
+          className={trainer.armed ? 'toggled' : ''}
           aria-pressed={trainer.armed}
           onClick={() => updateTrainer({ armed: !trainer.armed })}
         >
@@ -630,7 +649,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             <label>
               Start %
               <input
-                class="trainer-input"
+                className="trainer-input"
                 type="number"
                 min="50"
                 max="150"
@@ -644,7 +663,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             <label>
               Step %
               <input
-                class="trainer-input"
+                className="trainer-input"
                 type="number"
                 min="1"
                 max="20"
@@ -657,7 +676,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
             <label>
               Target %
               <input
-                class="trainer-input"
+                className="trainer-input"
                 type="number"
                 min="50"
                 max="150"
@@ -669,7 +688,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
               />
             </label>
             {status !== 'stopped' && (
-              <span class="tune-meta">
+              <span className="tune-meta">
                 Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
               </span>
             )}
@@ -677,7 +696,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
         )}
       </div>
 
-      <div class="player-controls">
+      <div className="player-controls">
         {(['melody', 'chords', 'bass'] as const).map((part) => (
           <label key={part}>
             {part[0].toUpperCase() + part.slice(1)}
@@ -691,7 +710,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
           </label>
         ))}
       </div>
-      {error && <p class="error">{error}</p>}
+      {error && <p className="error">{error}</p>}
     </div>
   )
 
@@ -715,7 +734,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
     clearHighlights()
 
     const svg = sheetRef.current?.querySelector('svg') as SVGSVGElement | null
-    if (bestEvent && bestEvent.left !== null) {
+    if (bestEvent && typeof bestEvent.left === 'number' && typeof bestEvent.top === 'number' && typeof bestEvent.height === 'number') {
       for (const group of bestEvent.elements ?? []) {
         for (const el of group) {
           el.classList.add('highlight')

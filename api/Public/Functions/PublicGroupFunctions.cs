@@ -1,0 +1,155 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
+using SessionApp.Api.Data;
+using SessionApp.Api.Models;
+
+namespace SessionApp.Api.Functions;
+
+/// <summary>Read-only, anonymous-friendly group endpoints (discovery + viewing public groups).</summary>
+public class PublicGroupFunctions(AppDbContext db)
+{
+    /// <summary>GET /api/groups?userId={userId} — list all groups with user membership status.</summary>
+    [Function("GetGroups")]
+    public async Task<IActionResult> GetGroups(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups")] HttpRequest req)
+    {
+        Guid.TryParse(req.Query["userId"], out var userId);
+
+        // Private groups are hidden from discovery unless the caller already
+        // has a membership row (active or pending) on them.
+        var groups = await db.Groups
+            .AsNoTracking()
+            .Where(g => !g.IsPrivate || g.Memberships.Any(m => m.UserId == userId))
+            .OrderBy(g => g.Name)
+            .Select(g => new GroupDto(
+                g.GroupId,
+                g.Name,
+                g.Memberships.Count(m => m.Status == GroupMembershipStatus.Active),
+                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active),
+                g.IsPrivate,
+                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending)
+            ))
+            .ToListAsync();
+
+        return new OkObjectResult(groups);
+    }
+
+    /// <summary>GET /api/groups/{groupId}?userId={userId} — fetch group dashboard details.</summary>
+    [Function("GetGroupDetails")]
+    public async Task<IActionResult> GetGroupDetails(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups/{groupId:guid}")] HttpRequest req,
+        Guid groupId)
+    {
+        Guid.TryParse(req.Query["userId"], out var userId);
+
+        var group = await db.Groups
+            .Include(g => g.Memberships).ThenInclude(m => m.User)
+            .AsSplitQuery()
+            .SingleOrDefaultAsync(g => g.GroupId == groupId);
+
+        if (group is null)
+        {
+            return new NotFoundResult();
+        }
+
+        var viewerMembership = group.Memberships.FirstOrDefault(m => m.UserId == userId);
+        var viewerIsActive = viewerMembership is { Status: GroupMembershipStatus.Active };
+
+        // Private groups reveal nothing but their name/privacy flag and the viewer's own
+        // request status to non-members and members still awaiting approval.
+        if (group.IsPrivate && !viewerIsActive)
+        {
+            return new OkObjectResult(new GroupDetailsDto(
+                group.GroupId, group.Name, true, null, viewerMembership?.Status.ToString(),
+                [], [], [], [], []));
+        }
+
+        var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
+
+        var activeMemberIds = group.Memberships
+            .Where(m => m.Status == GroupMembershipStatus.Active)
+            .Select(m => m.UserId)
+            .ToList();
+
+        // 1. Members list, owner/admins first
+        var members = group.Memberships
+            .Where(m => m.Status == GroupMembershipStatus.Active)
+            .OrderBy(m => m.Role switch { GroupRole.Owner => 0, GroupRole.Administrator => 1, _ => 2 })
+            .ThenBy(m => m.User.DisplayName)
+            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.User.Email, m.Role.ToString()))
+            .ToList();
+
+        // 2. Pending join requests awaiting admin approval
+        var pendingMembers = group.Memberships
+            .Where(m => m.Status == GroupMembershipStatus.Pending)
+            .OrderBy(m => m.JoinedAt)
+            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.User.Email, m.Role.ToString()))
+            .ToList();
+
+        // 3. Master tune list curated by admins/owner
+        var masterTunes = await db.GroupTunes
+            .AsNoTracking()
+            .Where(gt => gt.GroupId == groupId)
+            .OrderBy(gt => gt.Tune.Title)
+            .Select(gt => new GroupTuneDto(
+                gt.GroupTuneId,
+                gt.TuneId,
+                gt.Tune.Title,
+                gt.Tune.TuneType.ToString(),
+                gt.TuneSetting != null ? gt.TuneSetting.Key : gt.Tune.Key,
+                gt.TuneSettingId,
+                gt.TuneSetting != null ? gt.TuneSetting.SubmitterName : null,
+                gt.AddedByUser.DisplayName))
+            .ToListAsync();
+
+        // 4. Shared Repertoire (Common Tunes)
+        // Find tunes known by group members, ordered by member count descending
+        var commonTunes = await db.UserTunes
+            .AsNoTracking()
+            .Where(ut => activeMemberIds.Contains(ut.UserId))
+            .GroupBy(ut => new { ut.TuneId, ut.Tune.Title, ut.Tune.TuneType, ut.Tune.Key })
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key.Title)
+            .Take(40)
+            .Select(g => new GroupCommonTuneDto(
+                g.Key.TuneId,
+                g.Key.Title,
+                g.Key.TuneType.ToString(),
+                g.Key.Key,
+                g.Count(),
+                activeMemberIds.Count
+            ))
+            .ToListAsync();
+
+        // 5. Activity feed: practice log events by members
+        var recentActivity = await db.PracticeLog
+            .AsNoTracking()
+            .Where(p => activeMemberIds.Contains(p.UserTune.UserId))
+            .OrderByDescending(p => p.PracticedAt)
+            .Take(25)
+            .Select(p => new GroupActivityDto(
+                p.UserTune.User.DisplayName,
+                p.UserTune.Tune.Title,
+                p.PracticedAt
+            ))
+            .ToListAsync();
+
+        return new OkObjectResult(new GroupDetailsDto(
+            group.GroupId,
+            group.Name,
+            group.IsPrivate,
+            isViewerAdmin ? group.InviteCode : null,
+            viewerMembership?.Status.ToString(),
+            members,
+            pendingMembers,
+            masterTunes,
+            commonTunes,
+            recentActivity
+        ));
+    }
+}

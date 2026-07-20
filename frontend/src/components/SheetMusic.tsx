@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef } from 'react';
 import abcjs from 'abcjs';
 
 interface SheetMusicProps {
@@ -14,5 +14,5 @@ export function SheetMusic({ abcString }: SheetMusicProps) {
     }
   }, [abcString]);
 
-  return <div class="sheet-music" ref={ref} />;
+  return <div className="sheet-music" ref={ref} />;
 }

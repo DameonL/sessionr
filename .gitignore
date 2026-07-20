@@ -1,7 +1,7 @@
 # --- .NET / Azure Functions (api) ---
-api/bin/
-api/obj/
-api/local.settings.json
+api/**/bin/
+api/**/obj/
+api/**/local.settings.json
 api/sessionapp.dev.db*
 *.user
 
@@ -19,3 +19,5 @@ npm-debug.log*
 .vs/
 .DS_Store
 .vscode
+
+.next

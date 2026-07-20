@@ -1,5 +1,5 @@
-import { useRef, useState } from 'preact/hooks'
-import type { RepertoireItem } from '../services/api.ts'
+import { useRef, useState, type ChangeEvent } from 'react'
+import type { RepertoireItem } from '../services/api'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
@@ -7,7 +7,7 @@ import {
   createTune,
   searchTunes,
   updateUserTune,
-} from '../services/api.ts'
+} from '../services/api'
 
 interface ImportStatus {
   total: number
@@ -20,7 +20,7 @@ interface ImportStatus {
 }
 
 interface RepertoireBackupProps {
-  userId: number
+  userId: string
   repertoireItems: RepertoireItem[]
   onImported: () => void
 }
@@ -214,7 +214,7 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
     }
   }
 
-  const handleFileChange = async (e: Event) => {
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target as HTMLInputElement
     if (!input.files || input.files.length === 0) return
 
@@ -342,7 +342,7 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
                 (t) => t.title.toLowerCase() === item.title.toLowerCase()
               )
 
-              let tuneId: number
+              let tuneId: string
               if (existingGlobal) {
                 tuneId = existingGlobal.tuneId
               } else {
@@ -402,13 +402,13 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
   }
 
   return (
-    <div class="card backup-section">
+    <div className="card backup-section">
       <h2>Backup &amp; Restore</h2>
-      <p class="tune-meta">
+      <p className="tune-meta">
         Export your repertoire to a file, or import new/existing tunes from a CSV or JSON backup.
       </p>
       
-      <div class="detail-controls">
+      <div className="detail-controls">
         <button onClick={handleExportCsv}>⬆ Export CSV</button>
         <button onClick={handleExportJson}>⬆ Export JSON</button>
         
@@ -424,31 +424,31 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
         />
       </div>
 
-      {error && <p class="error">{error}</p>}
+      {error && <p className="error">{error}</p>}
 
       {status && (
-        <div class="import-status-box">
+        <div className="import-status-box">
           <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem' }}>
             Importing: {status.current} of {status.total}
           </h3>
-          <div class="progress-bar-container">
+          <div className="progress-bar-container">
             <div
-              class="progress-bar"
+              className="progress-bar"
               style={{ width: `${(status.current / status.total) * 100}%` }}
             ></div>
           </div>
-          <p class="tune-meta" style={{ margin: '0.5rem 0 0 0' }}>
+          <p className="tune-meta" style={{ margin: '0.5rem 0 0 0' }}>
             Added: <strong>{status.added}</strong> ·{' '}
             Updated: <strong>{status.updated}</strong> ·{' '}
             Skipped: <strong>{status.skipped}</strong> ·{' '}
             Failed: <strong>{status.failed}</strong>
           </p>
           {status.errors.length > 0 && (
-            <details class="import-errors">
+            <details className="import-errors">
               <summary>View {status.errors.length} errors/warnings</summary>
               <ul>
                 {status.errors.map((err, idx) => (
-                  <li key={idx} class="tune-meta" style={{ color: 'var(--danger)' }}>
+                  <li key={idx} className="tune-meta" style={{ color: 'var(--danger)' }}>
                     {err}
                   </li>
                 ))}
