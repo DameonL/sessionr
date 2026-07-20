@@ -563,3 +563,9 @@ button.toggled {
   background: var(--accent);
   color: #000;
 }
+
+.sheet-music .abcjs-cursor {
+  stroke: var(--accent);
+  stroke-width: 2px;
+  pointer-events: none;
+}

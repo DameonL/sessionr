@@ -31,6 +31,16 @@ builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    try
+    {
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tunes ADD TheSessionId INT NULL;");
+    }
+    catch { }
+}
+
 if (useSqlite)
 {
     using var scope = app.Services.CreateScope();

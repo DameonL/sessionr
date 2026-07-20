@@ -1,4 +1,4 @@
-const LETTER_PITCHES: Record<string, number> = {
+export const LETTER_PITCHES: Record<string, number> = {
   'c': 0,
   'd': 2,
   'e': 4,
@@ -76,7 +76,7 @@ const MODE_ALIASES: Record<string, string> = {
   lydian: 'lyd',
 }
 
-function parseKeySignature(kStr: string): { root: string; sharps: number } | null {
+export function parseKeySignature(kStr: string): { root: string; sharps: number } | null {
   kStr = kStr.trim().toLowerCase()
   const match = kStr.match(/^([a-g][#b]?)(.*)$/)
   if (!match) return null
@@ -100,7 +100,7 @@ function parseKeySignature(kStr: string): { root: string; sharps: number } | nul
   return { root, sharps: baseSharps + modeShift }
 }
 
-function parseKeyDetails(kStr: string) {
+export function parseKeyDetails(kStr: string) {
   kStr = kStr.trim()
   const match = kStr.match(/^([A-Ga-g][#b]?)(.*)$/)
   if (!match) return null
@@ -124,7 +124,7 @@ function parseKeyDetails(kStr: string) {
   return { root, mode, rootPitch }
 }
 
-function getDefaultAlteration(letter: string, sharps: number): number {
+export function getDefaultAlteration(letter: string, sharps: number): number {
   const sharpsOrder = ['f', 'c', 'g', 'd', 'a', 'e', 'b']
   const flatsOrder = ['b', 'e', 'a', 'd', 'g', 'c', 'f']
   const l = letter.toLowerCase()
@@ -469,4 +469,60 @@ export function foldAbcOctaves(abcText: string, minMidi: number, maxMidi: number
   })
 
   return foldedLines.join('\n')
+}
+
+export function fixAbcRepeats(abc: string): string {
+  const lines = abc.split('\n')
+  const headers: string[] = []
+  const musicLines: string[] = []
+  
+  let inHeader = true
+  for (const line of lines) {
+    if (inHeader && /^[A-Z]:/.test(line.trim())) {
+      headers.push(line)
+      if (line.trim().startsWith('K:')) {
+        inHeader = false
+      }
+    } else {
+      musicLines.push(line)
+    }
+  }
+  
+  const musicText = musicLines.join('\n')
+  let fixedMusicText = ''
+  let lastBarrierPos = 0
+  let hasStartRepeat = false
+  
+  let i = 0
+  while (i < musicText.length) {
+    if (musicText.substring(i).startsWith('|:')) {
+      hasStartRepeat = true
+      fixedMusicText += '|:'
+      i += 2
+    } else if (musicText.substring(i).startsWith(':|')) {
+      if (!hasStartRepeat) {
+        const insertOffset = fixedMusicText.length - (i - lastBarrierPos)
+        let nonWsOffset = insertOffset
+        while (nonWsOffset < fixedMusicText.length && /\s/.test(fixedMusicText[nonWsOffset])) {
+          nonWsOffset++
+        }
+        fixedMusicText = fixedMusicText.substring(0, nonWsOffset) + '|:' + fixedMusicText.substring(nonWsOffset)
+        hasStartRepeat = true
+      }
+      hasStartRepeat = false
+      fixedMusicText += ':|'
+      i += 2
+      lastBarrierPos = i
+    } else if (musicText.substring(i).startsWith('||') || musicText.substring(i).startsWith('[|') || musicText.substring(i).startsWith('|]')) {
+      hasStartRepeat = false
+      fixedMusicText += musicText.substring(i, i + 2)
+      i += 2
+      lastBarrierPos = i
+    } else {
+      fixedMusicText += musicText[i]
+      i++
+    }
+  }
+  
+  return [...headers, fixedMusicText].join('\n')
 }

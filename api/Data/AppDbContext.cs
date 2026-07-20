@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<SetItem> SetItems => Set<SetItem>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<PracticeLogEntry> PracticeLog => Set<PracticeLogEntry>();
+    public DbSet<EarTrainingProgress> EarTrainingProgress => Set<EarTrainingProgress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +77,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(p => p.PracticedAt);
+        });
+
+        modelBuilder.Entity<EarTrainingProgress>(entity =>
+        {
+            entity.HasOne(e => e.UserTune)
+                .WithMany()
+                .HasForeignKey(e => e.UserTuneId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One resumable ear-training state per user tune.
+            entity.HasIndex(e => e.UserTuneId).IsUnique();
         });
 
         modelBuilder.Entity<Tune>(entity =>

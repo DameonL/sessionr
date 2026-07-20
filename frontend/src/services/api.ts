@@ -181,6 +181,25 @@ export const logPractice = (userTuneId: number) =>
     { method: 'POST' },
   )
 
+export interface EarTrainingProgress {
+  userTuneId: number
+  phraseIndex: number
+  notesRevealed: number
+  completedAt: string | null
+}
+
+export const getEarTrainingProgress = (userTuneId: number) =>
+  apiFetch<EarTrainingProgress>(`/repertoire/items/${userTuneId}/ear-training`)
+
+export const saveEarTrainingProgress = (
+  userTuneId: number,
+  body: { phraseIndex: number; notesRevealed: number; completed: boolean },
+) =>
+  apiFetch<EarTrainingProgress>(`/repertoire/items/${userTuneId}/ear-training`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
 export const removeFromRepertoire = (userTuneId: number) =>
   apiFetch<void>(`/repertoire/items/${userTuneId}`, { method: 'DELETE' })
 

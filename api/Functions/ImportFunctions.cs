@@ -232,16 +232,29 @@ public class ImportFunctions(AppDbContext db, IHttpClientFactory httpClientFacto
         var (tuneType, meter) = TypeMap.GetValueOrDefault(detail.Type ?? "", (TuneType.Other, "4/4"));
 
         var title = detail.Name!.Trim();
-        var existing = await db.Tunes.FirstOrDefaultAsync(
-            t => t.Title.ToLower() == title.ToLower() && t.Key == key);
+        var existing = await db.Tunes.FirstOrDefaultAsync(t => t.TheSessionId == detail.Id);
+        if (existing is null)
+        {
+            existing = await db.Tunes.FirstOrDefaultAsync(
+                t => t.Title.ToLower() == title.ToLower() && t.Key == key && (t.TheSessionId == null || t.TheSessionId == detail.Id));
+        }
+
         if (existing is not null)
         {
+            var correctAbc = BuildAbc(title, detail.Type ?? "", meter, key, setting.Abc);
+            if (existing.TheSessionId != detail.Id || existing.MasterAbcText != correctAbc)
+            {
+                existing.TheSessionId = detail.Id;
+                existing.MasterAbcText = correctAbc;
+                await db.SaveChangesAsync();
+            }
             return existing;
         }
 
         var tune = new Tune
         {
             Title = title,
+            TheSessionId = detail.Id,
             TuneType = tuneType,
             Key = key,
             MasterAbcText = BuildAbc(title, detail.Type ?? "", meter, key, setting.Abc),
@@ -296,6 +309,6 @@ public class ImportFunctions(AppDbContext db, IHttpClientFactory httpClientFacto
     private sealed record TheSessionSearchResponse(List<TheSessionSearchTune> Tunes);
     private sealed record TheSessionTunebookResponse(int Pages, List<TheSessionSearchTune>? Tunes);
     private sealed record TheSessionSearchTune(int Id, string Name, string Type);
-    private sealed record TheSessionTuneDetail(string? Name, string? Type, List<TheSessionSetting>? Settings);
+    private sealed record TheSessionTuneDetail(int Id, string? Name, string? Type, List<TheSessionSetting>? Settings);
     private sealed record TheSessionSetting(string? Key, string? Abc);
 }

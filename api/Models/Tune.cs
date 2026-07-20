@@ -4,6 +4,7 @@ namespace SessionApp.Api.Models;
 public class Tune
 {
     public int TuneId { get; set; }
+    public int? TheSessionId { get; set; }
     public string Title { get; set; } = string.Empty;
     public TuneType TuneType { get; set; }
     public string Key { get; set; } = string.Empty;

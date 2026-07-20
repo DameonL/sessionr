@@ -6,6 +6,20 @@ import {
   saveInstruments,
   synthInstrumentOptions,
 } from './instruments.ts'
+import {
+  ALL_METRONOME_SOUNDS,
+  BEAT_SOUNDS,
+  DEFAULT_METRONOME_SOUND,
+  MELODIC_SOUNDS,
+  OTHER_PERCUSSION_SOUNDS,
+  findMetronomeSound,
+  getAbcKeyRoot,
+  loadMetronomePrefs,
+  playMetronomeClick,
+  saveMetronomePrefs,
+  type MetronomeSound,
+} from '../services/metronome.ts'
+import { fixAbcRepeats } from '../services/abcTools.ts'
 
 export interface SetPlayerItem {
   userTuneId: number
@@ -29,10 +43,26 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
   const timerRef = useRef<any>(null)
   const highlightedRef = useRef<Element[]>([])
   const isDraggingRef = useRef(false)
+  const noteTimingsRef = useRef<any[][]>([])
+  const repeatRef = useRef(false)
+  const repeatLimitRef = useRef<number | null>(null)
+  const setPassRef = useRef(1)
+  const useMetronomeRef = useRef(false)
+  const metronomeSoundRef = useRef<MetronomeSound>(DEFAULT_METRONOME_SOUND)
+  const keyRootRef = useRef<number>(72)
 
+  const _initPrefs = loadMetronomePrefs()
+  useMetronomeRef.current = _initPrefs.enabled
+  metronomeSoundRef.current = findMetronomeSound(_initPrefs.soundKey)
+  const [useMetronome, setUseMetronome] = useState(() => _initPrefs.enabled)
+  const [metronomeSound, setMetronomeSound] = useState<MetronomeSound>(
+    () => findMetronomeSound(_initPrefs.soundKey),
+  )
   const [status, setStatus] = useState<PlayerStatus>('stopped')
   const [tempoPercent, setTempoPercent] = useState(100)
+  const [swingPercent, setSwingPercent] = useState(50)
   const [repeat, setRepeat] = useState(false)
+  const [repeatLimit, setRepeatLimit] = useState<number | null>(null)
   const [instruments, setInstruments] = useState(loadInstruments)
   const [positionSec, setPositionSec] = useState(0)
   const [currentTotalSec, setCurrentTotalSec] = useState(0)
@@ -61,11 +91,13 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
   const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}`).join(',')
 
   useEffect(() => {
+    noteTimingsRef.current = []
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index]
       if (!host) return null
-      const visualObj = abcjs.renderAbc(host, item.abc, { responsive: 'resize' })[0]
-      visualObj.setTiming(visualObj.getBpm())
+      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), { responsive: 'resize' })[0]
+      const timings = (visualObj as any).setTiming(visualObj.getBpm())
+      noteTimingsRef.current[index] = timings
       return visualObj
     })
     return () => stop(false)
@@ -90,6 +122,14 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       el.classList.remove('highlight')
     }
     highlightedRef.current = []
+    for (const host of sheetRefs.current) {
+      const svg = host?.querySelector('svg')
+      const cursor = svg?.querySelector('.abcjs-cursor')
+      if (cursor) {
+        cursor.setAttribute('y1', '0')
+        cursor.setAttribute('y2', '0')
+      }
+    }
   }
 
   function stop(keepPosition = false) {
@@ -108,6 +148,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       setPositionSec(0)
     }
     setStatus('stopped')
+    setPassRef.current = 1
   }
 
   function pause() {
@@ -152,6 +193,7 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       setPositionSec(clampedSeconds)
       setActiveIndex(targetIndex)
       setActivePass(targetPass)
+      updateVisualsForTime(clampedSeconds)
       return
     }
 
@@ -173,7 +215,11 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
 
   async function play(percent = tempoPercent) {
     const keepPosition = positionSec > 0
+    const wasStopped = status === 'stopped'
     stop(keepPosition)
+    if (wasStopped) {
+      setPassRef.current = 1
+    }
     setError(null)
     try {
       const newDurations = items.map((_, index) => {
@@ -194,7 +240,10 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           await synth.init({
             visualObj,
             millisecondsPerMeasure: visualObj.millisecondsPerMeasure(effectiveBpm),
-            options: synthInstrumentOptions(instruments),
+            options: {
+              ...synthInstrumentOptions(instruments),
+              swing: swingPercent,
+            },
           })
           await synth.prime()
           return synth
@@ -256,8 +305,22 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       setPositionSec(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction)
     }
 
+    keyRootRef.current = getAbcKeyRoot(items[index].abc)
+
     const timer = new abcjs.TimingCallbacks(visualObj, {
       qpm: effectiveBpm,
+      beatCallback: (beatNumber: number) => {
+        if (useMetronomeRef.current) {
+          const sound = metronomeSoundRef.current
+          if (beatNumber === 1) {
+            const pitch = sound.instrument === 128 ? 36 : keyRootRef.current
+            playMetronomeClick(sound, pitch)
+          } else {
+            const pitch = sound.instrument === 128 ? undefined : keyRootRef.current - 12
+            playMetronomeClick(sound, pitch)
+          }
+        }
+      },
       eventCallback: (ev: any) => {
         clearHighlights()
         if (ev) {
@@ -276,20 +339,40 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
               highlightedRef.current.push(el)
             }
           }
+          const host = sheetRefs.current[index]
+          const svg = host?.querySelector('svg') as SVGSVGElement | null
+          if (ev.left !== null && svg) {
+            updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height)
+          }
           return
         }
         // End of one pass through the tune.
         synth.stop()
         timer.stop()
+        const host = sheetRefs.current[index]
+        const svg = host?.querySelector('svg')
+        const cursor = svg?.querySelector('.abcjs-cursor')
+        if (cursor) {
+          cursor.setAttribute('y1', '0')
+          cursor.setAttribute('y2', '0')
+        }
         if (pass < items[index].repetitions) {
           pass++
           setActivePass(pass)
+          synth.seek(0)
           synth.start()
-          timer.start()
+          timer.setProgress(0)
+          timer.start(0)
+          return 'continue'
         } else if (index + 1 < items.length) {
           startTune(index + 1, percent)
-        } else if (repeat) {
-          startTune(0, percent)
+        } else if (repeatRef.current) {
+          if (repeatLimitRef.current === null || setPassRef.current < repeatLimitRef.current) {
+            setPassRef.current++
+            startTune(0, percent)
+          } else {
+            stop()
+          }
         } else {
           stop()
         }
@@ -321,6 +404,19 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
     if (status !== 'stopped') {
       // Audio buffers are baked at a fixed tempo; rebuild and restart.
       play(percent)
+    }
+  }
+
+  function onSwingInput(e: Event) {
+    const percent = Number((e.target as HTMLInputElement).value)
+    setSwingPercent(percent)
+  }
+
+  function onSwingChange(e: Event) {
+    const percent = Number((e.target as HTMLInputElement).value)
+    setSwingPercent(percent)
+    if (status !== 'stopped') {
+      play(tempoPercent)
     }
   }
 
@@ -373,10 +469,77 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
         <button
           class={repeat ? 'toggled' : ''}
           aria-pressed={repeat}
-          onClick={() => setRepeat(!repeat)}
+          onClick={() => {
+            const next = !repeat
+            setRepeat(next)
+            repeatRef.current = next
+          }}
         >
           🔁 Repeat set
         </button>
+        <button
+          class={useMetronome ? 'toggled' : ''}
+          aria-pressed={useMetronome}
+          onClick={() => {
+            const next = !useMetronome
+            useMetronomeRef.current = next
+            setUseMetronome(next)
+            saveMetronomePrefs({ enabled: next, soundKey: metronomeSoundRef.current.key })
+          }}
+        >
+          🔊 Metronome
+        </button>
+        {useMetronome && (
+          <label>
+            Sound
+            <select
+              value={metronomeSound.key}
+              onChange={(e) => {
+                const sound = ALL_METRONOME_SOUNDS.find(
+                  (s) => s.key === (e.target as HTMLSelectElement).value,
+                ) ?? DEFAULT_METRONOME_SOUND
+                setMetronomeSound(sound)
+                metronomeSoundRef.current = sound
+                saveMetronomePrefs({ enabled: useMetronomeRef.current, soundKey: sound.key })
+              }}
+            >
+              <optgroup label="Beat &amp; Percussion">
+                {BEAT_SOUNDS.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Other Percussion">
+                {OTHER_PERCUSSION_SOUNDS.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Melodic Instruments">
+                {MELODIC_SOUNDS.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        )}
+        {repeat && (
+          <label>
+            Times
+            <input
+              type="number"
+              min="1"
+              placeholder="∞"
+              value={repeatLimit || ''}
+              onChange={(e) => {
+                const val = (e.target as HTMLInputElement).value
+                const num = val ? parseInt(val, 10) : null
+                setRepeatLimit(num && num > 0 ? num : null)
+                repeatLimitRef.current = num && num > 0 ? num : null
+              }}
+              class="reps-input"
+              title="Number of times to repeat the set (leave empty for infinite)"
+            />
+          </label>
+        )}
         <button onClick={toggleFullscreen}>
           ⛶ Fullscreen
         </button>
@@ -389,6 +552,18 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
             step="5"
             value={tempoPercent}
             onInput={onTempoInput}
+          />
+        </label>
+        <label>
+          Swing {swingPercent}%
+          <input
+            type="range"
+            min="50"
+            max="75"
+            step="1"
+            value={swingPercent}
+            onInput={onSwingInput}
+            onChange={onSwingChange}
           />
         </label>
       </div>
@@ -408,7 +583,11 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
           onTouchStart={() => {
             isDraggingRef.current = true
           }}
-          onInput={(e) => setPositionSec(Number((e.target as HTMLInputElement).value))}
+          onInput={(e) => {
+            const val = Number((e.target as HTMLInputElement).value)
+            setPositionSec(val)
+            updateVisualsForTime(val)
+          }}
           onChange={(e) => {
             isDraggingRef.current = false
             seek(Number((e.target as HTMLInputElement).value))
@@ -461,4 +640,101 @@ export function SetPlayer({ items }: { items: SetPlayerItem[] }) {
       </div>
     </div>
   )
+
+  function updateVisualsForTime(seconds: number) {
+    if (durationsRef.current.length !== items.length || noteTimingsRef.current.length !== items.length) return
+
+    const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec)
+    let remaining = clampedSeconds
+    let targetIndex = 0
+
+    for (let i = 0; i < items.length; i++) {
+      const tuneDuration = durationsRef.current[i]
+      const totalTuneDuration = tuneDuration * items[i].repetitions
+      if (remaining < totalTuneDuration) {
+        targetIndex = i
+        remaining = remaining % tuneDuration
+        break
+      }
+      remaining -= totalTuneDuration
+    }
+
+    const naturalMs = remaining * tempoPercent * 10
+    const timings = noteTimingsRef.current[targetIndex]
+    if (!timings || timings.length === 0) return
+
+    let bestEvent = null
+    for (const ev of timings) {
+      if (ev.type === 'event') {
+        if (ev.milliseconds <= naturalMs) {
+          bestEvent = ev
+        } else {
+          break
+        }
+      }
+    }
+
+    clearHighlights()
+
+    items.forEach((_, i) => {
+      if (i !== targetIndex) {
+        const otherHost = sheetRefs.current[i]
+        const otherSvg = otherHost?.querySelector('svg')
+        const otherCursor = otherSvg?.querySelector('.abcjs-cursor')
+        if (otherCursor) {
+          otherCursor.setAttribute('y1', '0')
+          otherCursor.setAttribute('y2', '0')
+        }
+      }
+    })
+
+    const host = sheetRefs.current[targetIndex]
+    const svg = host?.querySelector('svg') as SVGSVGElement | null
+
+    if (bestEvent && bestEvent.left !== null) {
+      for (const group of bestEvent.elements ?? []) {
+        for (const el of group) {
+          el.classList.add('highlight')
+          highlightedRef.current.push(el)
+        }
+      }
+
+      if (svg) {
+        updateCursorPosition(svg, bestEvent.left - 2, bestEvent.top, bestEvent.top + bestEvent.height)
+      }
+    } else {
+      const cursor = svg?.querySelector('.abcjs-cursor')
+      if (cursor) {
+        cursor.setAttribute('y1', '0')
+        cursor.setAttribute('y2', '0')
+      }
+    }
+  }
 }
+
+function getOrCreateCursor(svg: SVGSVGElement | null): SVGLineElement | null {
+  if (!svg) return null
+  let cursor = svg.querySelector('.abcjs-cursor') as SVGLineElement
+  if (!cursor) {
+    cursor = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    cursor.setAttribute('class', 'abcjs-cursor')
+    cursor.setAttribute('x1', '0')
+    cursor.setAttribute('y1', '0')
+    cursor.setAttribute('x2', '0')
+    cursor.setAttribute('y2', '0')
+    svg.appendChild(cursor)
+  }
+  return cursor
+}
+
+function updateCursorPosition(svg: SVGSVGElement | null, x: number, y1: number, y2: number) {
+  const cursor = getOrCreateCursor(svg)
+  if (cursor) {
+    cursor.setAttribute('x1', String(x))
+    cursor.setAttribute('x2', String(x))
+    cursor.setAttribute('y1', String(y1))
+    cursor.setAttribute('y2', String(y2))
+  }
+}
+
+

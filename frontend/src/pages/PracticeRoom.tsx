@@ -9,14 +9,16 @@ import {
 import { currentUserId } from '../state/appState.ts'
 import { TunePlayer } from '../components/TunePlayer.tsx'
 import { SetPlayer } from '../components/SetPlayer.tsx'
+import { EarTrainer } from '../components/EarTrainer.tsx'
 import { parseSuggestionReason, suggestNextPracticeTunes } from '../services/suggestions.ts'
 
 export function PracticeRoom() {
   const userId = currentUserId.value
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [practiceMode, setPracticeMode] = useState<'queue' | 'sets'>('queue')
+  const [practiceMode, setPracticeMode] = useState<'queue' | 'sets' | 'ear'>('queue')
   const [setDraft, setSetDraft] = useState<any[]>([])
+  const [earTuneId, setEarTuneId] = useState<number | null>(null)
 
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
@@ -172,6 +174,13 @@ export function PracticeRoom() {
 
   const canAddMore = setDraft.length < 3
 
+  const earCandidates = [...(repertoire.data ?? [])].sort((a, b) => {
+    const aLearning = a.status === 'Learning' ? 0 : 1
+    const bLearning = b.status === 'Learning' ? 0 : 1
+    return aLearning - bLearning || a.title.localeCompare(b.title)
+  })
+  const earTune = earCandidates.find((r) => r.userTuneId === earTuneId)
+
   return (
     <section>
       <h1>Practice Room</h1>
@@ -188,6 +197,12 @@ export function PracticeRoom() {
           onClick={() => setPracticeMode('sets')}
         >
           🎛 Medley Sets
+        </button>
+        <button
+          class={practiceMode === 'ear' ? 'toggled' : ''}
+          onClick={() => setPracticeMode('ear')}
+        >
+          👂 Ear Training
         </button>
       </div>
 
@@ -339,6 +354,44 @@ export function PracticeRoom() {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {practiceMode === 'ear' && (
+        <div>
+          {repertoire.isLoading && <p>Loading your tunebook…</p>}
+          {repertoire.isError && <p class="error">Could not load your tunebook.</p>}
+
+          {earTuneId !== null && earTune ? (
+            <div>
+              <div class="detail-controls" style={{ marginBottom: '1rem' }}>
+                <button onClick={() => setEarTuneId(null)}>← Choose another tune</button>
+              </div>
+              <EarTrainer key={earTune.userTuneId} item={earTune} />
+            </div>
+          ) : (
+            <div>
+              <p class="tune-meta" style={{ marginBottom: '1rem' }}>
+                Pick a tune to learn by ear — you'll hear one note at a time and play it back
+                on your instrument. Tunes you're learning are listed first.
+              </p>
+              <ul class="tune-list">
+                {earCandidates.map((r) => (
+                  <li key={r.userTuneId} class="card">
+                    <button class="tune-row" onClick={() => setEarTuneId(r.userTuneId)}>
+                      <span class="tune-title">{r.title}</span>
+                      <span class="tune-meta">
+                        {formatTuneType(r.tuneType)} · {r.key} · {r.status}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {!repertoire.isLoading && earCandidates.length === 0 && (
+                <p>Your tunebook is empty — add some tunes first.</p>
+              )}
             </div>
           )}
         </div>

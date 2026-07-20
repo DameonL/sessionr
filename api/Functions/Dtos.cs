@@ -13,6 +13,8 @@ public record SaveSetItem(int UserTuneId, int Repetitions);
 
 public record SaveSetRequest(string Title, List<SaveSetItem> Items);
 
+public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
+
 // --- Responses ---
 
 public record TuneDto(int TuneId, string Title, string TuneType, string Key);
@@ -54,6 +56,12 @@ public record NextTuneSuggestionDto(
 public record PracticeDayDto(string Date, int Count);
 
 public record PracticeStatsDto(int CurrentStreakDays, int TotalLast30, List<PracticeDayDto> PerDay);
+
+public record EarTrainingProgressDto(
+    int UserTuneId,
+    int PhraseIndex,
+    int NotesRevealed,
+    DateTime? CompletedAt);
 
 public record SetItemDto(
     int UserTuneId,

@@ -29,7 +29,7 @@ interface Draft {
   items: DraftItem[]
 }
 
-const DEFAULT_REPETITIONS = 2
+const DEFAULT_REPETITIONS = 3
 
 export function SetBuilder() {
   const userId = currentUserId.value

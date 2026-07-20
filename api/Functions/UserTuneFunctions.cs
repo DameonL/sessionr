@@ -222,10 +222,16 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         return new OkObjectResult(new PracticeStatsDto(streak, countsInWindow.Values.Sum(), perDay));
     }
 
+    private sealed record QueueCandidate(
+        UserTune Ut,
+        string Category,
+        string Reason,
+        int? DaysSince
+    );
+
     /// <summary>
-    /// GET /api/practice/{userId}/queue — today's practice queue: tunes being
-    /// learned first, then rusty tunes (unplayed past the rust threshold),
-    /// then the least recently played active tunes to keep them fresh.
+    /// GET /api/practice/{userId}/queue — today's practice queue: a mix of songs
+    /// with learning, active, and rusty status based on the last logged time they were played.
     /// </summary>
     [Function("GetPracticeQueue")]
     public async Task<IActionResult> GetPracticeQueue(
@@ -235,41 +241,130 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         var candidates = await db.UserTunes
             .AsNoTracking()
             .Where(ut => ut.UserId == userId
-                && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active))
+                && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active || ut.Status == TuneStatus.Rusty))
             .Include(ut => ut.Tune)
             .ToListAsync();
 
         var now = DateTime.UtcNow;
 
-        var queue = candidates
+        var allCandidates = candidates
             .Select(ut =>
             {
                 var daysSince = ut.LastPracticed is null ? (int?)null : (int)(now - ut.LastPracticed.Value).TotalDays;
                 var isRusty = ut.Status == TuneStatus.Active
                     && (ut.LastPracticed is null || now - ut.LastPracticed.Value > RustThreshold);
-                var (priority, reason) = ut.Status switch
+
+                string category;
+                string reason;
+                if (ut.Status == TuneStatus.Learning)
                 {
-                    TuneStatus.Learning => (0, "Learning — build it up"),
-                    _ when isRusty => (1, daysSince is null
+                    category = "Learning";
+                    reason = "Learning — build it up";
+                }
+                else if (isRusty)
+                {
+                    category = "Rusty";
+                    reason = daysSince is null
                         ? "Rusty — never logged"
-                        : $"Rusty — not played in {daysSince} days"),
-                    _ => (2, "Keep it fresh"),
-                };
-                return (ut, priority, reason, daysSince);
+                        : $"Rusty — not played in {daysSince} days";
+                }
+                else
+                {
+                    category = "Active";
+                    reason = daysSince is null
+                        ? "Keep it fresh — never logged"
+                        : $"Keep it fresh — played {daysSince} days ago";
+                }
+
+                return new QueueCandidate(ut, category, reason, daysSince);
             })
-            .OrderBy(x => x.priority)
-            .ThenByDescending(x => x.daysSince ?? int.MaxValue)
-            .Take(PracticeQueueSize)
+            .OrderByDescending(x => x.DaysSince ?? int.MaxValue)
+            .ToList();
+
+        var learningList = allCandidates.Where(x => x.Category == "Learning").ToList();
+        var rustyList = allCandidates.Where(x => x.Category == "Rusty").ToList();
+        var activeList = allCandidates.Where(x => x.Category == "Active").ToList();
+
+        var selected = new List<QueueCandidate>();
+        int takenLearning = 0;
+        int takenRusty = 0;
+        int takenActive = 0;
+
+        // Phase 1: Try to hit targets (3 Learning, 3 Rusty, 2 Active)
+        while (selected.Count < PracticeQueueSize)
+        {
+            bool addedAny = false;
+
+            if (selected.Count < PracticeQueueSize && takenLearning < 3 && takenLearning < learningList.Count)
+            {
+                selected.Add(learningList[takenLearning]);
+                takenLearning++;
+                addedAny = true;
+            }
+
+            if (selected.Count < PracticeQueueSize && takenRusty < 3 && takenRusty < rustyList.Count)
+            {
+                selected.Add(rustyList[takenRusty]);
+                takenRusty++;
+                addedAny = true;
+            }
+
+            if (selected.Count < PracticeQueueSize && takenActive < 2 && takenActive < activeList.Count)
+            {
+                selected.Add(activeList[takenActive]);
+                takenActive++;
+                addedAny = true;
+            }
+
+            if (!addedAny)
+            {
+                break;
+            }
+        }
+
+        // Phase 2: Fill remaining slots with whatever is left
+        while (selected.Count < PracticeQueueSize)
+        {
+            bool addedAny = false;
+
+            if (takenLearning < learningList.Count)
+            {
+                selected.Add(learningList[takenLearning]);
+                takenLearning++;
+                addedAny = true;
+            }
+            else if (takenRusty < rustyList.Count)
+            {
+                selected.Add(rustyList[takenRusty]);
+                takenRusty++;
+                addedAny = true;
+            }
+            else if (takenActive < activeList.Count)
+            {
+                selected.Add(activeList[takenActive]);
+                takenActive++;
+                addedAny = true;
+            }
+
+            if (!addedAny)
+            {
+                break;
+            }
+        }
+
+        var queue = selected
+            .OrderBy(x => x.Category == "Learning" ? 0 : x.Category == "Rusty" ? 1 : 2)
+            .ThenByDescending(x => x.DaysSince ?? int.MaxValue)
             .Select(x => new PracticeQueueItemDto(
-                x.ut.UserTuneId,
-                x.ut.Tune.Title,
-                x.ut.Tune.TuneType.ToString(),
-                x.ut.Tune.Key,
-                x.ut.Status.ToString(),
-                x.ut.LastPracticed,
-                x.ut.TargetBpm,
-                x.ut.CustomAbcText ?? x.ut.Tune.MasterAbcText,
-                x.reason))
+                x.Ut.UserTuneId,
+                x.Ut.Tune.Title,
+                x.Ut.Tune.TuneType.ToString(),
+                x.Ut.Tune.Key,
+                x.Ut.Status.ToString(),
+                x.Ut.LastPracticed,
+                x.Ut.TargetBpm,
+                x.Ut.CustomAbcText ?? x.Ut.Tune.MasterAbcText,
+                x.Reason))
             .ToList();
 
         return new OkObjectResult(queue);
