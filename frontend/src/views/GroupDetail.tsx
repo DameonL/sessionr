@@ -22,10 +22,12 @@ import {
   regenerateGroupInviteCode,
   approveGroupMember,
   rejectGroupMember,
+  deleteGroup,
   type GroupMember,
   type GroupTuneListItem,
 } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal, showToast } from '../state/appState'
+import { Dialog } from '../components/Dialog'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { TransferOwnershipModal } from '../components/TransferOwnershipModal'
 import { GroupSetBuilder } from '../components/GroupSetBuilder'
@@ -68,7 +70,7 @@ function RoleBadge({ role }: { role: GroupMember['role'] }) {
 
 export function GroupDetail({ groupId }: { groupId: string }) {
   const id = groupId
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -118,14 +120,39 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     onSuccess: invalidate,
   })
 
+  const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false)
+
   const privacyMutation = useMutation({
     mutationFn: (isPrivate: boolean) => updateGroupPrivacy(id, userId, isPrivate),
-    onSuccess: invalidate,
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(['group-details', id, userId], (oldData: any) => {
+        if (!oldData) return oldData
+        return { ...oldData, isPrivate: variables }
+      })
+      invalidate()
+      setShowPrivacyConfirm(false)
+      showToast(
+        variables ? 'Group is now private!' : 'Group is now public!',
+        'success'
+      )
+    },
   })
 
   const regenerateCodeMutation = useMutation({
     mutationFn: () => regenerateGroupInviteCode(id, userId),
     onSuccess: invalidate,
+  })
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteGroup(id, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', userId] })
+      showToast('Group deleted successfully.', 'success')
+      router.push('/groups')
+    },
   })
 
   const approveMutation = useMutation({
@@ -195,6 +222,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const viewer = details.members.find((m) => m.userId === userId)
   const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner'
   const isOwner = viewer?.role === 'Owner'
+  const canDelete = deleteConfirmText.trim().toLowerCase() === details.name.trim().toLowerCase() && !deleteMutation.isPending
   const userTuneIds = new Set(repertoireQuery.data?.map((t) => t.tuneId) ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
   const librarySearchMatches = (librarySearch.data ?? []).filter((t) => !masterTuneIds.has(t.tuneId))
@@ -498,15 +526,24 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           {isAdmin && (
             <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
               <h3 style={{ marginTop: 0 }}>Privacy &amp; Invites</h3>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input
-                  type="checkbox"
-                  checked={details.isPrivate}
-                  onChange={(e) => privacyMutation.mutate(e.target.checked)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1 }}>
+                  <strong>Visibility:</strong>{' '}
+                  <span className="tune-meta">
+                    {details.isPrivate
+                      ? 'Private (new members need an invite code or admin approval)'
+                      : 'Public (anyone can join instantly)'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={details.isPrivate ? 'primary' : 'secondary'}
+                  onClick={() => setShowPrivacyConfirm(true)}
                   disabled={privacyMutation.isPending}
-                />
-                Private group (new members need an invite code or admin approval)
-              </label>
+                >
+                  {details.isPrivate ? 'Make Group Public' : 'Make Group Private'}
+                </button>
+              </div>
 
               {details.isPrivate && details.inviteCode && (
                 <div style={{ marginTop: '0.75rem' }}>
@@ -535,6 +572,26 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             </div>
           )}
 
+          {isOwner && (
+            <div className="card" style={{ padding: '1rem', border: '1px solid var(--danger)', background: 'rgba(239, 100, 97, 0.05)', marginBottom: '1.5rem' }}>
+              <h3 style={{ marginTop: 0, color: 'var(--danger)' }}>Danger Zone</h3>
+              <p className="tune-meta" style={{ marginBottom: '1rem' }}>
+                Deleting this group is permanent and will delete all group membership data, shared sets, scheduled sessions, and RSVPs.
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                onClick={() => {
+                  setDeleteConfirmText('')
+                  setShowDeleteConfirm(true)
+                }}
+              >
+                Delete Group
+              </button>
+            </div>
+          )}
+
           {isAdmin && details.pendingMembers.length > 0 && (
             <div style={{ marginBottom: '1.5rem' }}>
               <h3>Pending Requests ({details.pendingMembers.length})</h3>
@@ -548,7 +605,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                   <li key={m.userId} className="card tune-row">
                     <div style={{ flex: 1 }}>
                       <strong>{m.displayName}</strong>
-                      <span className="tune-meta" style={{ display: 'block' }}>{m.email}</span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button
@@ -587,7 +643,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                   <strong style={{ fontSize: '1.05rem' }}>{m.displayName}</strong>
                   <RoleBadge role={m.role} />
                 </div>
-                <span className="tune-meta">{m.email}</span>
 
                 {(isOwner || isAdmin) && m.userId !== userId && (
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
@@ -695,6 +750,110 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           onTransferred={invalidate}
         />
       )}
+
+      <Dialog
+        isOpen={showPrivacyConfirm}
+        title="Change Group Visibility"
+        onClose={() => setShowPrivacyConfirm(false)}
+      >
+        <div>
+          <p>
+            Are you sure you want to make this group{' '}
+            <strong>{details.isPrivate ? 'Public' : 'Private'}</strong>?
+          </p>
+          <p className="tune-meta">
+            {details.isPrivate
+              ? 'Making the group public allows anyone to instantly view and join. No invite code or administrator approval will be required.'
+              : 'Making the group private hides the group content from non-members. New members will need to enter an invite code or request access to join.'}
+          </p>
+        </div>
+        {privacyMutation.isError && (
+          <p className="error" style={{ marginTop: '0.75rem' }}>
+            {(privacyMutation.error as Error).message || 'Failed to update visibility.'}
+          </p>
+        )}
+        <div className="form-actions" style={{ marginTop: '1.5rem' }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setShowPrivacyConfirm(false)}
+            disabled={privacyMutation.isPending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={details.isPrivate ? 'secondary' : 'primary'}
+            onClick={() => privacyMutation.mutate(!details.isPrivate)}
+            disabled={privacyMutation.isPending}
+          >
+            {privacyMutation.isPending
+              ? 'Updating…'
+              : details.isPrivate
+                ? 'Make Public'
+                : 'Make Private'}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        isOpen={showDeleteConfirm}
+        title="Delete Group"
+        onClose={() => setShowDeleteConfirm(false)}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div
+            className="card"
+            style={{
+              background: 'rgba(239, 100, 97, 0.08)',
+              border: '1px solid var(--danger)',
+              padding: '1rem',
+            }}
+          >
+            <p style={{ margin: 0 }}>
+              <strong>⚠️ Warning:</strong> You are about to permanently delete the group <strong>{details.name}</strong>.
+              All group membership data, shared sets, scheduled practice sessions, and RSVPs will be permanently erased.
+              <strong> This action cannot be undone.</strong>
+            </p>
+          </div>
+
+          <label>
+            To confirm, type <strong>{details.name}</strong> below:
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={details.name}
+              style={{ width: '100%', marginTop: '0.5rem' }}
+            />
+          </label>
+
+          {deleteMutation.isError && (
+            <p className="error">
+              {(deleteMutation.error as Error).message || 'Failed to delete the group.'}
+            </p>
+          )}
+
+          <div className="form-actions" style={{ marginTop: '0.5rem' }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              disabled={!canDelete}
+              onClick={() => deleteMutation.mutate()}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete Group'}
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </section>
   )
 }

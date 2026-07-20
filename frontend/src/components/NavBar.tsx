@@ -1,11 +1,18 @@
 "use client";
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useMsal } from '@azure/msal-react'
 import { isMsalEnabled } from '../services/authConfig'
 import { currentUserId, currentUserProfile, useSignal } from '../state/appState'
 
 export function NavBar() {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   return (
     <nav className="app-nav">
       <Link href="/">Dashboard</Link>
@@ -15,7 +22,13 @@ export function NavBar() {
       <Link href="/practice">Practice Room</Link>
       <Link href="/groups">Groups</Link>
       <span style={{ marginLeft: 'auto' }}>
-        {isMsalEnabled ? <MsalAuthWidget /> : <DevAuthWidget />}
+        {!mounted ? (
+          <Link href="/login">Sign In</Link>
+        ) : isMsalEnabled ? (
+          <MsalAuthWidget />
+        ) : (
+          <DevAuthWidget />
+        )}
       </span>
     </nav>
   )
@@ -61,7 +74,7 @@ function MsalAuthWidget() {
       <button
         className="secondary"
         style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', height: 'auto' }}
-        onClick={() => instance.logoutPopup().catch((err) => console.error('MSAL Logout Failed:', err))}
+        onClick={() => instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))}
       >
         Sign Out
       </button>

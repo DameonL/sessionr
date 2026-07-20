@@ -562,4 +562,34 @@ public class PrivateGroupFunctions(AppDbContext db)
                 gt.TuneSetting != null ? gt.TuneSetting.SubmitterName : null,
                 gt.AddedByUser.DisplayName))
             .SingleOrDefaultAsync();
+
+    /// <summary>DELETE /api/groups/{groupId} — owners delete the group.</summary>
+    [Function("DeleteGroup")]
+    public async Task<IActionResult> DeleteGroup(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}")] HttpRequest req,
+        Guid groupId)
+    {
+        var body = await req.ReadFromJsonAsync<GroupJoinLeaveRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("UserId is required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        if (actorRole != GroupRole.Owner)
+        {
+            return Forbidden("Only the group owner can delete this group.");
+        }
+
+        var group = await db.Groups.FindAsync(groupId);
+        if (group is null)
+        {
+            return new NotFoundResult();
+        }
+
+        db.Groups.Remove(group);
+        await db.SaveChangesAsync();
+
+        return new OkResult();
+    }
 }

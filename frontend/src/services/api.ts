@@ -407,6 +407,13 @@ export const removeGroupMember = (groupId: string, targetUserId: string, userId:
     method: 'DELETE',
   })
 
+export const deleteGroup = (groupId: string, userId: string) =>
+  apiFetch<void>(`/groups/${groupId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ userId }),
+  })
+
+
 export const grantGroupAdministrator = (groupId: string, targetUserId: string, userId: string) =>
   apiFetch<void>(`/groups/${groupId}/members/${targetUserId}/promote`, {
     method: 'POST',

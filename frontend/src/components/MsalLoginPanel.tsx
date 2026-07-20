@@ -23,7 +23,7 @@ export function MsalLoginPanel() {
       </p>
 
       <button
-        onClick={() => instance.loginPopup(loginRequest).catch((err) => console.error('MSAL Login Failed:', err))}
+        onClick={() => instance.loginRedirect(loginRequest).catch((err) => console.error('MSAL Login Failed:', err))}
         style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
       >
         <svg style={{ width: '20px', height: '20px' }} viewBox="0 0 23 23">

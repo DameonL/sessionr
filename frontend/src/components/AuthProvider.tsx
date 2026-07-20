@@ -46,8 +46,20 @@ function MsalBackgroundSync() {
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
       const activeAccount = accounts[0]
-      const email = activeAccount.username
-      const displayName = activeAccount.name || 'Microsoft Musician'
+      const email = activeAccount.username || 
+                    (activeAccount.idTokenClaims as any)?.email || 
+                    (activeAccount.idTokenClaims as any)?.emails?.[0] || 
+                    (activeAccount.idTokenClaims as any)?.preferred_username;
+      
+      const displayName = activeAccount.name || 
+                          (activeAccount.idTokenClaims as any)?.name || 
+                          (activeAccount.idTokenClaims as any)?.given_name || 
+                          'Microsoft Musician';
+
+      if (!email) {
+        console.error('No email claim found in MSAL account:', activeAccount)
+        return
+      }
 
       loginOrRegisterUser(email, displayName)
         .then((profile) => {

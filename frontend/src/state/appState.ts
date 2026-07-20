@@ -34,3 +34,22 @@ export function useSignal<T>(sig: Signal<T>): T {
   }, [sig]);
   return val;
 }
+
+export interface ToastMessage {
+  id: string
+  message: string
+  type: 'success' | 'error' | 'info'
+}
+
+export const activeToasts = new Signal<ToastMessage[]>([]);
+
+export function showToast(message: string, type: 'success' | 'error' | 'info' = 'success', duration = 3000) {
+  const id = Math.random().toString(36).substring(2, 9);
+  const newToast: ToastMessage = { id, message, type };
+  activeToasts.value = [...activeToasts.value, newToast];
+
+  setTimeout(() => {
+    activeToasts.value = activeToasts.value.filter((t) => t.id !== id);
+  }, duration);
+}
+
