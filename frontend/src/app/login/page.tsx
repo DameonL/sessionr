@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState } from 'react'
-import { isMsalEnabled } from '../../services/authConfig'
-import { DevLoginForm } from '../../components/DevLoginForm'
 import { MsalLoginPanel } from '../../components/MsalLoginPanel'
 
 export default function LoginPage() {
@@ -18,10 +16,8 @@ export default function LoginPage() {
         <h1 className="login-title">Session Practice</h1>
         {!mounted ? (
           <div style={{ minHeight: '150px' }} />
-        ) : isMsalEnabled ? (
-          <MsalLoginPanel />
         ) : (
-          <DevLoginForm />
+          <MsalLoginPanel />
         )}
       </div>
     </div>

@@ -26,8 +26,3 @@ export const msalConfig: Configuration = {
 export const loginRequest: PopupRequest = {
   scopes: ["openid", "profile"]
 };
-
-export const isMsalEnabled =
-  typeof window !== "undefined" &&
-  !!process.env.NEXT_PUBLIC_MSAL_CLIENT_ID &&
-  process.env.NEXT_PUBLIC_MSAL_CLIENT_ID !== "MOCK_CLIENT_ID";

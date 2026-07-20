@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useMsal } from '@azure/msal-react'
-import { isMsalEnabled } from '../services/authConfig'
 import { currentUserId, currentUserProfile, useSignal } from '../state/appState'
 
 export function NavBar() {
@@ -24,38 +23,11 @@ export function NavBar() {
       <span style={{ marginLeft: 'auto' }}>
         {!mounted ? (
           <Link href="/login">Sign In</Link>
-        ) : isMsalEnabled ? (
-          <MsalAuthWidget />
         ) : (
-          <DevAuthWidget />
+          <MsalAuthWidget />
         )}
       </span>
     </nav>
-  )
-}
-
-function DevAuthWidget() {
-  const userId = useSignal(currentUserId)
-  const profile = useSignal(currentUserProfile)
-
-  if (!userId) {
-    return <Link href="/login">Sign In</Link>
-  }
-
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-      {profile?.displayName ?? 'Signed in'}
-      <button
-        className="secondary"
-        style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', height: 'auto' }}
-        onClick={() => {
-          currentUserId.value = ''
-          currentUserProfile.value = null
-        }}
-      >
-        Sign Out
-      </button>
-    </span>
   )
 }
 
