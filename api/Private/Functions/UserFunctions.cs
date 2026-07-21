@@ -149,6 +149,12 @@ public class UserFunctions(AppDbContext db)
         var legacyEmail = legacyUser.Email;
         db.Users.Remove(legacyUser);
 
+        // The legacy row's email is now free — heal the survivor's email (it may still be
+        // holding a synthesized placeholder if it was first provisioned before this email
+        // was known) now that nothing else owns it.
+        var targetUser = await db.Users.SingleAsync(u => u.UserId == targetUserId);
+        targetUser.Email = normalizedEmail!;
+
         await db.SaveChangesAsync();
 
         return new OkObjectResult(new MigrateLegacyDataResponse(

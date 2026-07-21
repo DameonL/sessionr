@@ -36,15 +36,30 @@ public static class GroupAuthorization
 
         if (byOid != null)
         {
+            var changed = false;
+
             if (byEmail != null && byEmail.UserId != byOid.UserId)
             {
                 Console.Error.WriteLine(
                     $"EnsureUserExistsAsync: identity ambiguity — oid {userId} -> user {byOid.UserId}, " +
                     $"email {normalizedEmail} -> different user {byEmail.UserId}. Using the oid match.");
             }
+            else if (normalizedEmail != null && byOid.Email != normalizedEmail)
+            {
+                // No other row owns this email, so it's safe to heal a stale/placeholder
+                // email (e.g. from a login that once resolved via an oid-only source).
+                byOid.Email = normalizedEmail;
+                changed = true;
+            }
+
             if (trimmedDisplayName != null && byOid.DisplayName != trimmedDisplayName)
             {
                 byOid.DisplayName = trimmedDisplayName;
+                changed = true;
+            }
+
+            if (changed)
+            {
                 await db.SaveChangesAsync();
             }
             return byOid.UserId;
@@ -85,63 +100,17 @@ public static class GroupAuthorization
     /// <summary>Raw caller identity parsed from EasyAuth headers or a JWT Bearer token — no database access.</summary>
     public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
 
-    /// <summary>Extracts the authentic caller identity strictly from Azure EasyAuth headers and JWT Bearer tokens.</summary>
+    /// <summary>
+    /// Extracts the authentic caller identity strictly from Azure EasyAuth headers and JWT Bearer
+    /// tokens. Tries the Authorization Bearer token first — the frontend always sends it, it's the
+    /// exact token EasyAuth itself already validated to let the request through, and it carries the
+    /// full claim set (email/name). EasyAuth's own injected headers are checked only as a fallback:
+    /// X-MS-CLIENT-PRINCIPAL-ID in particular carries the oid alone with no email or name, so trying
+    /// it first (as this used to) would silently starve every downstream call of real profile data.
+    /// </summary>
     public static CallerIdentity GetCallerIdentity(this HttpRequest req)
     {
-        // 1. Azure EasyAuth Direct Principal ID Header
-        if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
-            Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
-        {
-            return new CallerIdentity(easyAuthGuid, null, null);
-        }
-
-        // 2. Azure EasyAuth Encoded Principal Header (Base64-encoded Claims)
-        if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL", out var principalHeaderValues))
-        {
-            try
-            {
-                var json = Encoding.UTF8.GetString(Convert.FromBase64String(principalHeaderValues.ToString()));
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("claims", out var claimsArr) && claimsArr.ValueKind == JsonValueKind.Array)
-                {
-                    string? oidStr = null;
-                    string? emailStr = null;
-                    string? nameStr = null;
-
-                    foreach (var claim in claimsArr.EnumerateArray())
-                    {
-                        var typ = claim.GetProperty("typ").GetString();
-                        var val = claim.GetProperty("val").GetString();
-                        if (typ == "http://schemas.microsoft.com/identity/claims/objectidentifier" || typ == "oid" || typ == "sub")
-                        {
-                            oidStr = val;
-                        }
-                        else if (typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress" || typ == "email" || typ == "preferred_username")
-                        {
-                            emailStr = val;
-                        }
-                        else if (typ == "name" || typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
-                        {
-                            nameStr = val;
-                        }
-                    }
-
-                    if (Guid.TryParse(oidStr, out var claimGuid))
-                    {
-                        return new CallerIdentity(claimGuid, emailStr, nameStr);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(emailStr))
-                    {
-                        return new CallerIdentity(null, emailStr, nameStr);
-                    }
-                }
-            }
-            catch { }
-        }
-
-        // 3. Authorization Header (JWT Bearer Token)
+        // 1. Authorization Header (JWT Bearer Token)
         if (req.Headers.TryGetValue("Authorization", out var authHeaderValues))
         {
             var authHeader = authHeaderValues.ToString().Trim();
@@ -197,6 +166,59 @@ public static class GroupAuthorization
                     catch { }
                 }
             }
+        }
+
+        // 2. Azure EasyAuth Encoded Principal Header (Base64-encoded Claims)
+        if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL", out var principalHeaderValues))
+        {
+            try
+            {
+                var json = Encoding.UTF8.GetString(Convert.FromBase64String(principalHeaderValues.ToString()));
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("claims", out var claimsArr) && claimsArr.ValueKind == JsonValueKind.Array)
+                {
+                    string? oidStr = null;
+                    string? emailStr = null;
+                    string? nameStr = null;
+
+                    foreach (var claim in claimsArr.EnumerateArray())
+                    {
+                        var typ = claim.GetProperty("typ").GetString();
+                        var val = claim.GetProperty("val").GetString();
+                        if (typ == "http://schemas.microsoft.com/identity/claims/objectidentifier" || typ == "oid" || typ == "sub")
+                        {
+                            oidStr = val;
+                        }
+                        else if (typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress" || typ == "email" || typ == "preferred_username")
+                        {
+                            emailStr = val;
+                        }
+                        else if (typ == "name" || typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+                        {
+                            nameStr = val;
+                        }
+                    }
+
+                    if (Guid.TryParse(oidStr, out var claimGuid))
+                    {
+                        return new CallerIdentity(claimGuid, emailStr, nameStr);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(emailStr))
+                    {
+                        return new CallerIdentity(null, emailStr, nameStr);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // 3. Azure EasyAuth Direct Principal ID Header — oid only, no email/name. Last resort.
+        if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
+            Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
+        {
+            return new CallerIdentity(easyAuthGuid, null, null);
         }
 
         return new CallerIdentity(null, null, null);
