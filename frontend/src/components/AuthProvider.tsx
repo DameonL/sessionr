@@ -45,7 +45,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
               const activeAccount = pca.getActiveAccount() || accounts[0];
               try {
                 const response = await pca.acquireTokenSilent({
-                  scopes: ['openid', 'profile', config.clientId],
+                  scopes: ['openid', 'profile'],
                   account: activeAccount,
                 });
                 return response.idToken || response.accessToken || null;
