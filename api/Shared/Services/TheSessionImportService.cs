@@ -122,6 +122,20 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         };
         db.Tunes.Add(tune);
         await db.SaveChangesAsync();
+
+        // Mirrors CreateTune's initial setting so imported tunes have at least one
+        // TuneSetting to display/vote on/add-to-repertoire — without this, GetTuneDetails
+        // returns an empty settings list and the tune's ABC never surfaces on its page.
+        db.TuneSettings.Add(new TuneSetting
+        {
+            TuneId = tune.TuneId,
+            Key = tune.Key,
+            AbcText = tune.MasterAbcText,
+            SubmitterName = "System",
+            VoteScore = 3
+        });
+        await db.SaveChangesAsync();
+
         return tune;
     }
 

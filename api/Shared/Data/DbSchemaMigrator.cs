@@ -1,4 +1,6 @@
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Data;
 
@@ -121,6 +123,37 @@ public static class DbSchemaMigrator
         }
 
         MigrateLegacyGroupSchedules(db, useSqlite);
+        BackfillMissingTuneSettings(db);
+    }
+
+    /// <summary>
+    /// Some import paths (thesession.org) historically created a Tune with MasterAbcText
+    /// but no matching TuneSetting row, so GetTuneDetails returned an empty settings list
+    /// and the tune's ABC never surfaced on its page. Idempotent: only touches tunes that
+    /// currently have zero settings.
+    /// </summary>
+    private static void BackfillMissingTuneSettings(AppDbContext db)
+    {
+        var tunesNeedingSettings = db.Tunes
+            .Where(t => !t.Settings.Any() && t.MasterAbcText != "")
+            .ToList();
+
+        foreach (var tune in tunesNeedingSettings)
+        {
+            db.TuneSettings.Add(new TuneSetting
+            {
+                TuneId = tune.TuneId,
+                Key = tune.Key,
+                AbcText = tune.MasterAbcText,
+                SubmitterName = "System",
+                VoteScore = 3
+            });
+        }
+
+        if (tunesNeedingSettings.Count > 0)
+        {
+            db.SaveChanges();
+        }
     }
 
     private static void MigrateLegacyGroupSchedules(AppDbContext db, bool useSqlite)

@@ -84,17 +84,19 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   if (itemQuery.isLoading) {
     return <p>Loading…</p>
   }
-  const notFound = itemQuery.isError && (itemQuery.error as Error).message.includes('404')
-  if (notFound || !item) {
+  if (itemQuery.isError) {
+    const notFound = (itemQuery.error as Error).message.includes('404')
+    if (!notFound) {
+      return <p className="error">Could not load the tune: {(itemQuery.error as Error).message}</p>
+    }
+  }
+  if (!item) {
     return (
       <section>
         <p>This tune is not in the repertoire.</p>
         <Link href="/repertoire">← Back to repertoire</Link>
       </section>
     )
-  }
-  if (itemQuery.isError) {
-    return <p className="error">Could not load the tune.</p>
   }
   const practicedToday = item.lastPracticed != null && isToday(item.lastPracticed)
 
