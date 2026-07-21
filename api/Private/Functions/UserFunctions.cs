@@ -12,7 +12,7 @@ namespace SessionApp.Api.Functions;
 
 public class UserFunctions(AppDbContext db)
 {
-    public record UserLoginRequest(string Email, string DisplayName);
+    public record UserLoginRequest(string Email, string DisplayName, string? Oid = null);
     public record UserLoginResponse(Guid UserId, string DisplayName, string Email);
 
     [Function("LoginOrRegisterUser")]
@@ -28,17 +28,30 @@ public class UserFunctions(AppDbContext db)
         var email = body.Email.Trim().ToLowerInvariant();
         var displayName = string.IsNullOrWhiteSpace(body.DisplayName) ? "New Musician" : body.DisplayName.Trim();
 
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email);
+        Guid? parsedOid = Guid.TryParse(body.Oid, out var g) ? g : null;
+
+        var user = await db.Users.SingleOrDefaultAsync(u =>
+            (parsedOid.HasValue && u.UserId == parsedOid.Value) || u.Email == email);
+
         if (user is null)
         {
             // Self-service registration!
             user = new User
             {
+                UserId = parsedOid ?? Guid.CreateVersion7(),
                 Email = email,
                 DisplayName = displayName
             };
             db.Users.Add(user);
             await db.SaveChangesAsync();
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(displayName) && user.DisplayName != displayName)
+            {
+                user.DisplayName = displayName;
+                await db.SaveChangesAsync();
+            }
         }
 
         return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email));

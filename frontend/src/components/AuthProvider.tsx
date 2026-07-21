@@ -14,6 +14,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
   const [loading, setLoading] = useState(true)
   const [configError, setConfigError] = useState(false)
+  const [syncingUser, setSyncingUser] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/config')
@@ -117,14 +118,35 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   return (
     <MsalProvider instance={pcaInstance}>
-      <MsalBackgroundSync />
+      <MsalBackgroundSync
+        onSyncStart={(name) => setSyncingUser(name)}
+        onSyncEnd={() => setSyncingUser(null)}
+      />
       {children}
+      {syncingUser && (
+        <div className="signin-modal-overlay">
+          <div className="signin-modal-card">
+            <div className="signin-loader-wrapper">
+              <div className="signin-loader-ring" />
+              <div className="signin-loader-pulse" />
+            </div>
+            <h2 className="signin-greeting">Hello, {syncingUser}!</h2>
+            <p className="signin-status">Completing sign-in & syncing your tune library…</p>
+            <p className="signin-subtext">Please wait a moment</p>
+          </div>
+        </div>
+      )}
     </MsalProvider>
   )
 }
 
-/** Keeps the shared signals in sync with the active MSAL account, with no UI of its own. */
-function MsalBackgroundSync() {
+interface MsalBackgroundSyncProps {
+  onSyncStart: (displayName: string) => void
+  onSyncEnd: () => void
+}
+
+/** Keeps the shared signals in sync with the active MSAL account, notifying status to parent. */
+function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps) {
   const { accounts } = useMsal()
   const isAuthenticated = useIsAuthenticated()
 
@@ -141,12 +163,13 @@ function MsalBackgroundSync() {
                           (activeAccount.idTokenClaims as any)?.given_name || 
                           'Microsoft Musician';
 
-      if (!email) {
-        console.error('No email claim found in MSAL account:', activeAccount)
-        return
-      }
+      const oid = activeAccount.localAccountId ||
+                  (activeAccount.idTokenClaims as any)?.oid ||
+                  (activeAccount.idTokenClaims as any)?.sub;
 
-      loginOrRegisterUser(email, displayName)
+      onSyncStart(displayName)
+
+      loginOrRegisterUser(email, displayName, oid)
         .then((profile) => {
           currentUserId.value = profile.userId
           currentUserProfile.value = { email: profile.email, displayName: profile.displayName }
@@ -154,9 +177,13 @@ function MsalBackgroundSync() {
         .catch((err) => {
           console.error('Failed to sync user with DB:', err)
         })
+        .finally(() => {
+          onSyncEnd()
+        })
     } else {
       currentUserId.value = ''
       currentUserProfile.value = null
+      onSyncEnd()
     }
   }, [isAuthenticated, accounts])
 

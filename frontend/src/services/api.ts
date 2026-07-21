@@ -572,8 +572,8 @@ export interface UserProfile {
   email: string
 }
 
-export const loginOrRegisterUser = (email: string, displayName: string) =>
-  apiFetchPublic<UserProfile>('/users/login', {
+export const loginOrRegisterUser = (email: string, displayName: string, oid?: string) =>
+  apiFetch<UserProfile>('/users/login', {
     method: 'POST',
-    body: JSON.stringify({ email, displayName }),
+    body: JSON.stringify({ email, displayName, oid }),
   })
