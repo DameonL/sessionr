@@ -19,7 +19,9 @@ public class PublicGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups/{groupId:guid}/sets")] HttpRequest req,
         Guid groupId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId. Signed-in
+        // callers get the member-aware view from the Private app's GetGroupSets instead.
+        var userId = Guid.Empty;
 
         var viewError = await GroupSetSupport.EnsureCanViewAsync(db, groupId, userId);
         if (viewError is not null)
@@ -46,7 +48,9 @@ public class PublicGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groupsets/{groupSetId:guid}")] HttpRequest req,
         Guid groupSetId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId. Signed-in
+        // callers get the member-aware view from the Private app's GetGroupSet instead.
+        var userId = Guid.Empty;
         return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, userId);
     }
 }

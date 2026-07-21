@@ -240,7 +240,7 @@ export const addToRepertoire = (tuneId: string, tuneSettingId?: string) =>
   })
 
 export const getTuneDetails = (tuneId: string, userId: string) =>
-  apiFetchPublic<TuneDetails>(`/tunes/${tuneId}?userId=${userId}`)
+  userId ? apiFetch<TuneDetails>(`/tunes/${tuneId}`) : apiFetchPublic<TuneDetails>(`/tunes/${tuneId}`)
 
 export const addTuneSetting = (tuneId: string, key: string, abc: string, submitterName: string) =>
   apiFetch<TuneSetting>(`/tunes/${tuneId}/settings`, {
@@ -460,15 +460,16 @@ export interface JoinResult {
 
 export const getGroups = (userId: string, search?: string, page = 1, pageSize = 20) => {
   const params = new URLSearchParams()
-  if (userId) params.set('userId', userId)
   if (search) params.set('search', search)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
-  return apiFetchPublic<PagedResult<GroupSummary>>(`/groups?${params}`)
+  return userId
+    ? apiFetch<PagedResult<GroupSummary>>(`/groups?${params}`)
+    : apiFetchPublic<PagedResult<GroupSummary>>(`/groups?${params}`)
 }
 
 export const getGroupDetails = (groupId: string, userId: string) =>
-  apiFetchPublic<GroupDetails>(`/groups/${groupId}?userId=${userId}`)
+  userId ? apiFetch<GroupDetails>(`/groups/${groupId}`) : apiFetchPublic<GroupDetails>(`/groups/${groupId}`)
 
 export interface CreateGroupParams {
   name: string
@@ -677,10 +678,12 @@ export interface SaveGroupSetItem {
 }
 
 export const getGroupSets = (groupId: string, userId: string) =>
-  apiFetchPublic<GroupSetData[]>(`/groups/${groupId}/sets?userId=${userId}`)
+  userId
+    ? apiFetch<GroupSetData[]>(`/groups/${groupId}/sets`)
+    : apiFetchPublic<GroupSetData[]>(`/groups/${groupId}/sets`)
 
 export const getGroupSet = (groupSetId: string, userId: string) =>
-  apiFetchPublic<GroupSetData>(`/groupsets/${groupSetId}?userId=${userId}`)
+  userId ? apiFetch<GroupSetData>(`/groupsets/${groupSetId}`) : apiFetchPublic<GroupSetData>(`/groupsets/${groupSetId}`)
 
 export const createGroupSet = (groupId: string, title: string, items: SaveGroupSetItem[]) =>
   apiFetch<GroupSetData>(`/groups/${groupId}/sets`, {
@@ -716,7 +719,9 @@ export interface GroupSessionData {
 }
 
 export const getGroupSessions = (groupId: string, userId: string) =>
-  apiFetchPublic<GroupSessionData[]>(`/groups/${groupId}/sessions?userId=${userId}`)
+  userId
+    ? apiFetch<GroupSessionData[]>(`/groups/${groupId}/sessions`)
+    : apiFetchPublic<GroupSessionData[]>(`/groups/${groupId}/sessions`)
 
 export const createGroupSession = (
   groupId: string,
@@ -752,8 +757,4 @@ export interface UserProfile {
   email: string
 }
 
-export const loginOrRegisterUser = (email: string, displayName: string, oid?: string) =>
-  apiFetch<UserProfile>('/users/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, displayName, oid }),
-  })
+export const getCurrentUser = () => apiFetch<UserProfile>('/users/me')

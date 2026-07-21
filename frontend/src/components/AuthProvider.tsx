@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { PublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
-import { loginOrRegisterUser } from '../services/api'
+import { getCurrentUser } from '../services/api'
 import { currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
 
 interface AuthProviderProps {
@@ -205,23 +205,14 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
       const activeAccount = accounts[0]
-      const email = activeAccount.username || 
-                    (activeAccount.idTokenClaims as any)?.email || 
-                    (activeAccount.idTokenClaims as any)?.emails?.[0] || 
-                    (activeAccount.idTokenClaims as any)?.preferred_username;
-      
-      const displayName = activeAccount.name || 
-                          (activeAccount.idTokenClaims as any)?.name || 
-                          (activeAccount.idTokenClaims as any)?.given_name || 
+      const displayName = activeAccount.name ||
+                          (activeAccount.idTokenClaims as any)?.name ||
+                          (activeAccount.idTokenClaims as any)?.given_name ||
                           'Microsoft Musician';
-
-      const oid = activeAccount.localAccountId ||
-                  (activeAccount.idTokenClaims as any)?.oid ||
-                  (activeAccount.idTokenClaims as any)?.sub;
 
       onSyncStart(displayName)
 
-      loginOrRegisterUser(email, displayName, oid)
+      getCurrentUser()
         .then((profile) => {
           currentUserId.value = profile.userId
           currentUserProfile.value = { email: profile.email, displayName: profile.displayName }

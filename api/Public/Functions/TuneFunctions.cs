@@ -66,7 +66,10 @@ public class TuneFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tunes/{tuneId:guid}")] HttpRequest req,
         Guid tuneId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId — userVote
+        // always comes back 0 here. Signed-in callers get their real vote from the Private
+        // app's GetTuneDetails instead.
+        var userId = Guid.Empty;
 
         var tune = await db.Tunes
             .AsNoTracking()

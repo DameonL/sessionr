@@ -13,7 +13,6 @@ namespace SessionApp.Api.Functions;
 
 public class UserFunctions(AppDbContext db)
 {
-    public record UserLoginRequest(string Email, string DisplayName, string? Oid = null);
     public record UserLoginResponse(Guid UserId, string DisplayName, string Email);
 
     public record MigrateLegacyDataResponse(
@@ -46,9 +45,16 @@ public class UserFunctions(AppDbContext db)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var targetUser = await db.Users.SingleAsync(u => u.UserId == callerUserId.Value);
+        // Look up the legacy row by the email in *this request's* identity claims, not the
+        // already-stored value for the caller's row — that stored value may itself be a
+        // synthesized placeholder (see EnsureUserExistsAsync) if this account was first
+        // provisioned before its real email was known.
+        var identity = req.GetCallerIdentity();
+        var normalizedEmail = !string.IsNullOrWhiteSpace(identity.Email) ? identity.Email.Trim().ToLowerInvariant() : null;
 
-        var legacyUser = await db.Users.SingleOrDefaultAsync(u => u.Email == targetUser.Email && u.UserId != callerUserId.Value);
+        var legacyUser = normalizedEmail != null
+            ? await db.Users.SingleOrDefaultAsync(u => u.Email == normalizedEmail && u.UserId != callerUserId.Value)
+            : null;
         if (legacyUser is null)
         {
             return new OkObjectResult(new MigrateLegacyDataResponse(false, null, 0, 0, 0, 0, 0, 0, 0, 0));
@@ -158,45 +164,18 @@ public class UserFunctions(AppDbContext db)
             legacySessions.Count));
     }
 
-    [Function("LoginOrRegisterUser")]
-    public async Task<IActionResult> LoginOrRegisterUser(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users/login")] HttpRequest req)
+    /// <summary>GET /api/users/me — resolves (and lazily provisions) the caller's own user record.</summary>
+    [Function("GetCurrentUser")]
+    public async Task<IActionResult> GetCurrentUser(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/me")] HttpRequest req)
     {
-        var body = await req.ReadFromJsonAsync<UserLoginRequest>();
-        if (body is null || string.IsNullOrWhiteSpace(body.Email))
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("Email is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var email = body.Email.Trim().ToLowerInvariant();
-        var displayName = string.IsNullOrWhiteSpace(body.DisplayName) ? "New Musician" : body.DisplayName.Trim();
-
-        Guid? parsedOid = Guid.TryParse(body.Oid, out var g) ? g : null;
-
-        var user = await db.Users.SingleOrDefaultAsync(u =>
-            (parsedOid.HasValue && u.UserId == parsedOid.Value) || u.Email == email);
-
-        if (user is null)
-        {
-            // Self-service registration!
-            user = new User
-            {
-                UserId = parsedOid ?? Guid.CreateVersion7(),
-                Email = email,
-                DisplayName = displayName
-            };
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-        }
-        else
-        {
-            if (!string.IsNullOrWhiteSpace(displayName) && user.DisplayName != displayName)
-            {
-                user.DisplayName = displayName;
-                await db.SaveChangesAsync();
-            }
-        }
-
+        var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
         return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email));
     }
 }

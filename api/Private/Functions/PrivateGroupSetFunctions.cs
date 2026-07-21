@@ -15,6 +15,52 @@ namespace SessionApp.Api.Functions;
 /// <summary>Create/edit/delete a group's set lists. Admin/owner only.</summary>
 public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
 {
+    /// <summary>GET /api/groups/{groupId}/sets — the group's set lists with analysis (requires sign-in).</summary>
+    [Function("GetGroupSets")]
+    public async Task<IActionResult> GetGroupSets(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups/{groupId:guid}/sets")] HttpRequest req,
+        Guid groupId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+        var userId = callerUserId.Value;
+
+        var viewError = await GroupSetSupport.EnsureCanViewAsync(db, groupId, userId);
+        if (viewError is not null)
+        {
+            return viewError;
+        }
+
+        var sets = await db.GroupSets
+            .AsNoTracking()
+            .Where(gs => gs.GroupId == groupId)
+            .Include(gs => gs.Items.OrderBy(i => i.SequenceNumber))
+            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.Tune)
+            .Include(gs => gs.Items)
+            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.TuneSetting)
+            .OrderBy(gs => gs.Title)
+            .ToListAsync();
+
+        return new OkObjectResult(sets.Select(s => GroupSetSupport.ToDto(s, analyzer)).ToList());
+    }
+
+    /// <summary>GET /api/groupsets/{groupSetId} — a single group set with analysis (requires sign-in).</summary>
+    [Function("GetGroupSet")]
+    public async Task<IActionResult> GetGroupSet(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groupsets/{groupSetId:guid}")] HttpRequest req,
+        Guid groupSetId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+        return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, callerUserId.Value);
+    }
+
     /// <summary>POST /api/groups/{groupId}/sets — create a set list from the group's master tune list. Admin/owner only.</summary>
     [Function("CreateGroupSet")]
     public async Task<IActionResult> CreateGroupSet(

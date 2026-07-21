@@ -18,7 +18,10 @@ public class PublicGroupFunctions(AppDbContext db)
     public async Task<IActionResult> GetGroups(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups")] HttpRequest req)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId for
+        // membership/visibility decisions. Signed-in callers get the personalized view
+        // from the Private app's GetGroups instead (server-verified identity).
+        var userId = Guid.Empty;
         var search = req.Query["search"].ToString();
 
         int.TryParse(req.Query["page"], out var page);
@@ -64,7 +67,9 @@ public class PublicGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups/{groupId:guid}")] HttpRequest req,
         Guid groupId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId. Signed-in
+        // callers get the member-aware view from the Private app's GetGroupDetails instead.
+        var userId = Guid.Empty;
 
         var group = await db.Groups
             .Include(g => g.Memberships).ThenInclude(m => m.User)

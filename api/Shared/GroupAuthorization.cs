@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -21,18 +22,49 @@ public static class GroupAuthorization
     public static async Task<Guid> EnsureUserExistsAsync(AppDbContext db, Guid userId, string? email = null, string? displayName = null)
     {
         var normalizedEmail = !string.IsNullOrWhiteSpace(email) ? email.Trim().ToLowerInvariant() : null;
+        var trimmedDisplayName = !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim() : null;
 
-        var existing = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail));
-        if (existing != null)
+        var candidates = await db.Users
+            .Where(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail))
+            .ToListAsync();
+
+        // The oid is the durable IdP identity anchor (stable across email changes), so prefer
+        // it deterministically over an email match when the two point at different rows —
+        // that divergence means a legacy pre-migration row still needs /users/migrate-legacy-data.
+        var byOid = candidates.FirstOrDefault(u => u.UserId == userId);
+        var byEmail = normalizedEmail != null ? candidates.FirstOrDefault(u => u.Email == normalizedEmail) : null;
+
+        if (byOid != null)
         {
-            return existing.UserId;
+            if (byEmail != null && byEmail.UserId != byOid.UserId)
+            {
+                Console.Error.WriteLine(
+                    $"EnsureUserExistsAsync: identity ambiguity — oid {userId} -> user {byOid.UserId}, " +
+                    $"email {normalizedEmail} -> different user {byEmail.UserId}. Using the oid match.");
+            }
+            if (trimmedDisplayName != null && byOid.DisplayName != trimmedDisplayName)
+            {
+                byOid.DisplayName = trimmedDisplayName;
+                await db.SaveChangesAsync();
+            }
+            return byOid.UserId;
+        }
+
+        if (byEmail != null)
+        {
+            if (trimmedDisplayName != null && byEmail.DisplayName != trimmedDisplayName)
+            {
+                byEmail.DisplayName = trimmedDisplayName;
+                await db.SaveChangesAsync();
+            }
+            return byEmail.UserId;
         }
 
         var newUser = new User
         {
             UserId = userId,
             Email = normalizedEmail ?? $"{userId:N}@auth.sessionr",
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Musician" : displayName.Trim()
+            DisplayName = trimmedDisplayName ?? "Musician"
         };
 
         db.Users.Add(newUser);
@@ -50,14 +82,17 @@ public static class GroupAuthorization
         }
     }
 
-    /// <summary>Extracts authentic caller User ID strictly from Azure EasyAuth headers and JWT Bearer tokens.</summary>
-    public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)
+    /// <summary>Raw caller identity parsed from EasyAuth headers or a JWT Bearer token — no database access.</summary>
+    public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
+
+    /// <summary>Extracts the authentic caller identity strictly from Azure EasyAuth headers and JWT Bearer tokens.</summary>
+    public static CallerIdentity GetCallerIdentity(this HttpRequest req)
     {
         // 1. Azure EasyAuth Direct Principal ID Header
         if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
             Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
         {
-            return await EnsureUserExistsAsync(db, easyAuthGuid);
+            return new CallerIdentity(easyAuthGuid, null, null);
         }
 
         // 2. Azure EasyAuth Encoded Principal Header (Base64-encoded Claims)
@@ -94,14 +129,12 @@ public static class GroupAuthorization
 
                     if (Guid.TryParse(oidStr, out var claimGuid))
                     {
-                        return await EnsureUserExistsAsync(db, claimGuid, emailStr, nameStr);
+                        return new CallerIdentity(claimGuid, emailStr, nameStr);
                     }
 
                     if (!string.IsNullOrWhiteSpace(emailStr))
                     {
-                        var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
-                        if (userByEmail != null) return userByEmail.UserId;
-                        return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), emailStr, nameStr);
+                        return new CallerIdentity(null, emailStr, nameStr);
                     }
                 }
             }
@@ -135,7 +168,7 @@ public static class GroupAuthorization
                                 var nowSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                                 if (nowSeconds >= expSeconds)
                                 {
-                                    return null;
+                                    return new CallerIdentity(null, null, null);
                                 }
                             }
                         }
@@ -153,19 +186,37 @@ public static class GroupAuthorization
 
                         if (Guid.TryParse(oidStr, out var oidGuid))
                         {
-                            return await EnsureUserExistsAsync(db, oidGuid, emailStr, nameStr);
+                            return new CallerIdentity(oidGuid, emailStr, nameStr);
                         }
 
                         if (!string.IsNullOrWhiteSpace(emailStr))
                         {
-                            var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
-                            if (userByEmail != null) return userByEmail.UserId;
-                            return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), emailStr, nameStr);
+                            return new CallerIdentity(null, emailStr, nameStr);
                         }
                     }
                     catch { }
                 }
             }
+        }
+
+        return new CallerIdentity(null, null, null);
+    }
+
+    /// <summary>Resolves the caller identity and ensures a matching db.Users row exists.</summary>
+    public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)
+    {
+        var identity = req.GetCallerIdentity();
+
+        if (identity.UserId.HasValue)
+        {
+            return await EnsureUserExistsAsync(db, identity.UserId.Value, identity.Email, identity.DisplayName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.Email))
+        {
+            var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == identity.Email);
+            if (userByEmail != null) return userByEmail.UserId;
+            return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), identity.Email, identity.DisplayName);
         }
 
         return null;

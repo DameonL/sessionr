@@ -19,7 +19,9 @@ public class PublicGroupSessionFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups/{groupId:guid}/sessions")] HttpRequest req,
         Guid groupId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        // Anonymous, unauthenticated route: never trust a caller-supplied userId. Signed-in
+        // callers get the RSVP-aware view from the Private app's GetGroupSessions instead.
+        var userId = Guid.Empty;
 
         var group = await db.Groups.AsNoTracking().SingleOrDefaultAsync(g => g.GroupId == groupId);
         if (group is null)

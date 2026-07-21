@@ -13,6 +13,43 @@ namespace SessionApp.Api.Functions;
 
 public class PrivateTuneFunctions(AppDbContext db)
 {
+    /// <summary>GET /api/tunes/{tuneId} — fetch tune details, alternate settings, aliases, and the caller's own votes (requires sign-in).</summary>
+    [Function("GetTuneDetails")]
+    public async Task<IActionResult> GetTuneDetails(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tunes/{tuneId:guid}")] HttpRequest req,
+        Guid tuneId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+        var userId = callerUserId.Value;
+
+        var tune = await db.Tunes
+            .AsNoTracking()
+            .Include(t => t.Aliases)
+            .Include(t => t.Settings)
+                .ThenInclude(s => s.Votes)
+            .SingleOrDefaultAsync(t => t.TuneId == tuneId);
+
+        if (tune is null)
+        {
+            return new NotFoundResult();
+        }
+
+        var aliases = tune.Aliases.Select(a => a.Name).ToList();
+        var settings = tune.Settings
+            .Select(s => {
+                var userVote = s.Votes.FirstOrDefault(v => v.UserId == userId)?.Value ?? 0;
+                return new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, userVote);
+            })
+            .OrderByDescending(s => s.VoteScore)
+            .ToList();
+
+        return new OkObjectResult(new TuneDetailsDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, aliases, settings));
+    }
+
     /// <summary>POST /api/tunes — add a tune to the global library.</summary>
     [Function("CreateTune")]
     public async Task<IActionResult> CreateTune(
