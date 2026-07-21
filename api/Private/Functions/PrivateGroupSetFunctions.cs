@@ -21,11 +21,16 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/sets")] HttpRequest req,
         Guid groupId)
     {
-        var body = await req.ReadFromJsonAsync<SaveGroupSetRequest>();
-        var validation = await ValidateSaveRequest(body, groupId);
-        if (validation is not null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return validation;
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var (validationResult, body) = await ValidateSaveRequest(req, groupId, callerUserId.Value);
+        if (validationResult is not null)
+        {
+            return validationResult;
         }
 
         var groupSet = new GroupSet { GroupId = groupId, Title = body!.Title.Trim() };
@@ -33,7 +38,7 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         ApplyItems(groupSet, body.Items);
         await db.SaveChangesAsync();
 
-        return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSet.GroupSetId, body.UserId);
+        return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSet.GroupSetId, callerUserId.Value);
     }
 
     /// <summary>PUT /api/groupsets/{groupSetId} — replace the set's title and tune order. Admin/owner only.</summary>
@@ -42,17 +47,22 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "groupsets/{groupSetId:guid}")] HttpRequest req,
         Guid groupSetId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var groupSet = await db.GroupSets.Include(gs => gs.Items).SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
         if (groupSet is null)
         {
             return new NotFoundResult();
         }
 
-        var body = await req.ReadFromJsonAsync<SaveGroupSetRequest>();
-        var validation = await ValidateSaveRequest(body, groupSet.GroupId);
-        if (validation is not null)
+        var (validationResult, body) = await ValidateSaveRequest(req, groupSet.GroupId, callerUserId.Value);
+        if (validationResult is not null)
         {
-            return validation;
+            return validationResult;
         }
 
         groupSet.Title = body!.Title.Trim();
@@ -61,16 +71,20 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         ApplyItems(groupSet, body.Items);
         await db.SaveChangesAsync();
 
-        return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, body.UserId);
+        return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, callerUserId.Value);
     }
 
-    /// <summary>DELETE /api/groupsets/{groupSetId}?userId= — admin/owner only.</summary>
+    /// <summary>DELETE /api/groupsets/{groupSetId} — admin/owner only.</summary>
     [Function("DeleteGroupSet")]
     public async Task<IActionResult> DeleteGroupSet(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groupsets/{groupSetId:guid}")] HttpRequest req,
         Guid groupSetId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
         var groupSet = await db.GroupSets.FindAsync(groupSetId);
         if (groupSet is null)
@@ -78,7 +92,7 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
             return new NotFoundResult();
         }
 
-        var actorRole = await db.GetRoleAsync(groupSet.GroupId, userId);
+        var actorRole = await db.GetRoleAsync(groupSet.GroupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can delete set lists.");
@@ -89,37 +103,38 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         return new NoContentResult();
     }
 
-    private async Task<IActionResult?> ValidateSaveRequest(SaveGroupSetRequest? body, Guid groupId)
+    private async Task<(IActionResult? Result, SaveGroupSetRequest? Body)> ValidateSaveRequest(HttpRequest req, Guid groupId, Guid callerUserId)
     {
+        var body = await req.ReadFromJsonAsync<SaveGroupSetRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Title))
         {
-            return new BadRequestObjectResult("Title is required.");
+            return (new BadRequestObjectResult("Title is required."), null);
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId);
         if (!actorRole.IsAdminOrOwner())
         {
-            return Forbidden("Only group administrators can edit set lists.");
+            return (Forbidden("Only group administrators can edit set lists."), body);
         }
 
         if (body.Items.Count == 0)
         {
-            return new BadRequestObjectResult("A set needs at least one tune.");
+            return (new BadRequestObjectResult("A set needs at least one tune."), body);
         }
         var ids = body.Items.Select(i => i.GroupTuneId).ToList();
         if (ids.Distinct().Count() != ids.Count)
         {
-            return new BadRequestObjectResult("A set cannot contain the same tune twice.");
+            return (new BadRequestObjectResult("A set cannot contain the same tune twice."), body);
         }
 
         var ownedCount = await db.GroupTunes
             .CountAsync(gt => gt.GroupId == groupId && ids.Contains(gt.GroupTuneId));
         if (ownedCount != ids.Count)
         {
-            return new BadRequestObjectResult("All tunes must come from the group's master tune list.");
+            return (new BadRequestObjectResult("All tunes must come from the group's master tune list."), body);
         }
 
-        return null;
+        return (null, body);
     }
 
     private static void ApplyItems(GroupSet groupSet, System.Collections.Generic.List<SaveGroupSetItem> items)

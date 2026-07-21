@@ -18,13 +18,13 @@ export function Dashboard() {
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
   })
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
-    queryFn: () => getPracticeQueue(userId),
+    queryFn: () => getPracticeQueue(),
   })
-  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(userId) })
+  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
 
   const items = repertoire.data?.items ?? []
   const byStatus = new Map<string, number>()

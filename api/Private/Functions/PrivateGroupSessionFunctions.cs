@@ -16,20 +16,26 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
 {
     /// <summary>
     /// POST /api/groups/{groupId}/sessions — schedule a session. Admin/owner only.
-    /// Set RepeatWeeks &gt; 1 to create that many weekly-spaced occurrences at once.
+    /// Set RepeatWeeks > 1 to create that many weekly-spaced occurrences at once.
     /// </summary>
     [Function("CreateGroupSession")]
     public async Task<IActionResult> CreateGroupSession(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/sessions")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateSessionRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Title))
         {
             return new BadRequestObjectResult("Title is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can schedule sessions.");
@@ -44,15 +50,15 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
                 Location = body.Location?.Trim(),
                 StartsAt = body.StartsAt.AddDays(7 * i),
                 Notes = body.Notes?.Trim(),
-                CreatedByUserId = body.UserId,
+                CreatedByUserId = callerUserId.Value,
             })
             .ToList();
 
         db.GroupSessions.AddRange(sessions);
         await db.SaveChangesAsync();
 
-        var createdByUser = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == body.UserId);
-        return new OkObjectResult(sessions.Select(gs => GroupSessionSupport.ToDto(gs, body.UserId, createdByUser.DisplayName)).ToList());
+        var createdByUser = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.UserId == callerUserId.Value);
+        return new OkObjectResult(sessions.Select(gs => GroupSessionSupport.ToDto(gs, callerUserId.Value, createdByUser?.DisplayName ?? "Member")).ToList());
     }
 
     /// <summary>PATCH /api/groups/{groupId}/sessions/{sessionId} — edit or cancel a session. Admin/owner only.</summary>
@@ -61,13 +67,19 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "groups/{groupId:guid}/sessions/{sessionId:guid}")] HttpRequest req,
         Guid groupId, Guid sessionId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<UpdateSessionRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return new BadRequestObjectResult("Request payload is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can edit sessions.");
@@ -105,18 +117,22 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(GroupSessionSupport.ToDto(session, body.UserId));
+        return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
 
-    /// <summary>DELETE /api/groups/{groupId}/sessions/{sessionId}?userId= — admin/owner only.</summary>
+    /// <summary>DELETE /api/groups/{groupId}/sessions/{sessionId} — admin/owner only.</summary>
     [Function("DeleteGroupSession")]
     public async Task<IActionResult> DeleteGroupSession(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/sessions/{sessionId:guid}")] HttpRequest req,
         Guid groupId, Guid sessionId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
-        var actorRole = await db.GetRoleAsync(groupId, userId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can delete sessions.");
@@ -139,13 +155,19 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/sessions/{sessionId:guid}/rsvp")] HttpRequest req,
         Guid groupId, Guid sessionId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<RsvpRequest>();
         if (body is null || !Enum.TryParse<RsvpStatus>(body.Status, out var status))
         {
             return new BadRequestObjectResult("A valid Status (Going, Maybe, NotGoing) is required.");
         }
 
-        if (!await db.IsActiveMemberAsync(groupId, body.UserId))
+        if (!await db.IsActiveMemberAsync(groupId, callerUserId.Value))
         {
             return Forbidden("Only group members can RSVP.");
         }
@@ -159,12 +181,10 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var rsvp = session.Rsvps.FirstOrDefault(r => r.UserId == body.UserId);
+        var rsvp = session.Rsvps.FirstOrDefault(r => r.UserId == callerUserId.Value);
         if (rsvp is null)
         {
-            // EF's navigation fixup adds this to session.Rsvps automatically since
-            // the GroupSession is already tracked with its Rsvps collection loaded.
-            rsvp = new SessionRsvp { GroupSessionId = sessionId, UserId = body.UserId };
+            rsvp = new SessionRsvp { GroupSessionId = sessionId, UserId = callerUserId.Value };
             db.SessionRsvps.Add(rsvp);
         }
         rsvp.Status = status;
@@ -172,6 +192,6 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(GroupSessionSupport.ToDto(session, body.UserId));
+        return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
 }

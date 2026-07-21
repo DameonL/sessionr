@@ -20,7 +20,7 @@ export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdates
   const [error, setError] = useState<string | null>(null)
 
   const postMutation = useMutation({
-    mutationFn: () => createGroupUpdate(groupId, userId, title.trim(), content.trim()),
+    mutationFn: () => createGroupUpdate(groupId, title.trim(), content.trim()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', groupId] })
       setTitle('')
@@ -35,7 +35,7 @@ export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdates
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (updateId: string) => deleteGroupUpdate(groupId, updateId, userId),
+    mutationFn: (updateId: string) => deleteGroupUpdate(groupId, updateId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups', groupId] })
       showToast('Update deleted.')
@@ -104,7 +104,7 @@ export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdates
                 <div>
                   <h3 style={{ margin: '0 0 0.25rem 0' }}>{up.title}</h3>
                   <span className="tune-meta" style={{ fontSize: '0.8rem' }}>
-                    Posted by <strong>{up.createdByDisplayName}</strong> on {parseServerDate(up.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                    Posted by <strong>{up.createdByDisplayName}</strong> on {parseServerDate(up.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </span>
                 </div>
                 {isAdmin && (

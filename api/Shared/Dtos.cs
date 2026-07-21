@@ -1,29 +1,26 @@
+using System;
+using System.Collections.Generic;
 using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Functions;
 
-// --- Requests ---
-
 public record CreateTuneRequest(string Title, string TuneType, string Key, string Abc);
-
-// --- thesession.org import ---
 
 public record TheSessionSearchResultDto(int TheSessionId, string Name, string Type);
 
 public record ImportRequest(int TheSessionId);
 
-public record TunebookImportRequest(Guid UserId, int MemberId);
+public record TunebookImportRequest(int MemberId);
 
 public record TunebookImportResultDto(
-    int TotalFound,
     int Imported,
     int AddedToRepertoire,
     int AlreadyInRepertoire,
-    System.Collections.Generic.List<string> Failures);
+    int SettingsCreated,
+    List<string> Failures);
 
 public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 
-/// <summary>Null fields are left unchanged; an empty CustomAbcText clears the override.</summary>
 public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null);
 
 public record SaveSetItem(Guid UserTuneId, int Repetitions);
@@ -32,44 +29,46 @@ public record SaveSetRequest(string Title, List<SaveSetItem> Items);
 
 public record SaveGroupSetItem(Guid GroupTuneId, int Repetitions);
 
-public record SaveGroupSetRequest(Guid UserId, string Title, List<SaveGroupSetItem> Items);
+public record SaveGroupSetRequest(string Title, List<SaveGroupSetItem> Items);
 
 public record GroupSetItemDto(Guid GroupTuneId, int SequenceNumber, int Repetitions, string Title, string TuneType, string Key, string Abc);
 
-public record CreateSessionRequest(Guid UserId, string Title, string? Location, DateTime StartsAt, string? Notes, int RepeatWeeks = 1);
+public record CreateSessionRequest(string Title, string? Location, DateTime StartsAt, string? Notes, int RepeatWeeks = 1);
 
-public record UpdateSessionRequest(Guid UserId, string? Title, string? Location, DateTime? StartsAt, string? Notes, bool? IsCancelled);
+public record UpdateSessionRequest(string? Title, string? Location, DateTime? StartsAt, string? Notes, bool? IsCancelled);
 
-public record RsvpRequest(Guid UserId, string Status);
+public record RsvpRequest(string Status);
 
 public record GroupSessionDto(
     Guid GroupSessionId,
+    Guid GroupId,
     string Title,
     string? Location,
     DateTime StartsAt,
     string? Notes,
     bool IsCancelled,
+    Guid CreatedByUserId,
     string CreatedByDisplayName,
     int GoingCount,
     int MaybeCount,
-    int NotGoingCount,
-    string? ViewerRsvpStatus);
+    string? UserRsvp,
+    List<SessionRsvpMemberDto> Rsvps);
+
+public record SessionRsvpMemberDto(Guid UserId, string DisplayName, string Status);
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
-
-// --- Responses ---
 
 public record TuneDto(Guid TuneId, string Title, string TuneType, string Key);
 
 public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue);
 
-public record TuneDetailsDto(Guid TuneId, string Title, string TuneType, string Key, System.Collections.Generic.List<string> Aliases, System.Collections.Generic.List<TuneSettingDto> Settings);
+public record TuneDetailsDto(Guid TuneId, string Title, string TuneType, string Key, List<string> Aliases, List<TuneSettingDto> Settings);
 
 public record CreateSettingRequest(string Key, string Abc, string SubmitterName);
 
 public record CreateAliasRequest(string Name);
 
-public record VoteSettingRequest(Guid UserId, int Value);
+public record VoteSettingRequest(int Value);
 
 public record RepertoireItemDto(
     Guid UserTuneId,
@@ -80,7 +79,7 @@ public record RepertoireItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    string Abc,
+    string AbcText,
     bool HasCustomAbc);
 
 public record PracticeQueueItemDto(
@@ -91,7 +90,7 @@ public record PracticeQueueItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    string Abc,
+    string AbcText,
     string Reason);
 
 public record SuggestNextRequest(List<Guid> UserTuneIds);
@@ -147,7 +146,6 @@ public record GroupSummary(
 public record CreateGroupRequest(
     string Name,
     string Description,
-    Guid UserId,
     string? City = null,
     bool IsPrivate = false,
     RecurrencePattern RecurrencePattern = RecurrencePattern.None,
@@ -157,7 +155,7 @@ public record CreateGroupRequest(
     string? MeetingTime = null,
     string? MeetingScheduleText = null,
     string? MeetingDescription = null,
-    System.Collections.Generic.List<CreateGroupScheduleRequest>? Schedules = null);
+    List<CreateGroupScheduleRequest>? Schedules = null);
 
 public record GroupMeetingScheduleDto(
     Guid GroupMeetingScheduleId,
@@ -171,7 +169,6 @@ public record GroupMeetingScheduleDto(
     string? MeetingDescription);
 
 public record CreateGroupScheduleRequest(
-    Guid UserId,
     RecurrencePattern RecurrencePattern,
     DayOfWeek? RecurrenceDayOfWeek = null,
     int? RecurrenceWeekOfMonth = null,
@@ -181,7 +178,6 @@ public record CreateGroupScheduleRequest(
     string? MeetingDescription = null);
 
 public record UpdateGroupScheduleRequest(
-    Guid UserId,
     RecurrencePattern RecurrencePattern,
     DayOfWeek? RecurrenceDayOfWeek,
     int? RecurrenceWeekOfMonth,
@@ -190,24 +186,20 @@ public record UpdateGroupScheduleRequest(
     string? MeetingScheduleText,
     string? MeetingDescription);
 
-public record GroupJoinLeaveRequest(Guid UserId);
-
-public record JoinGroupRequest(Guid UserId, string? InviteCode);
+public record JoinGroupRequest(string? InviteCode);
 
 public record JoinResultDto(string Status);
 
 public record UpdateGroupInfoRequest(
-    Guid UserId,
     string Name,
     string Description,
     string? City,
     bool IsPrivate);
 
 public record ReplaceGroupSchedulesRequest(
-    Guid UserId,
-    System.Collections.Generic.List<CreateGroupScheduleRequest> Schedules);
+    List<CreateGroupScheduleRequest> Schedules);
 
-public record UpdateGroupPrivacyRequest(Guid UserId, bool IsPrivate);
+public record UpdateGroupPrivacyRequest(bool IsPrivate);
 
 public record InviteCodeDto(string InviteCode);
 
@@ -227,14 +219,11 @@ public record GroupTuneDto(
     string? SettingSubmitterName,
     string AddedByDisplayName);
 
-public record AddGroupTuneRequest(Guid UserId, Guid TuneId, Guid? TuneSettingId);
+public record AddGroupTuneRequest(Guid TuneId, Guid? TuneSettingId);
 
-public record UpdateGroupTuneRequest(Guid UserId, Guid? TuneSettingId);
+public record UpdateGroupTuneRequest(Guid? TuneSettingId);
 
-/// <summary>UserId of the acting group owner performing a promote/demote.</summary>
-public record GroupRoleActionRequest(Guid UserId);
-
-public record TransferOwnershipRequest(Guid UserId, Guid NewOwnerUserId);
+public record TransferOwnershipRequest(Guid NewOwnerUserId);
 
 public record GroupUpdateDto(
     Guid GroupUpdateId,
@@ -245,7 +234,7 @@ public record GroupUpdateDto(
     string CreatedByDisplayName,
     DateTime CreatedAt);
 
-public record CreateGroupUpdateRequest(Guid UserId, string Title, string Content);
+public record CreateGroupUpdateRequest(string Title, string Content);
 
 public record GroupDetailsDto(
     Guid GroupId,
@@ -255,16 +244,16 @@ public record GroupDetailsDto(
     bool IsPrivate,
     string? InviteCode,
     string? ViewerStatus,
-    System.Collections.Generic.List<GroupMemberDto> Members,
-    System.Collections.Generic.List<GroupMemberDto> PendingMembers,
-    System.Collections.Generic.List<GroupTuneDto> MasterTunes,
-    System.Collections.Generic.List<GroupCommonTuneDto> CommonTunes,
-    System.Collections.Generic.List<GroupActivityDto> RecentActivity,
-    System.Collections.Generic.List<GroupUpdateDto> Updates,
-    System.Collections.Generic.List<GroupMeetingScheduleDto> Schedules);
+    List<GroupMemberDto> Members,
+    List<GroupMemberDto> PendingMembers,
+    List<GroupTuneDto> MasterTunes,
+    List<GroupCommonTuneDto> CommonTunes,
+    List<GroupActivityDto> RecentActivity,
+    List<GroupUpdateDto> Updates,
+    List<GroupMeetingScheduleDto> Schedules);
 
 public record PagedResult<T>(
-    System.Collections.Generic.List<T> Items,
+    List<T> Items,
     int TotalCount,
     int Page,
     int PageSize,

@@ -23,6 +23,12 @@ public class PrivateImportFunctions(AppDbContext db, TheSessionImportService imp
     public async Task<IActionResult> ImportTunebook(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "import/thesession/tunebook")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+        }
+
         const int maxTunes = 200;
 
         var body = await req.ReadFromJsonAsync<TunebookImportRequest>();
@@ -53,6 +59,12 @@ public class PrivateImportFunctions(AppDbContext db, TheSessionImportService imp
             try
             {
                 var detail = await importService.GetTuneDetailAsync(entry.Id);
+                if (detail is null)
+                {
+                    result.Failures.Add($"{entry.Name}: not found on thesession.org");
+                    continue;
+                }
+
                 var tune = await importService.UpsertTuneFromDetailAsync(detail);
                 if (tune is null)
                 {
@@ -62,7 +74,7 @@ public class PrivateImportFunctions(AppDbContext db, TheSessionImportService imp
                 imported++;
 
                 var inRepertoire = await db.UserTunes.AnyAsync(
-                    ut => ut.UserId == body.UserId && ut.TuneId == tune.TuneId);
+                    ut => ut.UserId == callerUserId.Value && ut.TuneId == tune.TuneId);
                 if (inRepertoire)
                 {
                     already++;
@@ -71,7 +83,7 @@ public class PrivateImportFunctions(AppDbContext db, TheSessionImportService imp
                 {
                     db.UserTunes.Add(new UserTune
                     {
-                        UserId = body.UserId,
+                        UserId = callerUserId.Value,
                         TuneId = tune.TuneId,
                         Status = TuneStatus.Learning,
                         TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),

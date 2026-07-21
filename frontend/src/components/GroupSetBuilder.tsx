@@ -54,8 +54,8 @@ export function GroupSetBuilder({
     mutationFn: (d: Draft) => {
       const items = d.items.map(({ groupTuneId, repetitions }) => ({ groupTuneId, repetitions }))
       return d.groupSetId === null
-        ? createGroupSet(groupId, userId, d.title, items)
-        : updateGroupSet(d.groupSetId, userId, d.title, items)
+        ? createGroupSet(groupId, d.title, items)
+        : updateGroupSet(d.groupSetId, d.title, items)
     },
     onSuccess: () => {
       invalidate()
@@ -64,7 +64,7 @@ export function GroupSetBuilder({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (groupSetId: string) => deleteGroupSet(groupSetId, userId),
+    mutationFn: (groupSetId: string) => deleteGroupSet(groupSetId),
     onSuccess: () => {
       invalidate()
       setDraft(null)

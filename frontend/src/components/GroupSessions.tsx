@@ -56,14 +56,14 @@ export function GroupSessions({
     mutationFn: (f: FormState) => {
       const startsAt = new Date(f.startsAtLocal).toISOString()
       return f.sessionId === null
-        ? createGroupSession(groupId, userId, {
+        ? createGroupSession(groupId, {
             title: f.title.trim(),
             location: f.location.trim() || undefined,
             startsAt,
             notes: f.notes.trim() || undefined,
             repeatWeeks: f.repeatWeeks,
           })
-        : updateGroupSession(groupId, f.sessionId, userId, {
+        : updateGroupSession(groupId, f.sessionId, {
             title: f.title.trim(),
             location: f.location.trim(),
             startsAt,
@@ -77,18 +77,18 @@ export function GroupSessions({
   })
 
   const cancelMutation = useMutation({
-    mutationFn: (sessionId: string) => updateGroupSession(groupId, sessionId, userId, { isCancelled: true }),
+    mutationFn: (sessionId: string) => updateGroupSession(groupId, sessionId, { isCancelled: true }),
     onSuccess: invalidate,
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (sessionId: string) => deleteGroupSession(groupId, sessionId, userId),
+    mutationFn: (sessionId: string) => deleteGroupSession(groupId, sessionId),
     onSuccess: invalidate,
   })
 
   const rsvpMutation = useMutation({
     mutationFn: ({ sessionId, status }: { sessionId: string; status: RsvpStatus }) =>
-      rsvpToGroupSession(groupId, sessionId, userId, status),
+      rsvpToGroupSession(groupId, sessionId, status),
     onSuccess: invalidate,
   })
 

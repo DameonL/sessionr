@@ -23,7 +23,7 @@ export function TransferOwnershipModal({
   const [confirmText, setConfirmText] = useState('')
 
   const mutation = useMutation({
-    mutationFn: () => transferGroupOwnership(groupId, userId, target.userId),
+    mutationFn: () => transferGroupOwnership(groupId, target.userId),
     onSuccess: () => {
       onTransferred()
       onClose()

@@ -357,7 +357,7 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
               }
 
               // Add to repertoire
-              const addedItem = await addToRepertoire(userId, tuneId)
+              const addedItem = await addToRepertoire(tuneId)
 
               // Update metadata if needed
               const needsStatusUpdate = item.status && item.status !== 'Learning'

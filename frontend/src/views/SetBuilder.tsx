@@ -42,17 +42,17 @@ export function SetBuilder() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft | null>(null)
 
-  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(userId) })
+  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
   })
 
   const saveMutation = useMutation({
     mutationFn: (d: Draft) => {
       const items = d.items.map(({ userTuneId, repetitions }) => ({ userTuneId, repetitions }))
       return d.setId === null
-        ? createSet(userId, d.title, items)
+        ? createSet(d.title, items)
         : updateSet(d.setId, d.title, items)
     },
     onSuccess: (saved) => {
@@ -175,7 +175,7 @@ function SetEditor({
   const draftIds = draft.items.map((i) => i.userTuneId)
   const suggestions = useQuery({
     queryKey: ['suggest-next', userId, draftIds.join('-')],
-    queryFn: () => suggestNextTune(userId, draftIds),
+    queryFn: () => suggestNextTune(draftIds),
   })
 
   const addItem = (item: Omit<DraftItem, 'repetitions'>) =>

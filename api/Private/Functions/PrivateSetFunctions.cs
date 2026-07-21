@@ -9,21 +9,27 @@ using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using SessionApp.Api.Services;
+using static SessionApp.Api.Functions.GroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
 /// <summary>Manage a user's own medley sets, and suggest the next tune while building one.</summary>
 public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
 {
-    /// <summary>GET /api/users/{userId}/sets — the user's sets with analysis.</summary>
+    /// <summary>GET /api/sets — the user's sets with analysis.</summary>
     [Function("GetSets")]
     public async Task<IActionResult> GetSets(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId:guid}/sets")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sets")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var sets = await db.Sets
             .AsNoTracking()
-            .Where(s => s.UserId == userId)
+            .Where(s => s.UserId == callerUserId.Value)
             .Include(s => s.Items.OrderBy(i => i.SequenceNumber))
             .ThenInclude(i => i.UserTune)
             .ThenInclude(ut => ut.Tune)
@@ -33,20 +39,25 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         return new OkObjectResult(sets.Select(s => SetSupport.ToDto(s, analyzer)).ToList());
     }
 
-    /// <summary>POST /api/users/{userId}/sets — create a set from an ordered list of repertoire tunes.</summary>
+    /// <summary>POST /api/sets — create a set from an ordered list of repertoire tunes.</summary>
     [Function("CreateSet")]
     public async Task<IActionResult> CreateSet(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users/{userId:guid}/sets")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sets")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<SaveSetRequest>();
-        var validation = await ValidateSaveRequest(body, userId);
+        var validation = await ValidateSaveRequest(body, callerUserId.Value);
         if (validation is not null)
         {
             return validation;
         }
 
-        var set = new Set { UserId = userId, Title = body!.Title.Trim() };
+        var set = new Set { UserId = callerUserId.Value, Title = body!.Title.Trim() };
         db.Sets.Add(set);
         ApplyItems(set, body.Items);
         await db.SaveChangesAsync();
@@ -60,14 +71,20 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "sets/{setId:guid}")] HttpRequest req,
         Guid setId)
     {
-        var set = await db.Sets.Include(s => s.Items).SingleOrDefaultAsync(s => s.SetId == setId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var set = await db.Sets.Include(s => s.Items).SingleOrDefaultAsync(s => s.SetId == setId && s.UserId == callerUserId.Value);
         if (set is null)
         {
             return new NotFoundResult();
         }
 
         var body = await req.ReadFromJsonAsync<SaveSetRequest>();
-        var validation = await ValidateSaveRequest(body, set.UserId);
+        var validation = await ValidateSaveRequest(body, callerUserId.Value);
         if (validation is not null)
         {
             return validation;
@@ -83,21 +100,26 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
     }
 
     /// <summary>
-    /// POST /api/users/{userId}/sets/suggest — given the draft set so far,
+    /// POST /api/sets/suggest — given the draft set so far,
     /// rank the rest of the repertoire as candidates for the next tune. An
     /// empty draft returns solid openers instead.
     /// </summary>
     [Function("SuggestNextTune")]
     public async Task<IActionResult> SuggestNextTune(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users/{userId:guid}/sets/suggest")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sets/suggest")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<SuggestNextRequest>();
         var draftIds = body?.UserTuneIds ?? [];
 
         var candidates = await db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == userId
+            .Where(ut => ut.UserId == callerUserId.Value
                 && !draftIds.Contains(ut.UserTuneId)
                 && ut.Status != TuneStatus.Wishlist
                 && ut.Status != TuneStatus.Retired)
@@ -123,7 +145,7 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         var last = await db.UserTunes
             .AsNoTracking()
             .Include(ut => ut.Tune)
-            .SingleOrDefaultAsync(ut => ut.UserTuneId == lastId && ut.UserId == userId);
+            .SingleOrDefaultAsync(ut => ut.UserTuneId == lastId && ut.UserId == callerUserId.Value);
         if (last is null)
         {
             return new BadRequestObjectResult("The draft's last tune is not in the user's repertoire.");
@@ -158,7 +180,13 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "sets/{setId:guid}")] HttpRequest req,
         Guid setId)
     {
-        var set = await db.Sets.FindAsync(setId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var set = await db.Sets.SingleOrDefaultAsync(s => s.SetId == setId && s.UserId == callerUserId.Value);
         if (set is null)
         {
             return new NotFoundResult();

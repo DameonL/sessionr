@@ -211,24 +211,24 @@ export interface TunebookImportResult {
   failures: string[]
 }
 
-export const importTunebook = (userId: string, memberId: string) =>
+export const importTunebook = (memberId: string) =>
   apiFetch<TunebookImportResult>('/import/thesession/tunebook', {
     method: 'POST',
-    body: JSON.stringify({ userId, memberId: Number(memberId) }),
+    body: JSON.stringify({ memberId: Number(memberId) }),
   })
 
-export const getRepertoire = (userId: string, search?: string, type?: string, status?: string, page = 1, pageSize = 20) => {
+export const getRepertoire = (search?: string, type?: string, status?: string, page = 1, pageSize = 20) => {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
   if (type) params.set('type', type)
   if (status) params.set('status', status)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
-  return apiFetch<PagedResult<RepertoireItem>>(`/repertoire/${userId}?${params}`)
+  return apiFetch<PagedResult<RepertoireItem>>(`/repertoire?${params}`)
 }
 
-export const addToRepertoire = (userId: string, tuneId: string, tuneSettingId?: string) =>
-  apiFetch<RepertoireItem>(`/repertoire/${userId}`, {
+export const addToRepertoire = (tuneId: string, tuneSettingId?: string) =>
+  apiFetch<RepertoireItem>('/repertoire', {
     method: 'POST',
     body: JSON.stringify({ tuneId, tuneSettingId }),
   })
@@ -248,10 +248,10 @@ export const addTuneAlias = (tuneId: string, name: string) =>
     body: JSON.stringify({ name }),
   })
 
-export const voteTuneSetting = (settingId: string, userId: string, value: number) =>
+export const voteTuneSetting = (settingId: string, value: number) =>
   apiFetch<{ voteScore: number }>(`/tunes/settings/${settingId}/vote`, {
     method: 'POST',
-    body: JSON.stringify({ userId, value }),
+    body: JSON.stringify({ value }),
   })
 
 export const updateUserTune = (
@@ -291,8 +291,21 @@ export const saveEarTrainingProgress = (
 export const removeFromRepertoire = (userTuneId: string) =>
   apiFetch<void>(`/repertoire/items/${userTuneId}`, { method: 'DELETE' })
 
-export const getPracticeQueue = (userId: string) =>
-  apiFetch<PracticeQueueItem[]>(`/practice/${userId}/queue`)
+export interface PracticeDay {
+  date: string
+  count: number
+}
+
+export interface PracticeStats {
+  streak: number
+  total30Days: number
+  perDay: PracticeDay[]
+}
+
+export const getPracticeStats = () => apiFetch<PracticeStats>('/practice/stats')
+
+export const getPracticeQueue = () =>
+  apiFetch<PracticeQueueItem[]>('/practice/queue')
 
 export interface NextTuneSuggestion {
   userTuneId: string
@@ -304,18 +317,18 @@ export interface NextTuneSuggestion {
   reason: string
 }
 
-export const suggestNextTune = (userId: string, userTuneIds: string[]) =>
-  apiFetch<NextTuneSuggestion[]>(`/users/${userId}/sets/suggest`, {
+export const suggestNextTune = (userTuneIds: string[]) =>
+  apiFetch<NextTuneSuggestion[]>('/sets/suggest', {
     method: 'POST',
     body: JSON.stringify({ userTuneIds }),
   })
 
-export const getSets = (userId: string) => apiFetch<TuneSet[]>(`/users/${userId}/sets`)
+export const getSets = () => apiFetch<TuneSet[]>('/sets')
 
 export const getSet = (setId: string) => apiFetchPublic<TuneSet>(`/sets/${setId}`)
 
-export const createSet = (userId: string, title: string, items: SaveSetItem[]) =>
-  apiFetch<TuneSet>(`/users/${userId}/sets`, {
+export const createSet = (title: string, items: SaveSetItem[]) =>
+  apiFetch<TuneSet>('/sets', {
     method: 'POST',
     body: JSON.stringify({ title, items }),
   })
@@ -436,7 +449,6 @@ export const getGroupDetails = (groupId: string, userId: string) =>
 export interface CreateGroupParams {
   name: string
   description: string
-  userId: string
   city?: string
   isPrivate?: boolean
   recurrencePattern?: RecurrencePattern
@@ -465,17 +477,15 @@ export const createGroup = (params: CreateGroupParams) =>
 
 export const updateGroupInfo = (
   groupId: string,
-  userId: string,
   info: { name: string; description: string; city?: string; isPrivate: boolean },
 ) =>
   apiFetch<void>(`/groups/${groupId}/info`, {
     method: 'POST',
-    body: JSON.stringify({ userId, ...info }),
+    body: JSON.stringify(info),
   })
 
 export const replaceGroupSchedules = (
   groupId: string,
-  userId: string,
   schedules: Array<{
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
@@ -488,23 +498,22 @@ export const replaceGroupSchedules = (
 ) =>
   apiFetch<void>(`/groups/${groupId}/schedules/replace`, {
     method: 'POST',
-    body: JSON.stringify({ userId, schedules }),
+    body: JSON.stringify({ schedules }),
   })
 
-export const createGroupUpdate = (groupId: string, userId: string, title: string, content: string) =>
+export const createGroupUpdate = (groupId: string, title: string, content: string) =>
   apiFetch<GroupUpdateData>(`/groups/${groupId}/updates`, {
     method: 'POST',
-    body: JSON.stringify({ userId, title, content }),
+    body: JSON.stringify({ title, content }),
   })
 
-export const deleteGroupUpdate = (groupId: string, updateId: string, userId: string) =>
-  apiFetch<void>(`/groups/${groupId}/updates/${updateId}?userId=${userId}`, {
+export const deleteGroupUpdate = (groupId: string, updateId: string) =>
+  apiFetch<void>(`/groups/${groupId}/updates/${updateId}`, {
     method: 'DELETE',
   })
 
 export const updateGroupSchedule = (
   groupId: string,
-  userId: string,
   scheduleConfig: {
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
@@ -517,12 +526,11 @@ export const updateGroupSchedule = (
 ) =>
   apiFetch<void>(`/groups/${groupId}/schedule`, {
     method: 'POST',
-    body: JSON.stringify({ userId, ...scheduleConfig }),
+    body: JSON.stringify(scheduleConfig),
   })
 
 export const addGroupSchedule = (
   groupId: string,
-  userId: string,
   scheduleConfig: {
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
@@ -535,94 +543,87 @@ export const addGroupSchedule = (
 ) =>
   apiFetch<GroupMeetingScheduleData>(`/groups/${groupId}/schedules`, {
     method: 'POST',
-    body: JSON.stringify({ userId, ...scheduleConfig }),
+    body: JSON.stringify(scheduleConfig),
   })
 
-export const deleteGroupSchedule = (groupId: string, scheduleId: string, userId: string) =>
-  apiFetch<void>(`/groups/${groupId}/schedules/${scheduleId}?userId=${userId}`, {
+export const deleteGroupSchedule = (groupId: string, scheduleId: string) =>
+  apiFetch<void>(`/groups/${groupId}/schedules/${scheduleId}`, {
     method: 'DELETE',
   })
 
-export const joinGroup = (groupId: string, userId: string, inviteCode?: string) =>
+export const joinGroup = (groupId: string, inviteCode?: string) =>
   apiFetch<JoinResult>(`/groups/${groupId}/join`, {
     method: 'POST',
-    body: JSON.stringify({ userId, inviteCode }),
+    body: JSON.stringify({ inviteCode }),
   })
 
-export const updateGroupPrivacy = (groupId: string, userId: string, isPrivate: boolean) =>
+export const updateGroupPrivacy = (groupId: string, isPrivate: boolean) =>
   apiFetch<void>(`/groups/${groupId}/privacy`, {
     method: 'PATCH',
-    body: JSON.stringify({ userId, isPrivate }),
+    body: JSON.stringify({ isPrivate }),
   })
 
-export const regenerateGroupInviteCode = (groupId: string, userId: string) =>
+export const regenerateGroupInviteCode = (groupId: string) =>
   apiFetch<{ inviteCode: string }>(`/groups/${groupId}/invite-code`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const approveGroupMember = (groupId: string, targetUserId: string, userId: string) =>
+export const approveGroupMember = (groupId: string, targetUserId: string) =>
   apiFetch<void>(`/groups/${groupId}/members/${targetUserId}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const rejectGroupMember = (groupId: string, targetUserId: string, userId: string) =>
+export const rejectGroupMember = (groupId: string, targetUserId: string) =>
   apiFetch<void>(`/groups/${groupId}/members/${targetUserId}/reject`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const leaveGroup = (groupId: string, userId: string) =>
+export const leaveGroup = (groupId: string) =>
   apiFetch<void>(`/groups/${groupId}/leave`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const removeGroupMember = (groupId: string, targetUserId: string, userId: string) =>
-  apiFetch<void>(`/groups/${groupId}/members/${targetUserId}?userId=${userId}`, {
+export const removeGroupMember = (groupId: string, targetUserId: string) =>
+  apiFetch<void>(`/groups/${groupId}/members/${targetUserId}`, {
     method: 'DELETE',
   })
 
-export const deleteGroup = (groupId: string, userId: string) =>
+export const deleteGroup = (groupId: string) =>
   apiFetch<void>(`/groups/${groupId}`, {
     method: 'DELETE',
-    body: JSON.stringify({ userId }),
   })
 
 
-export const grantGroupAdministrator = (groupId: string, targetUserId: string, userId: string) =>
+export const grantGroupAdministrator = (groupId: string, targetUserId: string) =>
   apiFetch<void>(`/groups/${groupId}/members/${targetUserId}/promote`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const revokeGroupAdministrator = (groupId: string, targetUserId: string, userId: string) =>
+export const revokeGroupAdministrator = (groupId: string, targetUserId: string) =>
   apiFetch<void>(`/groups/${groupId}/members/${targetUserId}/demote`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
   })
 
-export const transferGroupOwnership = (groupId: string, userId: string, newOwnerUserId: string) =>
+export const transferGroupOwnership = (groupId: string, newOwnerUserId: string) =>
   apiFetch<void>(`/groups/${groupId}/transfer-ownership`, {
     method: 'POST',
-    body: JSON.stringify({ userId, newOwnerUserId }),
+    body: JSON.stringify({ newOwnerUserId }),
   })
 
-export const addGroupTune = (groupId: string, userId: string, tuneId: string, tuneSettingId?: string) =>
+export const addGroupTune = (groupId: string, tuneId: string, tuneSettingId?: string) =>
   apiFetch<GroupTuneListItem>(`/groups/${groupId}/tunes`, {
     method: 'POST',
-    body: JSON.stringify({ userId, tuneId, tuneSettingId }),
+    body: JSON.stringify({ tuneId, tuneSettingId }),
   })
 
-export const updateGroupTune = (groupId: string, groupTuneId: string, userId: string, tuneSettingId?: string) =>
+export const updateGroupTune = (groupId: string, groupTuneId: string, tuneSettingId?: string) =>
   apiFetch<GroupTuneListItem>(`/groups/${groupId}/tunes/${groupTuneId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ userId, tuneSettingId }),
+    body: JSON.stringify({ tuneSettingId }),
   })
 
-export const removeGroupTune = (groupId: string, groupTuneId: string, userId: string) =>
-  apiFetch<void>(`/groups/${groupId}/tunes/${groupTuneId}?userId=${userId}`, {
+export const removeGroupTune = (groupId: string, groupTuneId: string) =>
+  apiFetch<void>(`/groups/${groupId}/tunes/${groupTuneId}`, {
     method: 'DELETE',
   })
 
@@ -657,20 +658,20 @@ export const getGroupSets = (groupId: string, userId: string) =>
 export const getGroupSet = (groupSetId: string, userId: string) =>
   apiFetchPublic<GroupSetData>(`/groupsets/${groupSetId}?userId=${userId}`)
 
-export const createGroupSet = (groupId: string, userId: string, title: string, items: SaveGroupSetItem[]) =>
+export const createGroupSet = (groupId: string, title: string, items: SaveGroupSetItem[]) =>
   apiFetch<GroupSetData>(`/groups/${groupId}/sets`, {
     method: 'POST',
-    body: JSON.stringify({ userId, title, items }),
+    body: JSON.stringify({ title, items }),
   })
 
-export const updateGroupSet = (groupSetId: string, userId: string, title: string, items: SaveGroupSetItem[]) =>
+export const updateGroupSet = (groupSetId: string, title: string, items: SaveGroupSetItem[]) =>
   apiFetch<GroupSetData>(`/groupsets/${groupSetId}`, {
     method: 'PUT',
-    body: JSON.stringify({ userId, title, items }),
+    body: JSON.stringify({ title, items }),
   })
 
-export const deleteGroupSet = (groupSetId: string, userId: string) =>
-  apiFetch<void>(`/groupsets/${groupSetId}?userId=${userId}`, { method: 'DELETE' })
+export const deleteGroupSet = (groupSetId: string) =>
+  apiFetch<void>(`/groupsets/${groupSetId}`, { method: 'DELETE' })
 
 // --- Scheduled Sessions ---
 
@@ -695,32 +696,30 @@ export const getGroupSessions = (groupId: string, userId: string) =>
 
 export const createGroupSession = (
   groupId: string,
-  userId: string,
   fields: { title: string; location?: string; startsAt: string; notes?: string; repeatWeeks: number },
 ) =>
   apiFetch<GroupSessionData[]>(`/groups/${groupId}/sessions`, {
     method: 'POST',
-    body: JSON.stringify({ userId, ...fields }),
+    body: JSON.stringify(fields),
   })
 
 export const updateGroupSession = (
   groupId: string,
   sessionId: string,
-  userId: string,
   patch: { title?: string; location?: string; startsAt?: string; notes?: string; isCancelled?: boolean },
 ) =>
   apiFetch<GroupSessionData>(`/groups/${groupId}/sessions/${sessionId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ userId, ...patch }),
+    body: JSON.stringify(patch),
   })
 
-export const deleteGroupSession = (groupId: string, sessionId: string, userId: string) =>
-  apiFetch<void>(`/groups/${groupId}/sessions/${sessionId}?userId=${userId}`, { method: 'DELETE' })
+export const deleteGroupSession = (groupId: string, sessionId: string) =>
+  apiFetch<void>(`/groups/${groupId}/sessions/${sessionId}`, { method: 'DELETE' })
 
-export const rsvpToGroupSession = (groupId: string, sessionId: string, userId: string, status: RsvpStatus) =>
+export const rsvpToGroupSession = (groupId: string, sessionId: string, status: RsvpStatus) =>
   apiFetch<GroupSessionData>(`/groups/${groupId}/sessions/${sessionId}/rsvp`, {
     method: 'POST',
-    body: JSON.stringify({ userId, status }),
+    body: JSON.stringify({ status }),
   })
 
 export interface UserProfile {

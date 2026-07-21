@@ -21,7 +21,7 @@ export default function DailyQueuePage() {
 
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
-    queryFn: () => getPracticeQueue(userId),
+    queryFn: () => getPracticeQueue(),
   })
 
   const practiceMutation = useMutation({

@@ -42,7 +42,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
   })
   const item = repertoire.data?.items?.find((i) => i.userTuneId === id)
 

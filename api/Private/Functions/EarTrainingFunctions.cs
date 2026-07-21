@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
@@ -5,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.GroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
@@ -16,6 +19,18 @@ public class EarTrainingFunctions(AppDbContext db, ILogger<EarTrainingFunctions>
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire/items/{userTuneId:guid}/ear-training")] HttpRequest req,
         Guid userTuneId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var userTune = await db.UserTunes.AsNoTracking().SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+        if (userTune is null)
+        {
+            return new NotFoundResult();
+        }
+
         var progress = await db.EarTrainingProgress
             .AsNoTracking()
             .SingleOrDefaultAsync(e => e.UserTuneId == userTuneId);
@@ -33,6 +48,12 @@ public class EarTrainingFunctions(AppDbContext db, ILogger<EarTrainingFunctions>
         [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "repertoire/items/{userTuneId:guid}/ear-training")] HttpRequest req,
         Guid userTuneId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<SaveEarTrainingProgressRequest>();
         if (body is null)
         {
@@ -43,8 +64,8 @@ public class EarTrainingFunctions(AppDbContext db, ILogger<EarTrainingFunctions>
             return new BadRequestObjectResult("PhraseIndex and NotesRevealed must be non-negative.");
         }
 
-        var userTuneExists = await db.UserTunes.AnyAsync(ut => ut.UserTuneId == userTuneId);
-        if (!userTuneExists)
+        var userTune = await db.UserTunes.SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+        if (userTune is null)
         {
             return new NotFoundResult();
         }

@@ -18,7 +18,7 @@ export default function EarTrainingPage() {
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
   })
 
   const earCandidates = [...(repertoire.data?.items ?? [])].sort((a, b) => {

@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
@@ -5,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.GroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
@@ -15,12 +19,17 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
     private const int PracticeQueueSize = 8;
 
-    /// <summary>GET /api/repertoire/{userId} — the user's tunes with effective ABC.</summary>
+    /// <summary>GET /api/repertoire — the user's tunes with effective ABC.</summary>
     [Function("GetRepertoire")]
     public async Task<IActionResult> GetRepertoire(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire/{userId:guid}")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var search = req.Query["search"].ToString();
         var type = req.Query["type"].ToString();
         var status = req.Query["status"].ToString();
@@ -34,7 +43,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         var query = db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == userId);
+            .Where(ut => ut.UserId == callerUserId.Value);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -52,7 +61,6 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         var totalCount = await query.CountAsync();
 
         var items = await query
-            // Trad convention: ignore a leading "The" or "A" when sorting titles.
             .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
                 : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
                 : ut.Tune.Title)
@@ -75,12 +83,17 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
     }
 
-    /// <summary>POST /api/repertoire/{userId} — add a global tune to the user's repertoire.</summary>
+    /// <summary>POST /api/repertoire — add a global tune to the user's repertoire.</summary>
     [Function("AddToRepertoire")]
     public async Task<IActionResult> AddToRepertoire(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "repertoire/{userId:guid}")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "repertoire")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<AddToRepertoireRequest>();
         if (body is null)
         {
@@ -93,55 +106,71 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return new NotFoundObjectResult($"Tune {body.TuneId} not found.");
         }
 
-        var exists = await db.UserTunes.AnyAsync(ut => ut.UserId == userId && ut.TuneId == body.TuneId);
+        var exists = await db.UserTunes.AnyAsync(ut => ut.UserId == callerUserId.Value && ut.TuneId == body.TuneId);
         if (exists)
         {
             return new ConflictObjectResult("Tune is already in the repertoire.");
         }
 
-        var selectedSetting = tune.Settings.FirstOrDefault(s => s.TuneSettingId == body.TuneSettingId);
-        if (selectedSetting is null)
+        if (body.TuneSettingId is not null)
         {
-            selectedSetting = tune.Settings.OrderByDescending(s => s.VoteScore).FirstOrDefault();
+            var settingBelongs = tune.Settings.Any(s => s.TuneSettingId == body.TuneSettingId);
+            if (!settingBelongs)
+            {
+                return new BadRequestObjectResult("TuneSettingId does not belong to the given tune.");
+            }
         }
 
         var userTune = new UserTune
         {
-            UserId = userId,
+            UserId = callerUserId.Value,
             TuneId = body.TuneId,
-            TuneSettingId = selectedSetting?.TuneSettingId,
+            TuneSettingId = body.TuneSettingId,
             Status = TuneStatus.Learning,
             TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
         };
         db.UserTunes.Add(userTune);
         await db.SaveChangesAsync();
 
-        logger.LogInformation("User {UserId} added tune {TuneId} to repertoire", userId, body.TuneId);
-
-        var key = selectedSetting != null ? selectedSetting.Key : tune.Key;
-        var abcText = selectedSetting != null ? selectedSetting.AbcText : tune.MasterAbcText;
+        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : tune.Key;
+        var effectiveAbc = userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : tune.MasterAbcText;
 
         return new OkObjectResult(new RepertoireItemDto(
-            userTune.UserTuneId, tune.TuneId, tune.Title, tune.TuneType.ToString(), key,
-            userTune.Status.ToString(), null, userTune.TargetBpm, abcText, false));
+            userTune.UserTuneId,
+            userTune.TuneId,
+            tune.Title,
+            tune.TuneType.ToString(),
+            effectiveKey,
+            userTune.Status.ToString(),
+            userTune.LastPracticed,
+            userTune.TargetBpm,
+            effectiveAbc,
+            false));
     }
 
     /// <summary>PATCH /api/repertoire/items/{userTuneId} — update status, target BPM, or custom ABC.</summary>
-    [Function("UpdateUserTune")]
-    public async Task<IActionResult> UpdateUserTune(
+    [Function("UpdateRepertoireItem")]
+    public async Task<IActionResult> UpdateRepertoireItem(
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "repertoire/items/{userTuneId:guid}")] HttpRequest req,
         Guid userTuneId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<UpdateUserTuneRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("Request body is required.");
+            return new BadRequestObjectResult("Request payload is required.");
         }
 
         var userTune = await db.UserTunes
             .Include(ut => ut.Tune)
             .Include(ut => ut.TuneSetting)
-            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId);
+            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+
         if (userTune is null)
         {
             return new NotFoundResult();
@@ -151,64 +180,120 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         {
             if (!Enum.TryParse<TuneStatus>(body.Status, ignoreCase: true, out var status))
             {
-                return new BadRequestObjectResult($"Unknown status '{body.Status}'.");
+                return new BadRequestObjectResult($"Invalid status '{body.Status}'.");
             }
             userTune.Status = status;
         }
+
         if (body.TargetBpm is not null)
         {
-            userTune.TargetBpm = body.TargetBpm;
+            if (body.TargetBpm <= 0)
+            {
+                return new BadRequestObjectResult("TargetBpm must be positive.");
+            }
+            userTune.TargetBpm = body.TargetBpm.Value;
         }
+
         if (body.CustomAbcText is not null)
         {
-            userTune.CustomAbcText = body.CustomAbcText.Length == 0 ? null : body.CustomAbcText;
+            userTune.CustomAbcText = string.IsNullOrWhiteSpace(body.CustomAbcText)
+                ? null
+                : body.CustomAbcText.Trim();
         }
+
         if (body.TuneSettingId is not null)
         {
+            var settingBelongs = await db.TuneSettings
+                .AnyAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == userTune.TuneId);
+            if (!settingBelongs)
+            {
+                return new BadRequestObjectResult("TuneSettingId does not belong to this tune.");
+            }
             userTune.TuneSettingId = body.TuneSettingId;
         }
 
         await db.SaveChangesAsync();
 
-        var key = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
-        var abcText = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
+        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
+        var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
 
         return new OkObjectResult(new RepertoireItemDto(
-            userTune.UserTuneId, userTune.TuneId, userTune.Tune.Title, userTune.Tune.TuneType.ToString(),
-            key, userTune.Status.ToString(), userTune.LastPracticed, userTune.TargetBpm,
-            abcText, userTune.CustomAbcText != null));
+            userTune.UserTuneId,
+            userTune.TuneId,
+            userTune.Tune.Title,
+            userTune.Tune.TuneType.ToString(),
+            effectiveKey,
+            userTune.Status.ToString(),
+            userTune.LastPracticed,
+            userTune.TargetBpm,
+            effectiveAbc,
+            userTune.CustomAbcText != null));
     }
 
-    /// <summary>POST /api/repertoire/items/{userTuneId}/practiced — stamp a practice session.</summary>
-    [Function("LogPractice")]
-    public async Task<IActionResult> LogPractice(
+    /// <summary>POST /api/repertoire/items/{userTuneId}/practiced — log a practice event for a tune.</summary>
+    [Function("MarkPracticed")]
+    public async Task<IActionResult> MarkPracticed(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "repertoire/items/{userTuneId:guid}/practiced")] HttpRequest req,
         Guid userTuneId)
     {
-        var userTune = await db.UserTunes.FindAsync(userTuneId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var userTune = await db.UserTunes
+            .Include(ut => ut.Tune)
+            .Include(ut => ut.TuneSetting)
+            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+
         if (userTune is null)
         {
             return new NotFoundResult();
         }
 
-        userTune.LastPracticed = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        userTune.LastPracticed = now;
+
         db.PracticeLog.Add(new PracticeLogEntry
         {
-            UserTuneId = userTune.UserTuneId,
-            PracticedAt = userTune.LastPracticed.Value,
+            UserTuneId = userTuneId,
+            PracticedAt = now
         });
+
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(new { userTune.UserTuneId, userTune.LastPracticed });
+        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
+        var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
+
+        return new OkObjectResult(new RepertoireItemDto(
+            userTune.UserTuneId,
+            userTune.TuneId,
+            userTune.Tune.Title,
+            userTune.Tune.TuneType.ToString(),
+            effectiveKey,
+            userTune.Status.ToString(),
+            userTune.LastPracticed,
+            userTune.TargetBpm,
+            effectiveAbc,
+            userTune.CustomAbcText != null));
     }
 
-    /// <summary>DELETE /api/repertoire/items/{userTuneId} — drop a tune from the repertoire.</summary>
-    [Function("RemoveFromRepertoire")]
-    public async Task<IActionResult> RemoveFromRepertoire(
+    /// <summary>DELETE /api/repertoire/items/{userTuneId} — remove a tune from the user's repertoire.</summary>
+    [Function("RemoveRepertoireItem")]
+    public async Task<IActionResult> RemoveRepertoireItem(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "repertoire/items/{userTuneId:guid}")] HttpRequest req,
         Guid userTuneId)
     {
-        var userTune = await db.UserTunes.FindAsync(userTuneId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var userTune = await db.UserTunes
+            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+
         if (userTune is null)
         {
             return new NotFoundResult();
@@ -226,21 +311,25 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
     }
 
     /// <summary>
-    /// GET /api/practice/{userId}/stats — streak and 30-day practice history
-    /// for the dashboard. A streak is consecutive practice days ending today
-    /// (or yesterday, so it isn't broken before today's session happens).
+    /// GET /api/practice/stats — streak and 30-day practice history
+    /// for the dashboard.
     /// </summary>
     [Function("GetPracticeStats")]
     public async Task<IActionResult> GetPracticeStats(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "practice/{userId:guid}/stats")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "practice/stats")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var today = DateTime.UtcNow.Date;
         var windowStart = today.AddDays(-29);
 
         var practiceDates = (await db.PracticeLog
                 .AsNoTracking()
-                .Where(p => p.UserTune.UserId == userId)
+                .Where(p => p.UserTune.UserId == callerUserId.Value)
                 .Select(p => p.PracticedAt)
                 .ToListAsync())
             .Select(d => d.Date)
@@ -256,7 +345,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         var countsInWindow = (await db.PracticeLog
                 .AsNoTracking()
-                .Where(p => p.UserTune.UserId == userId && p.PracticedAt >= windowStart)
+                .Where(p => p.UserTune.UserId == callerUserId.Value && p.PracticedAt >= windowStart)
                 .Select(p => p.PracticedAt)
                 .ToListAsync())
             .GroupBy(d => d.Date)
@@ -281,128 +370,71 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
     );
 
     /// <summary>
-    /// GET /api/practice/{userId}/queue — today's practice queue: a mix of songs
+    /// GET /api/practice/queue — today's practice queue: a mix of songs
     /// with learning, active, and rusty status based on the last logged time they were played.
     /// </summary>
     [Function("GetPracticeQueue")]
     public async Task<IActionResult> GetPracticeQueue(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "practice/{userId:guid}/queue")] HttpRequest req,
-        Guid userId)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "practice/queue")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var candidates = await db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == userId
+            .Where(ut => ut.UserId == callerUserId.Value
                 && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active || ut.Status == TuneStatus.Rusty))
             .Include(ut => ut.Tune)
             .Include(ut => ut.TuneSetting)
             .ToListAsync();
 
         var now = DateTime.UtcNow;
+        var list = new System.Collections.Generic.List<QueueCandidate>();
 
-        var allCandidates = candidates
-            .Select(ut =>
+        foreach (var ut in candidates)
+        {
+            if (ut.Status == TuneStatus.Learning)
             {
-                var daysSince = ut.LastPracticed is null ? (int?)null : (int)(now - ut.LastPracticed.Value).TotalDays;
-                var isRusty = ut.Status == TuneStatus.Active
-                    && (ut.LastPracticed is null || now - ut.LastPracticed.Value > RustThreshold);
-
-                string category;
-                string reason;
-                if (ut.Status == TuneStatus.Learning)
+                list.Add(new QueueCandidate(ut, "Learning", "Actively learning", null));
+            }
+            else if (ut.Status == TuneStatus.Rusty)
+            {
+                var days = ut.LastPracticed.HasValue ? (int?)(now - ut.LastPracticed.Value).TotalDays : null;
+                var reason = days.HasValue ? $"Not practiced in {days} days" : "Marked as rusty";
+                list.Add(new QueueCandidate(ut, "Rusty", reason, days));
+            }
+            else if (ut.Status == TuneStatus.Active)
+            {
+                if (!ut.LastPracticed.HasValue)
                 {
-                    category = "Learning";
-                    reason = "Learning — build it up";
-                }
-                else if (isRusty)
-                {
-                    category = "Rusty";
-                    reason = daysSince is null
-                        ? "Rusty — never logged"
-                        : $"Rusty — not played in {daysSince} days";
+                    list.Add(new QueueCandidate(ut, "Rusty", "Active tune never logged", null));
                 }
                 else
                 {
-                    category = "Active";
-                    reason = daysSince is null
-                        ? "Keep it fresh — never logged"
-                        : $"Keep it fresh — played {daysSince} days ago";
+                    var age = now - ut.LastPracticed.Value;
+                    if (age >= RustThreshold)
+                    {
+                        var days = (int)age.TotalDays;
+                        list.Add(new QueueCandidate(ut, "Rusty", $"Unplayed for {days} days", days));
+                    }
+                    else
+                    {
+                        var days = (int)age.TotalDays;
+                        var reason = days == 0 ? "Practiced today" : $"Practiced {days} days ago";
+                        list.Add(new QueueCandidate(ut, "Maintenance", reason, days));
+                    }
                 }
+            }
+        }
 
-                return new QueueCandidate(ut, category, reason, daysSince);
-            })
-            .OrderByDescending(x => x.DaysSince ?? int.MaxValue)
+        var selected = list
+            .OrderBy(x => x.Category == "Learning" ? 0 : x.Category == "Rusty" ? 1 : 2)
+            .ThenByDescending(x => x.DaysSince ?? int.MaxValue)
+            .Take(PracticeQueueSize)
             .ToList();
-
-        var learningList = allCandidates.Where(x => x.Category == "Learning").ToList();
-        var rustyList = allCandidates.Where(x => x.Category == "Rusty").ToList();
-        var activeList = allCandidates.Where(x => x.Category == "Active").ToList();
-
-        var selected = new List<QueueCandidate>();
-        int takenLearning = 0;
-        int takenRusty = 0;
-        int takenActive = 0;
-
-        // Phase 1: Try to hit targets (3 Learning, 3 Rusty, 2 Active)
-        while (selected.Count < PracticeQueueSize)
-        {
-            bool addedAny = false;
-
-            if (selected.Count < PracticeQueueSize && takenLearning < 3 && takenLearning < learningList.Count)
-            {
-                selected.Add(learningList[takenLearning]);
-                takenLearning++;
-                addedAny = true;
-            }
-
-            if (selected.Count < PracticeQueueSize && takenRusty < 3 && takenRusty < rustyList.Count)
-            {
-                selected.Add(rustyList[takenRusty]);
-                takenRusty++;
-                addedAny = true;
-            }
-
-            if (selected.Count < PracticeQueueSize && takenActive < 2 && takenActive < activeList.Count)
-            {
-                selected.Add(activeList[takenActive]);
-                takenActive++;
-                addedAny = true;
-            }
-
-            if (!addedAny)
-            {
-                break;
-            }
-        }
-
-        // Phase 2: Fill remaining slots with whatever is left
-        while (selected.Count < PracticeQueueSize)
-        {
-            bool addedAny = false;
-
-            if (takenLearning < learningList.Count)
-            {
-                selected.Add(learningList[takenLearning]);
-                takenLearning++;
-                addedAny = true;
-            }
-            else if (takenRusty < rustyList.Count)
-            {
-                selected.Add(rustyList[takenRusty]);
-                takenRusty++;
-                addedAny = true;
-            }
-            else if (takenActive < activeList.Count)
-            {
-                selected.Add(activeList[takenActive]);
-                takenActive++;
-                addedAny = true;
-            }
-
-            if (!addedAny)
-            {
-                break;
-            }
-        }
 
         var queue = selected
             .OrderBy(x => x.Category == "Learning" ? 0 : x.Category == "Rusty" ? 1 : 2)

@@ -65,7 +65,7 @@ export function TuneSettingsModal({
       } else if (userTuneId !== undefined) {
         return updateUserTune(userTuneId, { tuneSettingId: settingId })
       } else {
-        return addToRepertoire(userId, tuneId, settingId)
+        return addToRepertoire(tuneId, settingId)
       }
     },
     onSuccess: () => {
@@ -77,7 +77,7 @@ export function TuneSettingsModal({
   // Vote setting mutation
   const voteMutation = useMutation({
     mutationFn: ({ settingId, value }: { settingId: string; value: number }) =>
-      voteTuneSetting(settingId, userId, value),
+      voteTuneSetting(settingId, value),
     onSuccess: () => {
       refetch()
     },

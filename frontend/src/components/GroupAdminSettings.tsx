@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from 'react'
-import { GroupDetails, updateGroupInfo, replaceGroupSchedules } from '../services/api'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { GroupDetails, updateGroupInfo, replaceGroupSchedules, deleteGroup } from '../services/api'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from './GroupScheduleBuilder'
 import { GroupUpdates } from './GroupUpdates'
 import { showToast } from '../state/appState'
@@ -9,10 +11,14 @@ import { showToast } from '../state/appState'
 interface GroupAdminSettingsProps {
   details: GroupDetails
   userId: string
+  isOwner: boolean
   onSaved: () => void
 }
 
-export function GroupAdminSettings({ details, userId, onSaved }: GroupAdminSettingsProps) {
+export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupAdminSettingsProps) {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+
   // General Info State
   const [name, setName] = useState(details.name)
   const [description, setDescription] = useState(details.description ?? '')
@@ -36,6 +42,21 @@ export function GroupAdminSettings({ details, userId, onSaved }: GroupAdminSetti
   const [schedulesSaving, setSchedulesSaving] = useState(false)
   const [schedulesError, setSchedulesError] = useState<string | null>(null)
 
+  // Delete Group State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteGroup(details.groupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups', userId] })
+      showToast('Group deleted successfully.', 'success')
+      router.push('/groups')
+    },
+  })
+
+  const canDelete = deleteConfirmText.trim().toLowerCase() === details.name.trim().toLowerCase() && !deleteMutation.isPending
+
   const handleInfoSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !description.trim()) return
@@ -44,7 +65,7 @@ export function GroupAdminSettings({ details, userId, onSaved }: GroupAdminSetti
     setInfoError(null)
 
     try {
-      await updateGroupInfo(details.groupId, userId, {
+      await updateGroupInfo(details.groupId, {
         name: name.trim(),
         description: description.trim(),
         city: city.trim() || undefined,
@@ -75,7 +96,7 @@ export function GroupAdminSettings({ details, userId, onSaved }: GroupAdminSetti
         meetingDescription: s.meetingDescription.trim() || undefined,
       }))
 
-      await replaceGroupSchedules(details.groupId, userId, formattedSchedules)
+      await replaceGroupSchedules(details.groupId, formattedSchedules)
       showToast('Meeting schedules updated successfully!')
       onSaved()
     } catch (err: any) {
@@ -186,6 +207,66 @@ export function GroupAdminSettings({ details, userId, onSaved }: GroupAdminSetti
           updates={details.updates ?? []}
         />
       </div>
+
+      {/* 4. Danger Zone: Delete Group (Owner Only) */}
+      {isOwner && (
+        <div className="card" style={{ padding: '1.5rem', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid var(--danger)' }}>
+          <h3 style={{ marginTop: 0, color: 'var(--danger)' }}>⚠️ Danger Zone</h3>
+          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+            As the owner, you can permanently delete this group, its meeting schedules, shared sets, and membership records. This action cannot be undone.
+          </p>
+
+          {!showDeleteConfirm ? (
+            <button
+              type="button"
+              style={{ background: 'var(--danger)', color: '#fff' }}
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete Group
+            </button>
+          ) : (
+            <div style={{ background: 'var(--surface-1)', padding: '1.25rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <p style={{ margin: 0 }}>
+                To confirm permanent deletion of <strong>{details.name}</strong>, type the group name below:
+              </p>
+
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={details.name}
+                style={{ width: '100%' }}
+                disabled={deleteMutation.isPending}
+              />
+
+              {deleteMutation.isError && (
+                <p className="error" style={{ margin: 0 }}>
+                  {(deleteMutation.error as Error).message || 'Failed to delete the group.'}
+                </p>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleteMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={{ background: 'var(--danger)', color: '#fff' }}
+                  disabled={!canDelete}
+                  onClick={() => deleteMutation.mutate()}
+                >
+                  {deleteMutation.isPending ? 'Deleting…' : 'Permanently Delete Group'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -37,13 +37,13 @@ export function Groups() {
 
   // Join group mutation
   const joinMutation = useMutation({
-    mutationFn: (groupId: string) => joinGroup(groupId, userId),
+    mutationFn: (groupId: string) => joinGroup(groupId),
     onSuccess: invalidate,
   })
 
   // Leave group mutation
   const leaveMutation = useMutation({
-    mutationFn: (groupId: string) => leaveGroup(groupId, userId),
+    mutationFn: (groupId: string) => leaveGroup(groupId),
     onSuccess: invalidate,
   })
 
@@ -63,7 +63,6 @@ export function Groups() {
       return createGroup({
         name: newGroupName.trim(),
         description: newGroupDescription.trim(),
-        userId,
         city: newGroupCity.trim() || undefined,
         isPrivate: newGroupPrivate,
         schedules: formattedSchedules,

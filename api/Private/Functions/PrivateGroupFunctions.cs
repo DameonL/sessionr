@@ -19,6 +19,12 @@ public class PrivateGroupFunctions(AppDbContext db)
     public async Task<IActionResult> CreateGroup(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateGroupRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Name))
         {
@@ -29,10 +35,10 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new BadRequestObjectResult("Group description is required.");
         }
 
-        var user = await db.Users.FindAsync(body.UserId);
+        var user = await db.Users.FindAsync(callerUserId.Value);
         if (user is null)
         {
-            return new NotFoundObjectResult($"User {body.UserId} not found.");
+            return new NotFoundObjectResult($"User {callerUserId.Value} not found.");
         }
 
         var group = new Group
@@ -106,13 +112,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/updates")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateGroupUpdateRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Title) || string.IsNullOrWhiteSpace(body.Content))
         {
             return new BadRequestObjectResult("Title and Content are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can post updates.");
@@ -123,12 +135,12 @@ public class PrivateGroupFunctions(AppDbContext db)
             GroupId = groupId,
             Title = body.Title.Trim(),
             Content = body.Content.Trim(),
-            CreatedByUserId = body.UserId,
+            CreatedByUserId = callerUserId.Value,
         };
         db.GroupUpdates.Add(update);
         await db.SaveChangesAsync();
 
-        var user = await db.Users.FindAsync(body.UserId);
+        var user = await db.Users.FindAsync(callerUserId.Value);
 
         return new OkObjectResult(new GroupUpdateDto(
             update.GroupUpdateId,
@@ -140,15 +152,19 @@ public class PrivateGroupFunctions(AppDbContext db)
             update.CreatedAt));
     }
 
-    /// <summary>DELETE /api/groups/{groupId}/updates/{updateId}?userId= — admins/owner delete updates.</summary>
+    /// <summary>DELETE /api/groups/{groupId}/updates/{updateId} — admins/owner delete updates.</summary>
     [Function("DeleteGroupUpdate")]
     public async Task<IActionResult> DeleteGroupUpdate(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/updates/{updateId:guid}")] HttpRequest req,
         Guid groupId, Guid updateId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
-        var actorRole = await db.GetRoleAsync(groupId, userId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can delete updates.");
@@ -172,13 +188,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedule")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<UpdateGroupScheduleRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return new BadRequestObjectResult("Request body is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can update the meeting schedule.");
@@ -210,13 +232,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedules")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateGroupScheduleRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return new BadRequestObjectResult("Request body is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can add meeting schedules.");
@@ -249,15 +277,19 @@ public class PrivateGroupFunctions(AppDbContext db)
             schedule.MeetingDescription));
     }
 
-    /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId}?userId= — admins/owner delete a schedule.</summary>
+    /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId} — admins/owner delete a schedule.</summary>
     [Function("DeleteGroupSchedule")]
     public async Task<IActionResult> DeleteGroupSchedule(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/schedules/{scheduleId:guid}")] HttpRequest req,
         Guid groupId, Guid scheduleId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
-        var actorRole = await db.GetRoleAsync(groupId, userId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can delete meeting schedules.");
@@ -281,13 +313,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/info")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<UpdateGroupInfoRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Name) || string.IsNullOrWhiteSpace(body.Description))
         {
             return new BadRequestObjectResult("Name and Description are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can update group settings.");
@@ -315,13 +353,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedules/replace")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<ReplaceGroupSchedulesRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return new BadRequestObjectResult("Request payload is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can update meeting schedules.");
@@ -366,11 +410,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/join")] HttpRequest req,
         Guid groupId)
     {
-        var body = await req.ReadFromJsonAsync<JoinGroupRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
+
+        var body = await req.ReadFromJsonAsync<JoinGroupRequest>();
 
         var group = await db.Groups.FindAsync(groupId);
         if (group is null)
@@ -378,13 +424,13 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var user = await db.Users.FindAsync(body.UserId);
+        var user = await db.Users.FindAsync(callerUserId.Value);
         if (user is null)
         {
-            return new NotFoundObjectResult($"User {body.UserId} not found.");
+            return new NotFoundObjectResult($"User {callerUserId.Value} not found.");
         }
 
-        var existing = await db.GroupMemberships.SingleOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == body.UserId);
+        var existing = await db.GroupMemberships.SingleOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == callerUserId.Value);
         if (existing is not null)
         {
             return new ConflictObjectResult(existing.Status == GroupMembershipStatus.Pending
@@ -392,16 +438,17 @@ public class PrivateGroupFunctions(AppDbContext db)
                 : "User is already a member of this group.");
         }
 
+        var inviteCode = body?.InviteCode;
         var codeValid = group.IsPrivate
-            && !string.IsNullOrWhiteSpace(body.InviteCode)
-            && string.Equals(body.InviteCode.Trim(), group.InviteCode, StringComparison.OrdinalIgnoreCase);
+            && !string.IsNullOrWhiteSpace(inviteCode)
+            && string.Equals(inviteCode.Trim(), group.InviteCode, StringComparison.OrdinalIgnoreCase);
 
         var status = !group.IsPrivate || codeValid ? GroupMembershipStatus.Active : GroupMembershipStatus.Pending;
 
         db.GroupMemberships.Add(new GroupMembership
         {
             GroupId = groupId,
-            UserId = body.UserId,
+            UserId = callerUserId.Value,
             Role = GroupRole.Member,
             Status = status
         });
@@ -420,10 +467,10 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/leave")] HttpRequest req,
         Guid groupId)
     {
-        var body = await req.ReadFromJsonAsync<GroupJoinLeaveRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
         var group = await db.Groups.Include(g => g.Memberships).SingleOrDefaultAsync(g => g.GroupId == groupId);
@@ -432,13 +479,13 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var membership = group.Memberships.FirstOrDefault(m => m.UserId == body.UserId);
+        var membership = group.Memberships.FirstOrDefault(m => m.UserId == callerUserId.Value);
         if (membership is null)
         {
             return new NotFoundObjectResult("User is not a member of this group.");
         }
 
-        var otherActiveMembers = group.Memberships.Count(m => m.Status == GroupMembershipStatus.Active && m.UserId != body.UserId);
+        var otherActiveMembers = group.Memberships.Count(m => m.Status == GroupMembershipStatus.Active && m.UserId != callerUserId.Value);
 
         if (membership.Role == GroupRole.Owner && membership.Status == GroupMembershipStatus.Active && otherActiveMembers > 0)
         {
@@ -447,7 +494,6 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         db.GroupMemberships.Remove(membership);
 
-        // If no active members remain, clean up the group (cascades memberships/pending requests/tunes).
         if (otherActiveMembers == 0)
         {
             db.Groups.Remove(group);
@@ -459,7 +505,7 @@ public class PrivateGroupFunctions(AppDbContext db)
     }
 
     /// <summary>
-    /// DELETE /api/groups/{groupId}/members/{targetUserId}?userId={actingUserId} — remove a member.
+    /// DELETE /api/groups/{groupId}/members/{targetUserId} — remove a member.
     /// Administrators may remove regular members; only the owner may remove administrators.
     /// Nobody can remove the owner or themselves this way (use transfer-ownership / leave instead).
     /// </summary>
@@ -468,14 +514,18 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/members/{targetUserId:guid}")] HttpRequest req,
         Guid groupId, Guid targetUserId)
     {
-        Guid.TryParse(req.Query["userId"], out var actingUserId);
+        var actingUserId = await req.GetCallerUserIdAsync(db);
+        if (!actingUserId.HasValue || actingUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
-        if (actingUserId == targetUserId)
+        if (actingUserId.Value == targetUserId)
         {
             return new BadRequestObjectResult("Use the leave-group action to remove yourself.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, actingUserId);
+        var actorRole = await db.GetRoleAsync(groupId, actingUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can remove members.");
@@ -513,13 +563,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/members/{targetUserId:guid}/promote")] HttpRequest req,
         Guid groupId, Guid targetUserId)
     {
-        var body = await req.ReadFromJsonAsync<GroupRoleActionRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole != GroupRole.Owner)
         {
             return Forbidden("Only the group owner can assign administrators.");
@@ -548,13 +598,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/members/{targetUserId:guid}/demote")] HttpRequest req,
         Guid groupId, Guid targetUserId)
     {
-        var body = await req.ReadFromJsonAsync<GroupRoleActionRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole != GroupRole.Owner)
         {
             return Forbidden("Only the group owner can revoke administrator access.");
@@ -586,18 +636,24 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/transfer-ownership")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<TransferOwnershipRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId and NewOwnerUserId are required.");
+            return new BadRequestObjectResult("NewOwnerUserId is required.");
         }
 
-        if (body.UserId == body.NewOwnerUserId)
+        if (callerUserId.Value == body.NewOwnerUserId)
         {
             return new BadRequestObjectResult("You are already the group owner.");
         }
 
-        var currentOwner = await db.GroupMemberships.SingleOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == body.UserId);
+        var currentOwner = await db.GroupMemberships.SingleOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == callerUserId.Value);
         if (currentOwner is null || currentOwner.Role != GroupRole.Owner)
         {
             return Forbidden("Only the group owner can transfer ownership.");
@@ -622,13 +678,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "groups/{groupId:guid}/privacy")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<UpdateGroupPrivacyRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return new BadRequestObjectResult("Request payload is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can change privacy settings.");
@@ -652,13 +714,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/invite-code")] HttpRequest req,
         Guid groupId)
     {
-        var body = await req.ReadFromJsonAsync<GroupRoleActionRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can regenerate the invite code.");
@@ -682,13 +744,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/members/{targetUserId:guid}/approve")] HttpRequest req,
         Guid groupId, Guid targetUserId)
     {
-        var body = await req.ReadFromJsonAsync<GroupRoleActionRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can approve join requests.");
@@ -713,13 +775,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/members/{targetUserId:guid}/reject")] HttpRequest req,
         Guid groupId, Guid targetUserId)
     {
-        var body = await req.ReadFromJsonAsync<GroupRoleActionRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (!actorRole.IsAdminOrOwner())
         {
             return Forbidden("Only group administrators can reject join requests.");
@@ -743,13 +805,19 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/tunes")] HttpRequest req,
         Guid groupId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<AddGroupTuneRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId and TuneId are required.");
+            return new BadRequestObjectResult("TuneId is required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can edit the master tune list.");
@@ -781,7 +849,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             GroupId = groupId,
             TuneId = body.TuneId,
             TuneSettingId = body.TuneSettingId,
-            AddedByUserId = body.UserId,
+            AddedByUserId = callerUserId.Value,
         };
         db.GroupTunes.Add(groupTune);
         await db.SaveChangesAsync();
@@ -795,13 +863,15 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "groups/{groupId:guid}/tunes/{groupTuneId:guid}")] HttpRequest req,
         Guid groupId, Guid groupTuneId)
     {
-        var body = await req.ReadFromJsonAsync<UpdateGroupTuneRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var body = await req.ReadFromJsonAsync<UpdateGroupTuneRequest>();
+
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can edit the master tune list.");
@@ -813,7 +883,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
-        if (body.TuneSettingId is not null)
+        if (body?.TuneSettingId is not null)
         {
             var settingBelongs = await db.TuneSettings.AnyAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == groupTune.TuneId);
             if (!settingBelongs)
@@ -822,21 +892,25 @@ public class PrivateGroupFunctions(AppDbContext db)
             }
         }
 
-        groupTune.TuneSettingId = body.TuneSettingId;
+        groupTune.TuneSettingId = body?.TuneSettingId;
         await db.SaveChangesAsync();
 
         return new OkObjectResult(await GetGroupTuneAsync(groupTune.GroupTuneId));
     }
 
-    /// <summary>DELETE /api/groups/{groupId}/tunes/{groupTuneId}?userId= — remove a tune from the master list.</summary>
+    /// <summary>DELETE /api/groups/{groupId}/tunes/{groupTuneId} — remove a tune from the master list.</summary>
     [Function("RemoveGroupTune")]
     public async Task<IActionResult> RemoveGroupTune(
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/tunes/{groupTuneId:guid}")] HttpRequest req,
         Guid groupId, Guid groupTuneId)
     {
-        Guid.TryParse(req.Query["userId"], out var userId);
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
 
-        var actorRole = await db.GetRoleAsync(groupId, userId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
             return Forbidden("Only group administrators can edit the master tune list.");
@@ -875,13 +949,13 @@ public class PrivateGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}")] HttpRequest req,
         Guid groupId)
     {
-        var body = await req.ReadFromJsonAsync<GroupJoinLeaveRequest>();
-        if (body is null)
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return new BadRequestObjectResult("UserId is required.");
+            return Unauthorized("Authentication credentials are required.");
         }
 
-        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
         if (actorRole != GroupRole.Owner)
         {
             return Forbidden("Only the group owner can delete this group.");

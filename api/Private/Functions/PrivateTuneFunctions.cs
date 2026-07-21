@@ -118,10 +118,16 @@ public class PrivateTuneFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "tunes/settings/{settingId:guid}/vote")] HttpRequest req,
         Guid settingId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<VoteSettingRequest>();
         if (body is null)
         {
-            return new BadRequestObjectResult("UserId and Value are required.");
+            return new BadRequestObjectResult("Value is required.");
         }
 
         var setting = await db.TuneSettings
@@ -134,7 +140,7 @@ public class PrivateTuneFunctions(AppDbContext db)
         }
 
         // Only registered users get to vote on tunes
-        var userExists = await db.Users.AnyAsync(u => u.UserId == body.UserId);
+        var userExists = await db.Users.AnyAsync(u => u.UserId == callerUserId.Value);
         if (!userExists)
         {
             return new BadRequestObjectResult("User does not exist.");
@@ -142,7 +148,7 @@ public class PrivateTuneFunctions(AppDbContext db)
 
         // They can only vote on a given tune once
         var hasVotedOnOtherSetting = await db.TuneSettingVotes
-            .AnyAsync(v => v.UserId == body.UserId 
+            .AnyAsync(v => v.UserId == callerUserId.Value 
                         && v.TuneSetting.TuneId == setting.TuneId 
                         && v.TuneSettingId != settingId);
         if (hasVotedOnOtherSetting)
@@ -154,7 +160,7 @@ public class PrivateTuneFunctions(AppDbContext db)
         if (val < -1) val = -1;
         if (val > 1) val = 1;
 
-        var existingVote = setting.Votes.FirstOrDefault(v => v.UserId == body.UserId);
+        var existingVote = setting.Votes.FirstOrDefault(v => v.UserId == callerUserId.Value);
         if (existingVote is not null)
         {
             if (val == 0)
@@ -171,7 +177,7 @@ public class PrivateTuneFunctions(AppDbContext db)
             var vote = new TuneSettingVote
             {
                 TuneSettingId = settingId,
-                UserId = body.UserId,
+                UserId = callerUserId.Value,
                 Value = val
             };
             db.TuneSettingVotes.Add(vote);

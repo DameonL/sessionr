@@ -22,7 +22,6 @@ import {
   regenerateGroupInviteCode,
   approveGroupMember,
   rejectGroupMember,
-  deleteGroup,
   type GroupMember,
   type GroupTuneListItem,
 } from '../services/api'
@@ -78,7 +77,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'overview' | 'tunes' | 'sets' | 'sessions' | 'repertoire' | 'activity' | 'members' | 'settings'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'tunes' | 'sets' | 'repertoire' | 'activity' | 'members' | 'settings'>('overview')
   const [shareUrl, setShareUrl] = useState('')
   const [inviteCodeInput, setInviteCodeInput] = useState(searchParams.get('code') ?? '')
 
@@ -115,7 +114,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   // Fetch user's own repertoire to check if they already have tunes (signed-in members only)
   const repertoireQuery = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
     enabled: !!userId,
   })
 
@@ -127,14 +126,14 @@ export function GroupDetail({ groupId }: { groupId: string }) {
 
   // Join group mutation (invite code is only meaningful for private groups)
   const joinMutation = useMutation({
-    mutationFn: () => joinGroup(id, userId, inviteCodeInput.trim() || undefined),
+    mutationFn: () => joinGroup(id, inviteCodeInput.trim() || undefined),
     onSuccess: invalidate,
   })
 
   const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false)
 
   const privacyMutation = useMutation({
-    mutationFn: (isPrivate: boolean) => updateGroupPrivacy(id, userId, isPrivate),
+    mutationFn: (isPrivate: boolean) => updateGroupPrivacy(id, isPrivate),
     onSuccess: (data, variables) => {
       queryClient.setQueryData(['group-details', id, userId], (oldData: any) => {
         if (!oldData) return oldData
@@ -150,35 +149,25 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   })
 
   const regenerateCodeMutation = useMutation({
-    mutationFn: () => regenerateGroupInviteCode(id, userId),
+    mutationFn: () => regenerateGroupInviteCode(id),
     onSuccess: invalidate,
   })
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteGroup(id, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups', userId] })
-      showToast('Group deleted successfully.', 'success')
-      router.push('/groups')
-    },
-  })
 
   const approveMutation = useMutation({
-    mutationFn: (targetUserId: string) => approveGroupMember(id, targetUserId, userId),
+    mutationFn: (targetUserId: string) => approveGroupMember(id, targetUserId),
     onSuccess: invalidate,
   })
 
   const rejectMutation = useMutation({
-    mutationFn: (targetUserId: string) => rejectGroupMember(id, targetUserId, userId),
+    mutationFn: (targetUserId: string) => rejectGroupMember(id, targetUserId),
     onSuccess: invalidate,
   })
 
   // Leave group mutation
   const leaveMutation = useMutation({
-    mutationFn: () => leaveGroup(id, userId),
+    mutationFn: () => leaveGroup(id),
     onSuccess: () => {
       invalidate()
       router.push('/groups')
@@ -187,29 +176,29 @@ export function GroupDetail({ groupId }: { groupId: string }) {
 
   // Add to repertoire from common tunes
   const addTuneMutation = useMutation({
-    mutationFn: (tuneId: string) => addToRepertoire(userId, tuneId),
+    mutationFn: (tuneId: string) => addToRepertoire(tuneId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
     },
   })
 
   const removeGroupTuneMutation = useMutation({
-    mutationFn: (groupTuneId: string) => removeGroupTune(id, groupTuneId, userId),
+    mutationFn: (groupTuneId: string) => removeGroupTune(id, groupTuneId),
     onSuccess: invalidate,
   })
 
   const removeMemberMutation = useMutation({
-    mutationFn: (targetUserId: string) => removeGroupMember(id, targetUserId, userId),
+    mutationFn: (targetUserId: string) => removeGroupMember(id, targetUserId),
     onSuccess: invalidate,
   })
 
   const promoteMutation = useMutation({
-    mutationFn: (targetUserId: string) => grantGroupAdministrator(id, targetUserId, userId),
+    mutationFn: (targetUserId: string) => grantGroupAdministrator(id, targetUserId),
     onSuccess: invalidate,
   })
 
   const demoteMutation = useMutation({
-    mutationFn: (targetUserId: string) => revokeGroupAdministrator(id, targetUserId, userId),
+    mutationFn: (targetUserId: string) => revokeGroupAdministrator(id, targetUserId),
     onSuccess: invalidate,
   })
 
@@ -233,7 +222,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const viewer = details.members.find((m) => m.userId === userId)
   const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner'
   const isOwner = viewer?.role === 'Owner'
-  const canDelete = deleteConfirmText.trim().toLowerCase() === details.name.trim().toLowerCase() && !deleteMutation.isPending
   const userTuneIds = new Set(repertoireQuery.data?.items?.map((t) => t.tuneId) ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
   const librarySearchMatches = (librarySearch.data?.items ?? []).filter((t) => !masterTuneIds.has(t.tuneId))
@@ -384,9 +372,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => setActiveTab('sets')} style={tabStyle(activeTab === 'sets')}>
           Set Lists
         </button>
-        <button className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`} onClick={() => setActiveTab('sessions')} style={tabStyle(activeTab === 'sessions')}>
-          Sessions
-        </button>
         <button className={`tab-btn ${activeTab === 'repertoire' ? 'active' : ''}`} onClick={() => setActiveTab('repertoire')} style={tabStyle(activeTab === 'repertoire')}>
           Shared Repertoire
         </button>
@@ -408,6 +393,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <GroupAdminSettings
           details={details}
           userId={userId}
+          isOwner={isOwner}
           onSaved={invalidate}
         />
       )}
@@ -508,10 +494,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <GroupSetBuilder groupId={id} userId={userId} isAdmin={isAdmin} masterTunes={details.masterTunes} />
       )}
 
-      {activeTab === 'sessions' && (
-        <GroupSessions groupId={id} userId={userId} isAdmin={isAdmin} isMember={isMember} />
-      )}
-
       {activeTab === 'repertoire' && (
         <div>
           <h2>Tunes Known in Common</h2>
@@ -521,6 +503,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             <ul className="tune-list">
               {details.commonTunes.map((t) => {
                 const alreadyHas = userTuneIds.has(t.tuneId)
+                const isOnMaster = masterTuneIds.has(t.tuneId)
                 const percent = Math.round((t.memberCount / t.totalMembersInGroup) * 100)
 
                 return (
@@ -532,10 +515,20 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span className={`badge ${percent === 100 ? 'badge-active' : 'badge-learning'}`}>
                         {t.memberCount}/{t.totalMembersInGroup} ({percent}%)
                       </span>
+
+                      {isAdmin && !isOnMaster && (
+                        <button
+                          className="secondary"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                          onClick={() => setAddTuneId(t.tuneId)}
+                        >
+                          + Add to Master List
+                        </button>
+                      )}
 
                       {!alreadyHas && isMember && (
                         <button
@@ -626,26 +619,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                   </button>
                 </div>
               )}
-            </div>
-          )}
-
-          {isOwner && (
-            <div className="card" style={{ padding: '1rem', border: '1px solid var(--danger)', background: 'rgba(239, 100, 97, 0.05)', marginBottom: '1.5rem' }}>
-              <h3 style={{ marginTop: 0, color: 'var(--danger)' }}>Danger Zone</h3>
-              <p className="tune-meta" style={{ marginBottom: '1rem' }}>
-                Deleting this group is permanent and will delete all group membership data, shared sets, scheduled sessions, and RSVPs.
-              </p>
-              <button
-                type="button"
-                className="secondary"
-                style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
-                onClick={() => {
-                  setDeleteConfirmText('')
-                  setShowDeleteConfirm(true)
-                }}
-              >
-                Delete Group
-              </button>
             </div>
           )}
 
@@ -782,7 +755,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           userId={userId}
           onClose={() => setAddTuneId(null)}
           onAdded={invalidate}
-          onSelectSetting={(settingId) => addGroupTune(id, userId, addTuneId, settingId)}
+          onSelectSetting={(settingId) => addGroupTune(id, addTuneId, settingId)}
           actionLabel="+ Add to Master List"
         />
       )}
@@ -793,7 +766,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           userId={userId}
           onClose={() => setSettingChangeTarget(null)}
           onAdded={invalidate}
-          onSelectSetting={(settingId) => updateGroupTune(id, settingChangeTarget.groupTuneId, userId, settingId)}
+          onSelectSetting={(settingId) => updateGroupTune(id, settingChangeTarget.groupTuneId, settingId)}
           actionLabel="Use this setting"
         />
       )}
@@ -850,65 +823,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                 ? 'Make Public'
                 : 'Make Private'}
           </button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        isOpen={showDeleteConfirm}
-        title="Delete Group"
-        onClose={() => setShowDeleteConfirm(false)}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div
-            className="card"
-            style={{
-              background: 'rgba(239, 100, 97, 0.08)',
-              border: '1px solid var(--danger)',
-              padding: '1rem',
-            }}
-          >
-            <p style={{ margin: 0 }}>
-              <strong>⚠️ Warning:</strong> You are about to permanently delete the group <strong>{details.name}</strong>.
-              All group membership data, shared sets, scheduled practice sessions, and RSVPs will be permanently erased.
-              <strong> This action cannot be undone.</strong>
-            </p>
-          </div>
-
-          <label>
-            To confirm, type <strong>{details.name}</strong> below:
-            <input
-              type="text"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder={details.name}
-              style={{ width: '100%', marginTop: '0.5rem' }}
-            />
-          </label>
-
-          {deleteMutation.isError && (
-            <p className="error">
-              {(deleteMutation.error as Error).message || 'Failed to delete the group.'}
-            </p>
-          )}
-
-          <div className="form-actions" style={{ marginTop: '0.5rem' }}>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setShowDeleteConfirm(false)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              style={{ background: 'var(--danger)', color: '#fff' }}
-              disabled={!canDelete}
-              onClick={() => deleteMutation.mutate()}
-            >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete Group'}
-            </button>
-          </div>
         </div>
       </Dialog>
     </section>

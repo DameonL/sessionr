@@ -31,12 +31,12 @@ export default function MedleySetsPage() {
 
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
-    queryFn: () => getPracticeQueue(userId),
+    queryFn: () => getPracticeQueue(),
   })
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+    queryFn: () => getRepertoire(),
   })
 
   const draftIds = setDraft.map((i) => i.userTuneId)

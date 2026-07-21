@@ -41,7 +41,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
 
   const voteMutation = useMutation({
     mutationFn: ({ settingId, value }: { settingId: string; value: number }) =>
-      voteTuneSetting(settingId, userId, value),
+      voteTuneSetting(settingId, value),
     onSuccess: () => refetch(),
   })
 
@@ -70,7 +70,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   })
 
   const addToRepertoireMutation = useMutation({
-    mutationFn: (settingId: string) => addToRepertoire(userId, id, settingId),
+    mutationFn: (settingId: string) => addToRepertoire(id, settingId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       setAddedMessage('Added to your repertoire!')

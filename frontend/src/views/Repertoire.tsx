@@ -43,7 +43,7 @@ export function Repertoire() {
 
   const repertoireQuery = useInfiniteQuery({
     queryKey: ['repertoire', userId, search, filterType, filterStatus],
-    queryFn: ({ pageParam = 1 }) => getRepertoire(userId, search, filterType, filterStatus, pageParam as number, 20),
+    queryFn: ({ pageParam = 1 }) => getRepertoire(search, filterType, filterStatus, pageParam as number, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
   })
@@ -65,7 +65,7 @@ export function Repertoire() {
   const [selectedTuneIdForModal, setSelectedTuneIdForModal] = useState<string | null>(null)
 
   const addMutation = useMutation({
-    mutationFn: (tuneId: string) => addToRepertoire(userId, tuneId),
+    mutationFn: (tuneId: string) => addToRepertoire(tuneId),
     onSuccess: () => invalidate(),
   })
 
@@ -270,7 +270,7 @@ function TunebookImport({ userId, onImported }: { userId: string; onImported: ()
   const parsedMemberId = parseMemberId(memberId)
 
   const tunebookMutation = useMutation({
-    mutationFn: () => importTunebook(userId, parsedMemberId),
+    mutationFn: () => importTunebook(parsedMemberId),
     onSuccess: onImported,
   })
   const result = tunebookMutation.data
