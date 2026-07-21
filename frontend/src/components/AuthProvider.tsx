@@ -10,6 +10,19 @@ interface AuthProviderProps {
   children: ReactNode
 }
 
+function isJwtExpired(token: string, bufferSeconds = 30): boolean {
+  if (!token || token.split('.').length !== 3) return true
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (!payload.exp) return false
+    return (Date.now() / 1000) >= (payload.exp - bufferSeconds)
+  } catch {
+    return true
+  }
+}
+
+let cachedToken: string | null = null
+
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
   const [loading, setLoading] = useState(true)
@@ -40,19 +53,58 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           const pca = new PublicClientApplication(msalConfigObj);
           pca.initialize().then(() => {
             setPcaInstance(pca);
-            setTokenAcquisitionHelper(async () => {
+            setTokenAcquisitionHelper(async (forceRefresh = false) => {
               const accounts = pca.getAllAccounts();
-              if (accounts.length === 0) return null;
+              if (accounts.length === 0) {
+                cachedToken = null;
+                return null;
+              }
+
+              if (!forceRefresh && cachedToken && !isJwtExpired(cachedToken, 30)) {
+                return cachedToken;
+              }
+
               const activeAccount = pca.getActiveAccount() || accounts[0];
               try {
                 const response = await pca.acquireTokenSilent({
                   scopes: ['openid', 'profile'],
                   account: activeAccount,
+                  forceRefresh,
                 });
-                return response.idToken || response.accessToken || null;
+                const token = response.idToken || response.accessToken || null;
+                if (token && !isJwtExpired(token, 30)) {
+                  cachedToken = token;
+                  return token;
+                }
+
+                const fresh = await pca.acquireTokenSilent({
+                  scopes: ['openid', 'profile'],
+                  account: activeAccount,
+                  forceRefresh: true,
+                });
+                const freshToken = fresh.idToken || fresh.accessToken || null;
+                if (freshToken) {
+                  cachedToken = freshToken;
+                }
+                return freshToken;
               } catch (error) {
-                console.warn('acquireTokenSilent failed:', error);
-                return null;
+                console.warn('acquireTokenSilent failed, trying forceRefresh:', error);
+                try {
+                  const fresh = await pca.acquireTokenSilent({
+                    scopes: ['openid', 'profile'],
+                    account: activeAccount,
+                    forceRefresh: true,
+                  });
+                  const freshToken = fresh.idToken || fresh.accessToken || null;
+                  if (freshToken) {
+                    cachedToken = freshToken;
+                  }
+                  return freshToken;
+                } catch (retryErr) {
+                  console.warn('Token forceRefresh failed:', retryErr);
+                  cachedToken = null;
+                  return null;
+                }
               }
             });
             setLoading(false);

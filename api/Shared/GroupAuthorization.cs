@@ -17,13 +17,15 @@ public static class GroupAuthorization
     // Excludes visually ambiguous characters (0/O, 1/I).
     private const string InviteCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-    /// <summary>Extracts authentic caller User ID strictly from Azure EasyAuth headers and credentials.</summary>
+    /// <summary>Extracts authentic caller User ID strictly from Azure EasyAuth headers and JWT Bearer tokens.</summary>
     public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)
     {
         // 1. Azure EasyAuth Direct Principal ID Header
         if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
             Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
         {
+            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == easyAuthGuid);
+            if (user != null) return user.UserId;
             return easyAuthGuid;
         }
 
@@ -37,34 +39,50 @@ public static class GroupAuthorization
                 var root = doc.RootElement;
                 if (root.TryGetProperty("claims", out var claimsArr) && claimsArr.ValueKind == JsonValueKind.Array)
                 {
+                    string? oidStr = null;
+                    string? emailStr = null;
                     foreach (var claim in claimsArr.EnumerateArray())
                     {
                         var typ = claim.GetProperty("typ").GetString();
                         var val = claim.GetProperty("val").GetString();
-                        if ((typ == "http://schemas.microsoft.com/identity/claims/objectidentifier" || typ == "oid" || typ == "sub") &&
-                            Guid.TryParse(val, out var claimGuid))
+                        if (typ == "http://schemas.microsoft.com/identity/claims/objectidentifier" || typ == "oid" || typ == "sub")
                         {
-                            return claimGuid;
+                            oidStr = val;
                         }
+                        else if (typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress" || typ == "email" || typ == "preferred_username")
+                        {
+                            emailStr = val;
+                        }
+                    }
+
+                    if (Guid.TryParse(oidStr, out var claimGuid))
+                    {
+                        var userByOid = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == claimGuid);
+                        if (userByOid != null) return userByOid.UserId;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(emailStr))
+                    {
+                        var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
+                        if (userByEmail != null) return userByEmail.UserId;
+                    }
+
+                    if (Guid.TryParse(oidStr, out var fallbackGuid))
+                    {
+                        return fallbackGuid;
                     }
                 }
             }
             catch { }
         }
 
-        // 3. Authorization Header (Bearer token / EasyAuth MSAL JWT)
+        // 3. Authorization Header (JWT Bearer Token)
         if (req.Headers.TryGetValue("Authorization", out var authHeaderValues))
         {
             var authHeader = authHeaderValues.ToString().Trim();
             if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 var token = authHeader.Substring(7).Trim();
-                if (Guid.TryParse(token, out var bearerGuid))
-                {
-                    return bearerGuid;
-                }
-
-                // Decode MSAL ID token / Access token payload
                 var parts = token.Split('.');
                 if (parts.Length == 3)
                 {
@@ -74,24 +92,45 @@ public static class GroupAuthorization
                         using var doc = JsonDocument.Parse(payloadJson);
                         var root = doc.RootElement;
 
+                        if (root.TryGetProperty("exp", out var expProp))
+                        {
+                            long expSeconds = 0;
+                            if (expProp.ValueKind == JsonValueKind.Number) expSeconds = expProp.GetInt64();
+                            else if (expProp.ValueKind == JsonValueKind.String && long.TryParse(expProp.GetString(), out var sExp)) expSeconds = sExp;
+
+                            if (expSeconds > 0)
+                            {
+                                var nowSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                                if (nowSeconds >= expSeconds)
+                                {
+                                    return null;
+                                }
+                            }
+                        }
+
                         string? oidStr = null;
                         if (root.TryGetProperty("oid", out var oidProp)) oidStr = oidProp.GetString();
                         else if (root.TryGetProperty("sub", out var subProp)) oidStr = subProp.GetString();
 
-                        if (Guid.TryParse(oidStr, out var oidGuid))
-                        {
-                            return oidGuid;
-                        }
-
-                        // Lookup by email claim
                         string? emailStr = null;
                         if (root.TryGetProperty("email", out var emailProp)) emailStr = emailProp.GetString();
                         else if (root.TryGetProperty("preferred_username", out var prefProp)) emailStr = prefProp.GetString();
 
+                        if (Guid.TryParse(oidStr, out var oidGuid))
+                        {
+                            var userByOid = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == oidGuid);
+                            if (userByOid != null) return userByOid.UserId;
+                        }
+
                         if (!string.IsNullOrWhiteSpace(emailStr))
                         {
-                            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
-                            if (user != null) return user.UserId;
+                            var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
+                            if (userByEmail != null) return userByEmail.UserId;
+                        }
+
+                        if (Guid.TryParse(oidStr, out var fallbackGuid))
+                        {
+                            return fallbackGuid;
                         }
                     }
                     catch { }

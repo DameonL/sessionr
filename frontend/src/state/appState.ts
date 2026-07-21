@@ -27,9 +27,9 @@ export const currentUserId = new Signal('');
 export const currentUserProfile = new Signal<{ displayName: string; email: string } | null>(null);
 export const repertoireSearch = new Signal('');
 
-export let getBearerToken: () => Promise<string | null> = async () => null;
+export let getBearerToken: (forceRefresh?: boolean) => Promise<string | null> = async () => null;
 
-export function setTokenAcquisitionHelper(helper: () => Promise<string | null>) {
+export function setTokenAcquisitionHelper(helper: (forceRefresh?: boolean) => Promise<string | null>) {
   getBearerToken = helper;
 }
 

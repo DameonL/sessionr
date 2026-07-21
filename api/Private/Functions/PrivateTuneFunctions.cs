@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.GroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
@@ -17,6 +18,12 @@ public class PrivateTuneFunctions(AppDbContext db)
     public async Task<IActionResult> CreateTune(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "tunes")] HttpRequest req)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateTuneRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Title) || string.IsNullOrWhiteSpace(body.Abc))
         {
@@ -57,6 +64,12 @@ public class PrivateTuneFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "tunes/{tuneId:guid}/settings")] HttpRequest req,
         Guid tuneId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateSettingRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Key) || string.IsNullOrWhiteSpace(body.Abc))
         {
@@ -89,6 +102,12 @@ public class PrivateTuneFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "tunes/{tuneId:guid}/aliases")] HttpRequest req,
         Guid tuneId)
     {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+        }
+
         var body = await req.ReadFromJsonAsync<CreateAliasRequest>();
         if (body is null || string.IsNullOrWhiteSpace(body.Name))
         {
@@ -185,13 +204,7 @@ public class PrivateTuneFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        var score = await db.TuneSettingVotes
-            .Where(v => v.TuneSettingId == settingId)
-            .SumAsync(v => v.Value);
-
-        setting.VoteScore = score;
-        await db.SaveChangesAsync();
-
-        return new OkObjectResult(new { VoteScore = score });
+        var score = setting.Votes.Sum(v => v.Value);
+        return new OkObjectResult(new { voteScore = score });
     }
 }

@@ -10,7 +10,7 @@ import { getBearerToken } from '../state/appState'
 const API_BASE = 'https://sessionr-api-private-bphheph3gcdqgee2.westus3-01.azurewebsites.net/api/'
 const PUBLIC_API_BASE = 'https://sessionr-api-public-f7hxfxdwftapd9hf.westus3-01.azurewebsites.net/api/'
 
-async function doFetch<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false): Promise<T> {
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
@@ -21,7 +21,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit): Promi
   }
 
   try {
-    const token = await getBearerToken()
+    const token = await getBearerToken(isRetry)
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
@@ -35,6 +35,10 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit): Promi
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
+    if (res.status === 401 && !isRetry) {
+      console.warn('401 Unauthorized or expired token received, attempting token refresh and retry...')
+      return doFetch<T>(base, path, init, true)
+    }
     throw new Error(detail || `API ${res.status}: ${res.statusText}`)
   }
   if (res.status === 204) {
