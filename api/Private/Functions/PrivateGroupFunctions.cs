@@ -24,6 +24,10 @@ public class PrivateGroupFunctions(AppDbContext db)
         {
             return new BadRequestObjectResult("Group name is required.");
         }
+        if (string.IsNullOrWhiteSpace(body.Description))
+        {
+            return new BadRequestObjectResult("Group description is required.");
+        }
 
         var user = await db.Users.FindAsync(body.UserId);
         if (user is null)
@@ -34,8 +38,15 @@ public class PrivateGroupFunctions(AppDbContext db)
         var group = new Group
         {
             Name = body.Name.Trim(),
+            Description = body.Description.Trim(),
+            City = string.IsNullOrWhiteSpace(body.City) ? null : body.City.Trim(),
             IsPrivate = body.IsPrivate,
             InviteCode = GenerateInviteCode(),
+            RecurrencePattern = body.RecurrencePattern,
+            RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
+            RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
+            MeetingTime = body.MeetingTime?.Trim(),
+            MeetingScheduleText = body.MeetingScheduleText?.Trim()
         };
         db.Groups.Add(group);
         db.GroupMemberships.Add(new GroupMembership
@@ -47,7 +58,117 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(new GroupDto(group.GroupId, group.Name, 1, true, group.IsPrivate, false));
+        return new OkObjectResult(new GroupDto(
+            group.GroupId,
+            group.Name,
+            group.Description,
+            group.City,
+            1,
+            true,
+            group.IsPrivate,
+            false,
+            group.MeetingScheduleText));
+    }
+
+    /// <summary>POST /api/groups/{groupId}/updates — admins/owner post group updates/announcements.</summary>
+    [Function("CreateGroupUpdate")]
+    public async Task<IActionResult> CreateGroupUpdate(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/updates")] HttpRequest req,
+        Guid groupId)
+    {
+        var body = await req.ReadFromJsonAsync<CreateGroupUpdateRequest>();
+        if (body is null || string.IsNullOrWhiteSpace(body.Title) || string.IsNullOrWhiteSpace(body.Content))
+        {
+            return new BadRequestObjectResult("Title and Content are required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can post updates.");
+        }
+
+        var update = new GroupUpdate
+        {
+            GroupId = groupId,
+            Title = body.Title.Trim(),
+            Content = body.Content.Trim(),
+            CreatedByUserId = body.UserId,
+        };
+        db.GroupUpdates.Add(update);
+        await db.SaveChangesAsync();
+
+        var user = await db.Users.FindAsync(body.UserId);
+
+        return new OkObjectResult(new GroupUpdateDto(
+            update.GroupUpdateId,
+            update.GroupId,
+            update.Title,
+            update.Content,
+            update.CreatedByUserId,
+            user?.DisplayName ?? "Admin",
+            update.CreatedAt));
+    }
+
+    /// <summary>DELETE /api/groups/{groupId}/updates/{updateId}?userId= — admins/owner delete updates.</summary>
+    [Function("DeleteGroupUpdate")]
+    public async Task<IActionResult> DeleteGroupUpdate(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/updates/{updateId:guid}")] HttpRequest req,
+        Guid groupId, Guid updateId)
+    {
+        Guid.TryParse(req.Query["userId"], out var userId);
+
+        var actorRole = await db.GetRoleAsync(groupId, userId);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can delete updates.");
+        }
+
+        var update = await db.GroupUpdates.SingleOrDefaultAsync(u => u.GroupUpdateId == updateId && u.GroupId == groupId);
+        if (update is null)
+        {
+            return new NotFoundResult();
+        }
+
+        db.GroupUpdates.Remove(update);
+        await db.SaveChangesAsync();
+
+        return new OkResult();
+    }
+
+    /// <summary>POST /api/groups/{groupId}/schedule — admins/owner update recurring schedule.</summary>
+    [Function("UpdateGroupSchedule")]
+    public async Task<IActionResult> UpdateGroupSchedule(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedule")] HttpRequest req,
+        Guid groupId)
+    {
+        var body = await req.ReadFromJsonAsync<UpdateGroupScheduleRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("UserId is required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can update the meeting schedule.");
+        }
+
+        var group = await db.Groups.FindAsync(groupId);
+        if (group is null)
+        {
+            return new NotFoundResult();
+        }
+
+        group.RecurrencePattern = body.RecurrencePattern;
+        group.RecurrenceDayOfWeek = body.RecurrenceDayOfWeek;
+        group.RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth;
+        group.MeetingTime = body.MeetingTime?.Trim();
+        group.MeetingScheduleText = body.MeetingScheduleText?.Trim();
+
+        await db.SaveChangesAsync();
+
+        return new OkObjectResult(group);
     }
 
     /// <summary>

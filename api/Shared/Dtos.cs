@@ -1,3 +1,5 @@
+using SessionApp.Api.Models;
+
 namespace SessionApp.Api.Functions;
 
 // --- Requests ---
@@ -122,9 +124,36 @@ public record SetItemDto(
     string Key,
     string Abc);
 
-public record GroupDto(Guid GroupId, string Name, int MemberCount, bool IsMember, bool IsPrivate, bool IsPending);
+public record GroupDto(
+    Guid GroupId,
+    string Name,
+    string? Description,
+    string? City,
+    int MemberCount,
+    bool IsMember,
+    bool IsPrivate,
+    bool IsPending,
+    string? MeetingScheduleText);
 
-public record CreateGroupRequest(string Name, Guid UserId, bool IsPrivate = false);
+public record CreateGroupRequest(
+    string Name,
+    string Description,
+    Guid UserId,
+    string? City = null,
+    bool IsPrivate = false,
+    RecurrencePattern RecurrencePattern = RecurrencePattern.None,
+    DayOfWeek? RecurrenceDayOfWeek = null,
+    int? RecurrenceWeekOfMonth = null,
+    string? MeetingTime = null,
+    string? MeetingScheduleText = null);
+
+public record UpdateGroupScheduleRequest(
+    Guid UserId,
+    RecurrencePattern RecurrencePattern,
+    DayOfWeek? RecurrenceDayOfWeek,
+    int? RecurrenceWeekOfMonth,
+    string? MeetingTime,
+    string? MeetingScheduleText);
 
 public record GroupJoinLeaveRequest(Guid UserId);
 
@@ -161,14 +190,33 @@ public record GroupRoleActionRequest(Guid UserId);
 
 public record TransferOwnershipRequest(Guid UserId, Guid NewOwnerUserId);
 
+public record GroupUpdateDto(
+    Guid GroupUpdateId,
+    Guid GroupId,
+    string Title,
+    string Content,
+    Guid CreatedByUserId,
+    string CreatedByDisplayName,
+    DateTime CreatedAt);
+
+public record CreateGroupUpdateRequest(Guid UserId, string Title, string Content);
+
 public record GroupDetailsDto(
     Guid GroupId,
     string Name,
+    string? Description,
+    string? City,
     bool IsPrivate,
     string? InviteCode,
     string? ViewerStatus,
+    string? MeetingScheduleText,
+    RecurrencePattern RecurrencePattern,
+    DayOfWeek? RecurrenceDayOfWeek,
+    int? RecurrenceWeekOfMonth,
+    string? MeetingTime,
     System.Collections.Generic.List<GroupMemberDto> Members,
     System.Collections.Generic.List<GroupMemberDto> PendingMembers,
     System.Collections.Generic.List<GroupTuneDto> MasterTunes,
     System.Collections.Generic.List<GroupCommonTuneDto> CommonTunes,
-    System.Collections.Generic.List<GroupActivityDto> RecentActivity);
+    System.Collections.Generic.List<GroupActivityDto> RecentActivity,
+    System.Collections.Generic.List<GroupUpdateDto> Updates);

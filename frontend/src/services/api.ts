@@ -313,13 +313,28 @@ export const deleteSet = (setId: string) =>
   apiFetch<void>(`/sets/${setId}`, { method: 'DELETE' })
 
 // --- Groups Types & Functions ---
+export type RecurrencePattern = 'None' | 'Weekly' | 'MonthlyNthDay'
+
+export interface GroupUpdateData {
+  groupUpdateId: string
+  groupId: string
+  title: string
+  content: string
+  createdByUserId: string
+  createdByDisplayName: string
+  createdAt: string
+}
+
 export interface GroupSummary {
   groupId: string
   name: string
+  description: string | null
+  city: string | null
   memberCount: number
   isMember: boolean
   isPrivate: boolean
   isPending: boolean
+  meetingScheduleText: string | null
 }
 
 export type GroupRole = 'Member' | 'Administrator' | 'Owner'
@@ -360,14 +375,22 @@ export interface GroupTuneListItem {
 export interface GroupDetails {
   groupId: string
   name: string
+  description: string | null
+  city: string | null
   isPrivate: boolean
   inviteCode: string | null
   viewerStatus: 'Active' | 'Pending' | null
+  meetingScheduleText: string | null
+  recurrencePattern: RecurrencePattern
+  recurrenceDayOfWeek: number | null
+  recurrenceWeekOfMonth: number | null
+  meetingTime: string | null
   members: GroupMember[]
   pendingMembers: GroupMember[]
   masterTunes: GroupTuneListItem[]
   commonTunes: GroupCommonTune[]
   recentActivity: GroupActivity[]
+  updates: GroupUpdateData[]
 }
 
 export interface JoinResult {
@@ -380,10 +403,50 @@ export const getGroups = (userId: string) =>
 export const getGroupDetails = (groupId: string, userId: string) =>
   apiFetchPublic<GroupDetails>(`/groups/${groupId}?userId=${userId}`)
 
-export const createGroup = (name: string, userId: string, isPrivate = false) =>
+export interface CreateGroupParams {
+  name: string
+  description: string
+  userId: string
+  city?: string
+  isPrivate?: boolean
+  recurrencePattern?: RecurrencePattern
+  recurrenceDayOfWeek?: number | null
+  recurrenceWeekOfMonth?: number | null
+  meetingTime?: string
+  meetingScheduleText?: string
+}
+
+export const createGroup = (params: CreateGroupParams) =>
   apiFetch<GroupSummary>('/groups', {
     method: 'POST',
-    body: JSON.stringify({ name, userId, isPrivate }),
+    body: JSON.stringify(params),
+  })
+
+export const createGroupUpdate = (groupId: string, userId: string, title: string, content: string) =>
+  apiFetch<GroupUpdateData>(`/groups/${groupId}/updates`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, title, content }),
+  })
+
+export const deleteGroupUpdate = (groupId: string, updateId: string, userId: string) =>
+  apiFetch<void>(`/groups/${groupId}/updates/${updateId}?userId=${userId}`, {
+    method: 'DELETE',
+  })
+
+export const updateGroupSchedule = (
+  groupId: string,
+  userId: string,
+  scheduleConfig: {
+    recurrencePattern: RecurrencePattern
+    recurrenceDayOfWeek?: number | null
+    recurrenceWeekOfMonth?: number | null
+    meetingTime?: string
+    meetingScheduleText?: string
+  },
+) =>
+  apiFetch<void>(`/groups/${groupId}/schedule`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, ...scheduleConfig }),
   })
 
 export const joinGroup = (groupId: string, userId: string, inviteCode?: string) =>

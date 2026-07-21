@@ -13,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<SetItem> SetItems => Set<SetItem>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMembership> GroupMemberships => Set<GroupMembership>();
+    public DbSet<GroupUpdate> GroupUpdates => Set<GroupUpdate>();
     public DbSet<GroupTune> GroupTunes => Set<GroupTune>();
     public DbSet<GroupSet> GroupSets => Set<GroupSet>();
     public DbSet<GroupSetItem> GroupSetItems => Set<GroupSetItem>();
@@ -103,6 +104,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Group>(entity =>
         {
             entity.HasIndex(g => g.InviteCode).IsUnique();
+            entity.Property(g => g.RecurrencePattern).HasConversion<string>().HasMaxLength(20);
+        });
+
+        modelBuilder.Entity<GroupUpdate>(entity =>
+        {
+            entity.HasOne(gu => gu.Group)
+                .WithMany(g => g.Updates)
+                .HasForeignKey(gu => gu.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(gu => gu.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(gu => gu.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(gu => gu.CreatedAt);
         });
 
         // A group's curated master tune list, mirroring the UserTune pattern:

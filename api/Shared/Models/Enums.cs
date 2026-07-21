@@ -27,3 +27,11 @@ public enum TuneStatus
     Rusty,
     Retired
 }
+
+/// <summary>Type of recurring meeting schedule for a group.</summary>
+public enum RecurrencePattern
+{
+    None,
+    Weekly,
+    MonthlyNthDay
+}

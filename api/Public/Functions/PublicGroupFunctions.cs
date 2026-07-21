@@ -22,6 +22,7 @@ public class PublicGroupFunctions(AppDbContext db)
 
         // Private groups are hidden from discovery unless the caller already
         // has a membership row (active or pending) on them.
+        // Private groups hide their description from non-members.
         var groups = await db.Groups
             .AsNoTracking()
             .Where(g => !g.IsPrivate || g.Memberships.Any(m => m.UserId == userId))
@@ -29,10 +30,13 @@ public class PublicGroupFunctions(AppDbContext db)
             .Select(g => new GroupDto(
                 g.GroupId,
                 g.Name,
+                g.IsPrivate && !g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active) ? null : g.Description,
+                g.City,
                 g.Memberships.Count(m => m.Status == GroupMembershipStatus.Active),
                 g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active),
                 g.IsPrivate,
-                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending)
+                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending),
+                g.MeetingScheduleText
             ))
             .ToListAsync();
 
@@ -65,8 +69,9 @@ public class PublicGroupFunctions(AppDbContext db)
         if (group.IsPrivate && !viewerIsActive)
         {
             return new OkObjectResult(new GroupDetailsDto(
-                group.GroupId, group.Name, true, null, viewerMembership?.Status.ToString(),
-                [], [], [], [], []));
+                group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
+                null, RecurrencePattern.None, null, null, null,
+                [], [], [], [], [], []));
         }
 
         var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
@@ -139,17 +144,42 @@ public class PublicGroupFunctions(AppDbContext db)
             ))
             .ToListAsync();
 
+        // 6. Admin updates / announcements feed
+        var updates = await db.GroupUpdates
+            .AsNoTracking()
+            .Where(gu => gu.GroupId == groupId)
+            .OrderByDescending(gu => gu.CreatedAt)
+            .Take(50)
+            .Select(gu => new GroupUpdateDto(
+                gu.GroupUpdateId,
+                gu.GroupId,
+                gu.Title,
+                gu.Content,
+                gu.CreatedByUserId,
+                gu.CreatedByUser.DisplayName,
+                gu.CreatedAt
+            ))
+            .ToListAsync();
+
         return new OkObjectResult(new GroupDetailsDto(
             group.GroupId,
             group.Name,
+            group.Description,
+            group.City,
             group.IsPrivate,
             isViewerAdmin ? group.InviteCode : null,
             viewerMembership?.Status.ToString(),
+            group.MeetingScheduleText,
+            group.RecurrencePattern,
+            group.RecurrenceDayOfWeek,
+            group.RecurrenceWeekOfMonth,
+            group.MeetingTime,
             members,
             pendingMembers,
             masterTunes,
             commonTunes,
-            recentActivity
+            recentActivity,
+            updates
         ));
     }
 }

@@ -32,6 +32,9 @@ import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { TransferOwnershipModal } from '../components/TransferOwnershipModal'
 import { GroupSetBuilder } from '../components/GroupSetBuilder'
 import { GroupSessions } from '../components/GroupSessions'
+import { GroupCalendar } from '../components/GroupCalendar'
+import { GroupUpdates } from '../components/GroupUpdates'
+import { getGroupSessions } from '../services/api'
 
 function tabStyle(active: boolean): React.CSSProperties {
   return {
@@ -74,7 +77,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'tunes' | 'sets' | 'sessions' | 'repertoire' | 'activity' | 'members'>('tunes')
+  const [activeTab, setActiveTab] = useState<'overview' | 'tunes' | 'sets' | 'sessions' | 'repertoire' | 'activity' | 'members'>('overview')
   const [shareUrl, setShareUrl] = useState('')
   const [inviteCodeInput, setInviteCodeInput] = useState(searchParams.get('code') ?? '')
 
@@ -93,12 +96,19 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['group-details', id, userId] })
     queryClient.invalidateQueries({ queryKey: ['groups', userId] })
+    queryClient.invalidateQueries({ queryKey: ['group-sessions', id, userId] })
   }
 
   // Fetch group details
   const groupQuery = useQuery({
     queryKey: ['group-details', id, userId],
     queryFn: () => getGroupDetails(id, userId),
+  })
+
+  // Fetch group sessions for calendar
+  const sessionsQuery = useQuery({
+    queryKey: ['group-sessions', id, userId],
+    queryFn: () => getGroupSessions(id, userId),
   })
 
   // Fetch user's own repertoire to check if they already have tunes (signed-in members only)
@@ -303,10 +313,14 @@ export function GroupDetail({ groupId }: { groupId: string }) {
 
       <div className="set-header">
         <div>
-          <h1 style={{ margin: 0 }}>{details.isPrivate ? '🔒 ' : ''}{details.name}</h1>
-          <span className="tune-meta">
-            {details.members.length} {details.members.length === 1 ? 'member' : 'members'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <h1 style={{ margin: 0 }}>{details.isPrivate ? '🔒 ' : ''}{details.name}</h1>
+            {details.city && <span style={{ fontSize: '1rem', color: 'var(--accent)', fontWeight: 600 }}>📍 {details.city}</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.35rem', fontSize: '0.85rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
+            <span>{details.members.length} {details.members.length === 1 ? 'member' : 'members'}</span>
+            {details.meetingScheduleText && <span>🕒 {details.meetingScheduleText}</span>}
+          </div>
         </div>
 
         {isMember ? (
@@ -329,6 +343,14 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         )}
       </div>
 
+      {details.description && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1.25rem', background: 'var(--surface-2)' }}>
+          <p style={{ margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+            {details.description}
+          </p>
+        </div>
+      )}
+
       {leaveMutation.isError && (
         <p className="error" style={{ marginBottom: '1rem' }}>
           {(leaveMutation.error as Error).message || 'Could not leave group.'}
@@ -349,7 +371,10 @@ export function GroupDetail({ groupId }: { groupId: string }) {
       )}
 
       {/* Tabs Menu */}
-      <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+      <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', overflowX: 'auto' }}>
+        <button className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')} style={tabStyle(activeTab === 'overview')}>
+          Overview & Calendar
+        </button>
         <button className={`tab-btn ${activeTab === 'tunes' ? 'active' : ''}`} onClick={() => setActiveTab('tunes')} style={tabStyle(activeTab === 'tunes')}>
           Master Tune List
         </button>
@@ -369,6 +394,27 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           Members ({details.members.length})
         </button>
       </div>
+
+      {/* Tab Panels */}
+      {activeTab === 'overview' && (
+        <div>
+          <GroupCalendar
+            recurrencePattern={details.recurrencePattern}
+            recurrenceDayOfWeek={details.recurrenceDayOfWeek}
+            recurrenceWeekOfMonth={details.recurrenceWeekOfMonth}
+            meetingTime={details.meetingTime}
+            meetingScheduleText={details.meetingScheduleText}
+            sessions={sessionsQuery.data ?? []}
+          />
+
+          <GroupUpdates
+            groupId={id}
+            userId={userId}
+            isAdmin={isAdmin}
+            updates={details.updates ?? []}
+          />
+        </div>
+      )}
 
       {/* Tab Content */}
       {activeTab === 'tunes' && (

@@ -3,15 +3,33 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
+import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary, type RecurrencePattern } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
+
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const WEEKS_OF_MONTH = [
+  { val: 1, label: '1st' },
+  { val: 2, label: '2nd' },
+  { val: 3, label: '3rd' },
+  { val: 4, label: '4th' },
+  { val: 5, label: '5th / Last' },
+]
 
 export function Groups() {
   const userId = useSignal(currentUserId)
   const isSignedIn = !!userId
   const queryClient = useQueryClient()
+
+  // Form fields
   const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupDescription, setNewGroupDescription] = useState('')
+  const [newGroupCity, setNewGroupCity] = useState('')
   const [newGroupPrivate, setNewGroupPrivate] = useState(false)
+  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>('None')
+  const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(3) // Wednesday
+  const [recurrenceWeekOfMonth, setRecurrenceWeekOfMonth] = useState<number>(1) // 1st
+  const [meetingTime, setMeetingTime] = useState('19:30')
+
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -37,25 +55,57 @@ export function Groups() {
     onSuccess: invalidate,
   })
 
+  // Compute text summary of recurring schedule
+  const computeScheduleText = (): string | undefined => {
+    if (recurrencePattern === 'None') return undefined
+    const dayName = DAYS_OF_WEEK[recurrenceDayOfWeek]
+    const timePart = meetingTime ? ` at ${meetingTime}` : ''
+    if (recurrencePattern === 'Weekly') {
+      return `Every ${dayName}${timePart}`
+    }
+    if (recurrencePattern === 'MonthlyNthDay') {
+      const weekLabel = WEEKS_OF_MONTH.find((w) => w.val === recurrenceWeekOfMonth)?.label || '1st'
+      return `${weekLabel} ${dayName} every month${timePart}`
+    }
+    return undefined
+  }
+
   // Create group mutation
   const createMutation = useMutation({
-    mutationFn: (name: string) => createGroup(name, userId, newGroupPrivate),
+    mutationFn: () => {
+      const scheduleText = computeScheduleText()
+      return createGroup({
+        name: newGroupName.trim(),
+        description: newGroupDescription.trim(),
+        userId,
+        city: newGroupCity.trim() || undefined,
+        isPrivate: newGroupPrivate,
+        recurrencePattern,
+        recurrenceDayOfWeek: recurrencePattern !== 'None' ? recurrenceDayOfWeek : undefined,
+        recurrenceWeekOfMonth: recurrencePattern === 'MonthlyNthDay' ? recurrenceWeekOfMonth : undefined,
+        meetingTime: recurrencePattern !== 'None' ? meetingTime : undefined,
+        meetingScheduleText: scheduleText,
+      })
+    },
     onSuccess: () => {
       invalidate()
       setNewGroupName('')
+      setNewGroupDescription('')
+      setNewGroupCity('')
       setNewGroupPrivate(false)
+      setRecurrencePattern('None')
       setShowCreateForm(false)
       setCreateError(null)
     },
-    onError: (err) => {
+    onError: (err: any) => {
       setCreateError(err.message || 'Failed to create group.')
     },
   })
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newGroupName.trim()) return
-    createMutation.mutate(newGroupName.trim())
+    if (!newGroupName.trim() || !newGroupDescription.trim()) return
+    createMutation.mutate()
   }
 
   if (groupsQuery.isLoading) {
@@ -82,35 +132,131 @@ export function Groups() {
       </div>
 
       {showCreateForm && (
-        <form onSubmit={handleCreateSubmit} className="card" style={{ marginBottom: '1.5rem', padding: '1rem' }}>
-          <h3>Create a New Group</h3>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <input
-              type="text"
-              placeholder="e.g. Traditional Session Dublin"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              required
-              style={{ flex: 1 }}
-              disabled={createMutation.isPending}
-            />
-            <button type="submit" disabled={createMutation.isPending || !newGroupName.trim()}>
-              {createMutation.isPending ? 'Creating…' : 'Create'}
-            </button>
-            <button type="button" className="secondary" onClick={() => setShowCreateForm(false)}>
-              Cancel
-            </button>
+        <form onSubmit={handleCreateSubmit} className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+          <h3 style={{ marginTop: 0 }}>Create a New Group</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Group Name *</label>
+              <input
+                type="text"
+                placeholder="e.g. Traditional Session Dublin"
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                required
+                style={{ width: '100%' }}
+                disabled={createMutation.isPending}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>
+                Group Description * {newGroupPrivate && <span className="tune-meta">(Hidden for non-members on private groups)</span>}
+              </label>
+              <textarea
+                placeholder="Describe your session group, tunes played, skill level, or pub location details..."
+                rows={3}
+                value={newGroupDescription}
+                onChange={(e) => setNewGroupDescription(e.target.value)}
+                required
+                style={{ width: '100%', resize: 'vertical' }}
+                disabled={createMutation.isPending}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>City / Location</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Dublin, Ireland or Boston, MA"
+                  value={newGroupCity}
+                  onChange={(e) => setNewGroupCity(e.target.value)}
+                  style={{ width: '100%' }}
+                  disabled={createMutation.isPending}
+                />
+              </div>
+
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Recurring Meeting Schedule</label>
+                <select
+                  value={recurrencePattern}
+                  onChange={(e) => setRecurrencePattern(e.target.value as RecurrencePattern)}
+                  disabled={createMutation.isPending}
+                  style={{ width: '100%' }}
+                >
+                  <option value="None">None (Ad-hoc sessions only)</option>
+                  <option value="Weekly">Every week on a specific day</option>
+                  <option value="MonthlyNthDay">Monthly on a specific week & day</option>
+                </select>
+              </div>
+            </div>
+
+            {recurrencePattern !== 'None' && (
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', background: 'var(--surface-3)', padding: '0.75rem', borderRadius: '6px' }}>
+                {recurrencePattern === 'MonthlyNthDay' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Week of Month</label>
+                    <select
+                      value={recurrenceWeekOfMonth}
+                      onChange={(e) => setRecurrenceWeekOfMonth(parseInt(e.target.value))}
+                      disabled={createMutation.isPending}
+                    >
+                      {WEEKS_OF_MONTH.map((w) => (
+                        <option key={w.val} value={w.val}>{w.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Day of Week</label>
+                  <select
+                    value={recurrenceDayOfWeek}
+                    onChange={(e) => setRecurrenceDayOfWeek(parseInt(e.target.value))}
+                    disabled={createMutation.isPending}
+                  >
+                    {DAYS_OF_WEEK.map((d, i) => (
+                      <option key={d} value={i}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Time</label>
+                  <input
+                    type="time"
+                    value={meetingTime}
+                    onChange={(e) => setMeetingTime(e.target.value)}
+                    disabled={createMutation.isPending}
+                  />
+                </div>
+              </div>
+            )}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+              <input
+                type="checkbox"
+                checked={newGroupPrivate}
+                onChange={(e) => setNewGroupPrivate(e.target.checked)}
+                disabled={createMutation.isPending}
+              />
+              Private group (new members must be approved or use an invite code)
+            </label>
+
+            {createError && <p className="error" style={{ margin: 0 }}>{createError}</p>}
+
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="secondary" onClick={() => setShowCreateForm(false)}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={createMutation.isPending || !newGroupName.trim() || !newGroupDescription.trim()}
+              >
+                {createMutation.isPending ? 'Creating…' : 'Create Group'}
+              </button>
+            </div>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.75rem' }}>
-            <input
-              type="checkbox"
-              checked={newGroupPrivate}
-              onChange={(e) => setNewGroupPrivate(e.target.checked)}
-              disabled={createMutation.isPending}
-            />
-            Private (new members must be approved or use an invite code)
-          </label>
-          {createError && <p className="error" style={{ marginTop: '0.5rem' }}>{createError}</p>}
         </form>
       )}
 
@@ -122,14 +268,25 @@ export function Groups() {
           ) : (
             <ul className="tune-list">
               {myGroups.map((g) => (
-                <li key={g.groupId} className="card tune-row">
+                <li key={g.groupId} className="card tune-row" style={{ alignItems: 'flex-start' }}>
                   <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
-                    <span className="tune-title">{g.isPrivate ? '🔒 ' : ''}{g.name}</span>
-                    <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
-                      {g.isPending
-                        ? 'Request pending approval'
-                        : `${g.memberCount} ${g.memberCount === 1 ? 'member' : 'members'}`}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span className="tune-title">{g.isPrivate ? '🔒 ' : ''}{g.name}</span>
+                      {g.city && <span style={{ fontSize: '0.85rem', color: 'var(--accent)' }}>📍 {g.city}</span>}
+                    </div>
+                    {g.description && (
+                      <p style={{ margin: '0.25rem 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                        {g.description}
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
+                      <span>
+                        {g.isPending
+                          ? 'Request pending approval'
+                          : `${g.memberCount} ${g.memberCount === 1 ? 'member' : 'members'}`}
+                      </span>
+                      {g.meetingScheduleText && <span>🕒 {g.meetingScheduleText}</span>}
+                    </div>
                   </Link>
                   <button
                     className="secondary danger-hover"
@@ -155,12 +312,21 @@ export function Groups() {
       ) : (
         <ul className="tune-list">
           {otherGroups.map((g) => (
-            <li key={g.groupId} className="card tune-row">
+            <li key={g.groupId} className="card tune-row" style={{ alignItems: 'flex-start' }}>
               <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
-                <span className="tune-title">{g.name}</span>
-                <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
-                  {g.memberCount} {g.memberCount === 1 ? 'member' : 'members'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span className="tune-title">{g.name}</span>
+                  {g.city && <span style={{ fontSize: '0.85rem', color: 'var(--accent)' }}>📍 {g.city}</span>}
+                </div>
+                {g.description && (
+                  <p style={{ margin: '0.25rem 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                    {g.description}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
+                  <span>{g.memberCount} {g.memberCount === 1 ? 'member' : 'members'}</span>
+                  {g.meetingScheduleText && <span>🕒 {g.meetingScheduleText}</span>}
+                </div>
               </Link>
               {isSignedIn ? (
                 <button
@@ -179,3 +345,4 @@ export function Groups() {
     </section>
   )
 }
+
