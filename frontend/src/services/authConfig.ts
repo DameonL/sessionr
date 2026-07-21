@@ -1,7 +1,7 @@
 import { Configuration, PopupRequest } from "@azure/msal-browser";
 
-const tenantSubdomain = process.env.NEXT_PUBLIC_MSAL_TENANT_SUBDOMAIN || "sessionapp";
-const tenantId = process.env.NEXT_PUBLIC_MSAL_TENANT_ID;
+const tenantSubdomain = process.env.MSAL_TENANT_SUBDOMAIN || "sessionapp";
+const tenantId = process.env.MSAL_TENANT_ID;
 
 const authority = tenantId
   ? `https://${tenantSubdomain}.ciamlogin.com/${tenantId}/`
@@ -9,10 +9,10 @@ const authority = tenantId
 
 export const msalConfig: Configuration = {
   auth: {
-    clientId: process.env.NEXT_PUBLIC_MSAL_CLIENT_ID || "MOCK_CLIENT_ID",
+    clientId: process.env.MSAL_CLIENT_ID || "MOCK_CLIENT_ID",
     authority,
     redirectUri: typeof window !== "undefined"
-      ? (process.env.NEXT_PUBLIC_MSAL_REDIRECT_URI || window.location.origin + "/")
+      ? (process.env.MSAL_REDIRECT_URI || window.location.origin + "/")
       : "http://localhost:5173/",
     knownAuthorities: [
       `${tenantSubdomain}.ciamlogin.com`
