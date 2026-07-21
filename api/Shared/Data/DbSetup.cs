@@ -46,6 +46,11 @@ public static class DbSetup
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+        if (!useSqlite)
+        {
+            db.Database.EnsureCreated();
+        }
+
         try
         {
             db.Database.ExecuteSqlRaw("ALTER TABLE Tunes ADD TheSessionId INT NULL;");
