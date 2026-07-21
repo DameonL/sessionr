@@ -159,10 +159,11 @@ export function GroupSessions({
             />
           </label>
           <label style={{ display: 'block', marginTop: '0.75rem' }}>
-            Notes
+            Meeting Description / Notes
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Brief description of this meeting/session..."
               rows={2}
               style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
             />

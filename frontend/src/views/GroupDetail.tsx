@@ -402,8 +402,10 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             recurrencePattern={details.recurrencePattern}
             recurrenceDayOfWeek={details.recurrenceDayOfWeek}
             recurrenceWeekOfMonth={details.recurrenceWeekOfMonth}
+            startDate={details.startDate}
             meetingTime={details.meetingTime}
             meetingScheduleText={details.meetingScheduleText}
+            meetingDescription={details.meetingDescription}
             sessions={sessionsQuery.data ?? []}
           />
 

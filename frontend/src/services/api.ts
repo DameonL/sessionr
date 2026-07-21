@@ -313,7 +313,7 @@ export const deleteSet = (setId: string) =>
   apiFetch<void>(`/sets/${setId}`, { method: 'DELETE' })
 
 // --- Groups Types & Functions ---
-export type RecurrencePattern = 'None' | 'Weekly' | 'MonthlyNthDay'
+export type RecurrencePattern = 'None' | 'Weekly' | 'Biweekly' | 'MonthlyNthDay' | 'SpecificDate'
 
 export interface GroupUpdateData {
   groupUpdateId: string
@@ -335,6 +335,7 @@ export interface GroupSummary {
   isPrivate: boolean
   isPending: boolean
   meetingScheduleText: string | null
+  meetingDescription: string | null
 }
 
 export type GroupRole = 'Member' | 'Administrator' | 'Owner'
@@ -381,9 +382,11 @@ export interface GroupDetails {
   inviteCode: string | null
   viewerStatus: 'Active' | 'Pending' | null
   meetingScheduleText: string | null
+  meetingDescription: string | null
   recurrencePattern: RecurrencePattern
   recurrenceDayOfWeek: number | null
   recurrenceWeekOfMonth: number | null
+  startDate: string | null
   meetingTime: string | null
   members: GroupMember[]
   pendingMembers: GroupMember[]
@@ -412,8 +415,10 @@ export interface CreateGroupParams {
   recurrencePattern?: RecurrencePattern
   recurrenceDayOfWeek?: number | null
   recurrenceWeekOfMonth?: number | null
+  startDate?: string | null
   meetingTime?: string
   meetingScheduleText?: string
+  meetingDescription?: string
 }
 
 export const createGroup = (params: CreateGroupParams) =>
@@ -440,8 +445,10 @@ export const updateGroupSchedule = (
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
     recurrenceWeekOfMonth?: number | null
+    startDate?: string | null
     meetingTime?: string
     meetingScheduleText?: string
+    meetingDescription?: string
   },
 ) =>
   apiFetch<void>(`/groups/${groupId}/schedule`, {

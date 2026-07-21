@@ -33,5 +33,7 @@ public enum RecurrencePattern
 {
     None,
     Weekly,
-    MonthlyNthDay
+    Biweekly,
+    MonthlyNthDay,
+    SpecificDate
 }

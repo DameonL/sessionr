@@ -28,7 +28,9 @@ export function Groups() {
   const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>('None')
   const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(3) // Wednesday
   const [recurrenceWeekOfMonth, setRecurrenceWeekOfMonth] = useState<number>(1) // 1st
+  const [startDate, setStartDate] = useState<string>('')
   const [meetingTime, setMeetingTime] = useState('19:30')
+  const [meetingDescription, setMeetingDescription] = useState('')
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -60,12 +62,19 @@ export function Groups() {
     if (recurrencePattern === 'None') return undefined
     const dayName = DAYS_OF_WEEK[recurrenceDayOfWeek]
     const timePart = meetingTime ? ` at ${meetingTime}` : ''
+    const startPart = startDate ? ` starting ${startDate}` : ''
     if (recurrencePattern === 'Weekly') {
       return `Every ${dayName}${timePart}`
+    }
+    if (recurrencePattern === 'Biweekly') {
+      return `Every other ${dayName}${startPart}${timePart}`
     }
     if (recurrencePattern === 'MonthlyNthDay') {
       const weekLabel = WEEKS_OF_MONTH.find((w) => w.val === recurrenceWeekOfMonth)?.label || '1st'
       return `${weekLabel} ${dayName} every month${timePart}`
+    }
+    if (recurrencePattern === 'SpecificDate') {
+      return `Meeting on ${startDate || 'specific date'}${timePart}`
     }
     return undefined
   }
@@ -81,10 +90,12 @@ export function Groups() {
         city: newGroupCity.trim() || undefined,
         isPrivate: newGroupPrivate,
         recurrencePattern,
-        recurrenceDayOfWeek: recurrencePattern !== 'None' ? recurrenceDayOfWeek : undefined,
+        recurrenceDayOfWeek: recurrencePattern !== 'None' && recurrencePattern !== 'SpecificDate' ? recurrenceDayOfWeek : undefined,
         recurrenceWeekOfMonth: recurrencePattern === 'MonthlyNthDay' ? recurrenceWeekOfMonth : undefined,
+        startDate: startDate ? new Date(startDate).toISOString() : undefined,
         meetingTime: recurrencePattern !== 'None' ? meetingTime : undefined,
         meetingScheduleText: scheduleText,
+        meetingDescription: meetingDescription.trim() || undefined,
       })
     },
     onSuccess: () => {
@@ -94,6 +105,8 @@ export function Groups() {
       setNewGroupCity('')
       setNewGroupPrivate(false)
       setRecurrencePattern('None')
+      setStartDate('')
+      setMeetingDescription('')
       setShowCreateForm(false)
       setCreateError(null)
     },
@@ -177,7 +190,7 @@ export function Groups() {
               </div>
 
               <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Recurring Meeting Schedule</label>
+                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Meeting Schedule Type</label>
                 <select
                   value={recurrencePattern}
                   onChange={(e) => setRecurrencePattern(e.target.value as RecurrencePattern)}
@@ -186,48 +199,80 @@ export function Groups() {
                 >
                   <option value="None">None (Ad-hoc sessions only)</option>
                   <option value="Weekly">Every week on a specific day</option>
+                  <option value="Biweekly">Every other week on a specific day</option>
                   <option value="MonthlyNthDay">Monthly on a specific week & day</option>
+                  <option value="SpecificDate">Non-recurring specific meeting date</option>
                 </select>
               </div>
             </div>
 
             {recurrencePattern !== 'None' && (
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', background: 'var(--surface-3)', padding: '0.75rem', borderRadius: '6px' }}>
-                {recurrencePattern === 'MonthlyNthDay' && (
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Week of Month</label>
-                    <select
-                      value={recurrenceWeekOfMonth}
-                      onChange={(e) => setRecurrenceWeekOfMonth(parseInt(e.target.value))}
-                      disabled={createMutation.isPending}
-                    >
-                      {WEEKS_OF_MONTH.map((w) => (
-                        <option key={w.val} value={w.val}>{w.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--surface-3)', padding: '0.75rem', borderRadius: '6px' }}>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  {recurrencePattern === 'MonthlyNthDay' && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Week of Month</label>
+                      <select
+                        value={recurrenceWeekOfMonth}
+                        onChange={(e) => setRecurrenceWeekOfMonth(parseInt(e.target.value))}
+                        disabled={createMutation.isPending}
+                      >
+                        {WEEKS_OF_MONTH.map((w) => (
+                          <option key={w.val} value={w.val}>{w.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Day of Week</label>
-                  <select
-                    value={recurrenceDayOfWeek}
-                    onChange={(e) => setRecurrenceDayOfWeek(parseInt(e.target.value))}
-                    disabled={createMutation.isPending}
-                  >
-                    {DAYS_OF_WEEK.map((d, i) => (
-                      <option key={d} value={i}>{d}</option>
-                    ))}
-                  </select>
+                  {recurrencePattern !== 'SpecificDate' && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Day of Week</label>
+                      <select
+                        value={recurrenceDayOfWeek}
+                        onChange={(e) => setRecurrenceDayOfWeek(parseInt(e.target.value))}
+                        disabled={createMutation.isPending}
+                      >
+                        {DAYS_OF_WEEK.map((d, i) => (
+                          <option key={d} value={i}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {(recurrencePattern === 'Biweekly' || recurrencePattern === 'SpecificDate') && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+                        {recurrencePattern === 'SpecificDate' ? 'Meeting Date' : 'Start Date (Anchor Week)'}
+                      </label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        disabled={createMutation.isPending}
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Time</label>
+                    <input
+                      type="time"
+                      value={meetingTime}
+                      onChange={(e) => setMeetingTime(e.target.value)}
+                      disabled={createMutation.isPending}
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Time</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Description / Notes</label>
                   <input
-                    type="time"
-                    value={meetingTime}
-                    onChange={(e) => setMeetingTime(e.target.value)}
+                    type="text"
+                    placeholder="e.g. Slow session for beginners in back room of pub"
+                    value={meetingDescription}
+                    onChange={(e) => setMeetingDescription(e.target.value)}
                     disabled={createMutation.isPending}
+                    style={{ width: '100%' }}
                   />
                 </div>
               </div>

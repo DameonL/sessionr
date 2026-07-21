@@ -45,8 +45,10 @@ public class PrivateGroupFunctions(AppDbContext db)
             RecurrencePattern = body.RecurrencePattern,
             RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
             RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
+            StartDate = body.StartDate,
             MeetingTime = body.MeetingTime?.Trim(),
-            MeetingScheduleText = body.MeetingScheduleText?.Trim()
+            MeetingScheduleText = body.MeetingScheduleText?.Trim(),
+            MeetingDescription = body.MeetingDescription?.Trim()
         };
         db.Groups.Add(group);
         db.GroupMemberships.Add(new GroupMembership
@@ -67,7 +69,8 @@ public class PrivateGroupFunctions(AppDbContext db)
             true,
             group.IsPrivate,
             false,
-            group.MeetingScheduleText));
+            group.MeetingScheduleText,
+            group.MeetingDescription));
     }
 
     /// <summary>POST /api/groups/{groupId}/updates — admins/owner post group updates/announcements.</summary>
@@ -163,8 +166,10 @@ public class PrivateGroupFunctions(AppDbContext db)
         group.RecurrencePattern = body.RecurrencePattern;
         group.RecurrenceDayOfWeek = body.RecurrenceDayOfWeek;
         group.RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth;
+        group.StartDate = body.StartDate;
         group.MeetingTime = body.MeetingTime?.Trim();
         group.MeetingScheduleText = body.MeetingScheduleText?.Trim();
+        group.MeetingDescription = body.MeetingDescription?.Trim();
 
         await db.SaveChangesAsync();
 

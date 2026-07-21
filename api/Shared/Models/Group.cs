@@ -13,8 +13,10 @@ public class Group
     public RecurrencePattern RecurrencePattern { get; set; } = RecurrencePattern.None;
     public DayOfWeek? RecurrenceDayOfWeek { get; set; }
     public int? RecurrenceWeekOfMonth { get; set; }
+    public DateTime? StartDate { get; set; }
     public string? MeetingTime { get; set; }
     public string? MeetingScheduleText { get; set; }
+    public string? MeetingDescription { get; set; }
 
     public ICollection<GroupMembership> Memberships { get; set; } = new List<GroupMembership>();
     public ICollection<GroupTune> GroupTunes { get; set; } = new List<GroupTune>();

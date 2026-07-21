@@ -7,8 +7,10 @@ interface GroupCalendarProps {
   recurrencePattern: RecurrencePattern
   recurrenceDayOfWeek: number | null
   recurrenceWeekOfMonth: number | null
+  startDate?: string | null
   meetingTime: string | null
   meetingScheduleText: string | null
+  meetingDescription?: string | null
   sessions: GroupSessionData[]
 }
 
@@ -22,8 +24,10 @@ export function GroupCalendar({
   recurrencePattern,
   recurrenceDayOfWeek,
   recurrenceWeekOfMonth,
+  startDate,
   meetingTime,
   meetingScheduleText,
+  meetingDescription,
   sessions,
 }: GroupCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
@@ -51,22 +55,41 @@ export function GroupCalendar({
     setSelectedDate(null)
   }
 
-  // Helper to test if a given day in current month is a recurring meeting day
+  // Helper to test if a given day in current month is a meeting day from group schedule settings
   const isRecurringMeetingDay = (day: number): boolean => {
-    if (recurrencePattern === 'None' || recurrenceDayOfWeek == null) return false
+    if (recurrencePattern === 'None') return false
 
     const date = new Date(year, month, day)
-    const dayOfWeek = date.getDay()
+    date.setHours(0, 0, 0, 0)
 
+    if (recurrencePattern === 'SpecificDate' && startDate) {
+      const sDate = parseServerDate(startDate)
+      return (
+        sDate.getFullYear() === year &&
+        sDate.getMonth() === month &&
+        sDate.getDate() === day
+      )
+    }
+
+    if (recurrenceDayOfWeek == null) return false
+    const dayOfWeek = date.getDay()
     if (dayOfWeek !== recurrenceDayOfWeek) return false
 
     if (recurrencePattern === 'Weekly') return true
 
+    if (recurrencePattern === 'Biweekly') {
+      if (!startDate) return true
+      const sDate = parseServerDate(startDate)
+      sDate.setHours(0, 0, 0, 0)
+      if (date < sDate) return false
+      const diffDays = Math.round((date.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24))
+      const diffWeeks = Math.floor(diffDays / 7)
+      return diffWeeks % 2 === 0
+    }
+
     if (recurrencePattern === 'MonthlyNthDay' && recurrenceWeekOfMonth != null) {
-      // Calculate which occurrence of this day of week it is in the month
       const weekIndex = Math.floor((day - 1) / 7) + 1
       if (recurrenceWeekOfMonth === 5) {
-        // Last occurrence of the day in month
         return day + 7 > daysInMonth
       }
       return weekIndex === recurrenceWeekOfMonth
@@ -89,11 +112,9 @@ export function GroupCalendar({
 
   // Render days array
   const calendarCells = []
-  // Empty leading slots
   for (let i = 0; i < firstDayOfMonth; i++) {
     calendarCells.push(null)
   }
-  // Days of month
   for (let day = 1; day <= daysInMonth; day++) {
     calendarCells.push(day)
   }
@@ -116,9 +137,16 @@ export function GroupCalendar({
       </div>
 
       {meetingScheduleText && (
-        <p className="tune-meta" style={{ marginTop: 0, marginBottom: '1rem', color: 'var(--accent)' }}>
-          🕒 <strong>Schedule:</strong> {meetingScheduleText}
-        </p>
+        <div style={{ marginBottom: '1rem' }}>
+          <p className="tune-meta" style={{ marginTop: 0, marginBottom: '0.25rem', color: 'var(--accent)' }}>
+            🕒 <strong>Schedule:</strong> {meetingScheduleText}
+          </p>
+          {meetingDescription && (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+              💬 {meetingDescription}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Calendar Grid Header */}
@@ -179,7 +207,7 @@ export function GroupCalendar({
               {(isRecurring || hasSpecificSession) && (
                 <div style={{ display: 'flex', gap: '2px' }}>
                   {isRecurring && (
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} title="Recurring Meeting" />
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} title="Group Meeting Day" />
                   )}
                   {hasSpecificSession && (
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6' }} title="Scheduled Session Event" />
@@ -202,15 +230,26 @@ export function GroupCalendar({
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {selectedDayIsRecurring && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
-                  <span>🔄</span>
-                  <span><strong>Recurring Meeting:</strong> {meetingScheduleText || 'Regular group meetup day'} ({meetingTime || 'Standard Time'})</span>
+                <div style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid var(--accent)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
+                    <span>🔄</span>
+                    <span><strong>Group Meeting:</strong> {meetingScheduleText || 'Regular meetup'} {meetingTime ? `(${meetingTime})` : ''}</span>
+                  </div>
+                  {meetingDescription && (
+                    <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                      {meetingDescription}
+                    </p>
+                  )}
                 </div>
               )}
               {selectedDaySessions.map((s) => (
-                <div key={s.groupSessionId} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px' }}>
+                <div key={s.groupSessionId} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
                   <strong>📍 {s.title}</strong> {s.location ? `at ${s.location}` : ''} ({parseServerDate(s.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                  {s.notes && <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>{s.notes}</p>}
+                  {s.notes && (
+                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                      💬 <strong>Notes / Description:</strong> {s.notes}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

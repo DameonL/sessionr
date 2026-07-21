@@ -133,7 +133,8 @@ public record GroupDto(
     bool IsMember,
     bool IsPrivate,
     bool IsPending,
-    string? MeetingScheduleText);
+    string? MeetingScheduleText,
+    string? MeetingDescription = null);
 
 public record CreateGroupRequest(
     string Name,
@@ -144,16 +145,20 @@ public record CreateGroupRequest(
     RecurrencePattern RecurrencePattern = RecurrencePattern.None,
     DayOfWeek? RecurrenceDayOfWeek = null,
     int? RecurrenceWeekOfMonth = null,
+    DateTime? StartDate = null,
     string? MeetingTime = null,
-    string? MeetingScheduleText = null);
+    string? MeetingScheduleText = null,
+    string? MeetingDescription = null);
 
 public record UpdateGroupScheduleRequest(
     Guid UserId,
     RecurrencePattern RecurrencePattern,
     DayOfWeek? RecurrenceDayOfWeek,
     int? RecurrenceWeekOfMonth,
+    DateTime? StartDate,
     string? MeetingTime,
-    string? MeetingScheduleText);
+    string? MeetingScheduleText,
+    string? MeetingDescription);
 
 public record GroupJoinLeaveRequest(Guid UserId);
 
@@ -210,9 +215,11 @@ public record GroupDetailsDto(
     string? InviteCode,
     string? ViewerStatus,
     string? MeetingScheduleText,
+    string? MeetingDescription,
     RecurrencePattern RecurrencePattern,
     DayOfWeek? RecurrenceDayOfWeek,
     int? RecurrenceWeekOfMonth,
+    DateTime? StartDate,
     string? MeetingTime,
     System.Collections.Generic.List<GroupMemberDto> Members,
     System.Collections.Generic.List<GroupMemberDto> PendingMembers,

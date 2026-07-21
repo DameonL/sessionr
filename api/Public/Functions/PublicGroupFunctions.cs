@@ -36,7 +36,8 @@ public class PublicGroupFunctions(AppDbContext db)
                 g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active),
                 g.IsPrivate,
                 g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending),
-                g.MeetingScheduleText
+                g.MeetingScheduleText,
+                g.MeetingDescription
             ))
             .ToListAsync();
 
@@ -70,7 +71,7 @@ public class PublicGroupFunctions(AppDbContext db)
         {
             return new OkObjectResult(new GroupDetailsDto(
                 group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
-                null, RecurrencePattern.None, null, null, null,
+                null, null, RecurrencePattern.None, null, null, null, null,
                 [], [], [], [], [], []));
         }
 
@@ -170,9 +171,11 @@ public class PublicGroupFunctions(AppDbContext db)
             isViewerAdmin ? group.InviteCode : null,
             viewerMembership?.Status.ToString(),
             group.MeetingScheduleText,
+            group.MeetingDescription,
             group.RecurrencePattern,
             group.RecurrenceDayOfWeek,
             group.RecurrenceWeekOfMonth,
+            group.StartDate,
             group.MeetingTime,
             members,
             pendingMembers,
