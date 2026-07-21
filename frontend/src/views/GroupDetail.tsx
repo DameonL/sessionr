@@ -34,6 +34,7 @@ import { GroupSetBuilder } from '../components/GroupSetBuilder'
 import { GroupSessions } from '../components/GroupSessions'
 import { GroupCalendar } from '../components/GroupCalendar'
 import { GroupUpdates } from '../components/GroupUpdates'
+import { GroupAdminSettings } from '../components/GroupAdminSettings'
 import { getGroupSessions } from '../services/api'
 
 function tabStyle(active: boolean): React.CSSProperties {
@@ -77,7 +78,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'overview' | 'tunes' | 'sets' | 'sessions' | 'repertoire' | 'activity' | 'members'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'tunes' | 'sets' | 'sessions' | 'repertoire' | 'activity' | 'members' | 'settings'>('overview')
   const [shareUrl, setShareUrl] = useState('')
   const [inviteCodeInput, setInviteCodeInput] = useState(searchParams.get('code') ?? '')
 
@@ -395,9 +396,21 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')} style={tabStyle(activeTab === 'members')}>
           Members ({details.members.length})
         </button>
+        {isAdmin && (
+          <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')} style={tabStyle(activeTab === 'settings')}>
+            ⚙️ Settings
+          </button>
+        )}
       </div>
 
       {/* Tab Panels */}
+      {activeTab === 'settings' && isAdmin && (
+        <GroupAdminSettings
+          details={details}
+          userId={userId}
+          onSaved={invalidate}
+        />
+      )}
       {activeTab === 'overview' && (
         <div>
           <GroupCalendar

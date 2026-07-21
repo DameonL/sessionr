@@ -2,8 +2,8 @@ import { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Session Practice Room',
-    short_name: 'Session',
+    name: 'sessionr',
+    short_name: 'sessionr',
     description: 'Learn and practice music repertoire with speed training and metronome.',
     start_url: '/',
     display: 'standalone',

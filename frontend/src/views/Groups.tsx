@@ -3,17 +3,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary, type RecurrencePattern } from '../services/api'
+import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
-
-const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const WEEKS_OF_MONTH = [
-  { val: 1, label: '1st' },
-  { val: 2, label: '2nd' },
-  { val: 3, label: '3rd' },
-  { val: 4, label: '4th' },
-  { val: 5, label: '5th / Last' },
-]
+import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
 
 export function Groups() {
   const userId = useSignal(currentUserId)
@@ -25,12 +17,7 @@ export function Groups() {
   const [newGroupDescription, setNewGroupDescription] = useState('')
   const [newGroupCity, setNewGroupCity] = useState('')
   const [newGroupPrivate, setNewGroupPrivate] = useState(false)
-  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>('None')
-  const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(3) // Wednesday
-  const [recurrenceWeekOfMonth, setRecurrenceWeekOfMonth] = useState<number>(1) // 1st
-  const [startDate, setStartDate] = useState<string>('')
-  const [meetingTime, setMeetingTime] = useState('19:30')
-  const [meetingDescription, setMeetingDescription] = useState('')
+  const [schedules, setSchedules] = useState<ScheduleDraft[]>([])
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -57,45 +44,26 @@ export function Groups() {
     onSuccess: invalidate,
   })
 
-  // Compute text summary of recurring schedule
-  const computeScheduleText = (): string | undefined => {
-    if (recurrencePattern === 'None') return undefined
-    const dayName = DAYS_OF_WEEK[recurrenceDayOfWeek]
-    const timePart = meetingTime ? ` at ${meetingTime}` : ''
-    const startPart = startDate ? ` starting ${startDate}` : ''
-    if (recurrencePattern === 'Weekly') {
-      return `Every ${dayName}${timePart}`
-    }
-    if (recurrencePattern === 'Biweekly') {
-      return `Every other ${dayName}${startPart}${timePart}`
-    }
-    if (recurrencePattern === 'MonthlyNthDay') {
-      const weekLabel = WEEKS_OF_MONTH.find((w) => w.val === recurrenceWeekOfMonth)?.label || '1st'
-      return `${weekLabel} ${dayName} every month${timePart}`
-    }
-    if (recurrencePattern === 'SpecificDate') {
-      return `Meeting on ${startDate || 'specific date'}${timePart}`
-    }
-    return undefined
-  }
-
   // Create group mutation
   const createMutation = useMutation({
     mutationFn: () => {
-      const scheduleText = computeScheduleText()
+      const formattedSchedules = schedules.map((s) => ({
+        recurrencePattern: s.recurrencePattern,
+        recurrenceDayOfWeek: s.recurrencePattern !== 'SpecificDate' ? s.recurrenceDayOfWeek : undefined,
+        recurrenceWeekOfMonth: s.recurrencePattern === 'MonthlyNthDay' ? s.recurrenceWeekOfMonth : undefined,
+        startDate: s.startDate ? new Date(s.startDate).toISOString() : undefined,
+        meetingTime: s.meetingTime || undefined,
+        meetingScheduleText: generateScheduleText(s),
+        meetingDescription: s.meetingDescription.trim() || undefined,
+      }))
+
       return createGroup({
         name: newGroupName.trim(),
         description: newGroupDescription.trim(),
         userId,
         city: newGroupCity.trim() || undefined,
         isPrivate: newGroupPrivate,
-        recurrencePattern,
-        recurrenceDayOfWeek: recurrencePattern !== 'None' && recurrencePattern !== 'SpecificDate' ? recurrenceDayOfWeek : undefined,
-        recurrenceWeekOfMonth: recurrencePattern === 'MonthlyNthDay' ? recurrenceWeekOfMonth : undefined,
-        startDate: startDate ? new Date(startDate).toISOString() : undefined,
-        meetingTime: recurrencePattern !== 'None' ? meetingTime : undefined,
-        meetingScheduleText: scheduleText,
-        meetingDescription: meetingDescription.trim() || undefined,
+        schedules: formattedSchedules,
       })
     },
     onSuccess: () => {
@@ -104,9 +72,7 @@ export function Groups() {
       setNewGroupDescription('')
       setNewGroupCity('')
       setNewGroupPrivate(false)
-      setRecurrencePattern('None')
-      setStartDate('')
-      setMeetingDescription('')
+      setSchedules([])
       setShowCreateForm(false)
       setCreateError(null)
     },
@@ -129,24 +95,35 @@ export function Groups() {
     return <section><p className="error">Could not load groups.</p></section>
   }
 
-  const allGroups = groupsQuery.data ?? []
-  const myGroups = allGroups.filter((g) => g.isMember || g.isPending)
-  const otherGroups = allGroups.filter((g) => !g.isMember && !g.isPending)
+  const myGroups = (groupsQuery.data ?? []).filter((g) => g.isMember || g.isPending)
+  const publicGroups = (groupsQuery.data ?? []).filter((g) => !g.isMember && !g.isPending && !g.isPrivate)
 
   return (
-    <section>
-      <div className="set-header">
-        <h1>Groups</h1>
-        {isSignedIn ? (
-          !showCreateForm && <button onClick={() => setShowCreateForm(true)}>+ Create Group</button>
-        ) : (
-          <Link href="/login"><button className="secondary">Sign in to create a group</button></Link>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>👥 Session Groups</h1>
+          <p className="tune-meta" style={{ marginTop: '0.2rem' }}>
+            Find traditional music sessions, view meeting calendars, and connect with local musicians.
+          </p>
+        </div>
+        {isSignedIn && (
+          <button
+            onClick={() => {
+              setShowCreateForm(!showCreateForm)
+              setCreateError(null)
+            }}
+          >
+            {showCreateForm ? 'Close Form' : '+ Create Group'}
+          </button>
         )}
       </div>
 
+      {/* Group Creation Form */}
       {showCreateForm && (
-        <form onSubmit={handleCreateSubmit} className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
-          <h3 style={{ marginTop: 0 }}>Create a New Group</h3>
+        <form className="card" onSubmit={handleCreateSubmit} style={{ padding: '1.5rem', background: 'var(--surface-2)' }}>
+          <h2 style={{ marginTop: 0, marginBottom: '1rem' }}>Create a New Session Group</h2>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Group Name *</label>
@@ -176,116 +153,35 @@ export function Groups() {
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>City / Location</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Dublin, Ireland or Boston, MA"
-                  value={newGroupCity}
-                  onChange={(e) => setNewGroupCity(e.target.value)}
-                  style={{ width: '100%' }}
-                  disabled={createMutation.isPending}
-                />
-              </div>
-
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Meeting Schedule Type</label>
-                <select
-                  value={recurrencePattern}
-                  onChange={(e) => setRecurrencePattern(e.target.value as RecurrencePattern)}
-                  disabled={createMutation.isPending}
-                  style={{ width: '100%' }}
-                >
-                  <option value="None">None (Ad-hoc sessions only)</option>
-                  <option value="Weekly">Every week on a specific day</option>
-                  <option value="Biweekly">Every other week on a specific day</option>
-                  <option value="MonthlyNthDay">Monthly on a specific week & day</option>
-                  <option value="SpecificDate">Non-recurring specific meeting date</option>
-                </select>
-              </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>City / Location</label>
+              <input
+                type="text"
+                placeholder="e.g. Dublin, Ireland or Boston, MA"
+                value={newGroupCity}
+                onChange={(e) => setNewGroupCity(e.target.value)}
+                style={{ width: '100%' }}
+                disabled={createMutation.isPending}
+              />
             </div>
 
-            {recurrencePattern !== 'None' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--surface-3)', padding: '0.75rem', borderRadius: '6px' }}>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  {recurrencePattern === 'MonthlyNthDay' && (
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Week of Month</label>
-                      <select
-                        value={recurrenceWeekOfMonth}
-                        onChange={(e) => setRecurrenceWeekOfMonth(parseInt(e.target.value))}
-                        disabled={createMutation.isPending}
-                      >
-                        {WEEKS_OF_MONTH.map((w) => (
-                          <option key={w.val} value={w.val}>{w.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+            {/* Multi-Schedule Builder */}
+            <GroupScheduleBuilder
+              schedules={schedules}
+              onChange={setSchedules}
+              disabled={createMutation.isPending}
+            />
 
-                  {recurrencePattern !== 'SpecificDate' && (
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Day of Week</label>
-                      <select
-                        value={recurrenceDayOfWeek}
-                        onChange={(e) => setRecurrenceDayOfWeek(parseInt(e.target.value))}
-                        disabled={createMutation.isPending}
-                      >
-                        {DAYS_OF_WEEK.map((d, i) => (
-                          <option key={d} value={i}>{d}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {(recurrencePattern === 'Biweekly' || recurrencePattern === 'SpecificDate') && (
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
-                        {recurrencePattern === 'SpecificDate' ? 'Meeting Date' : 'Start Date (Anchor Week)'}
-                      </label>
-                      <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        disabled={createMutation.isPending}
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Time</label>
-                    <input
-                      type="time"
-                      value={meetingTime}
-                      onChange={(e) => setMeetingTime(e.target.value)}
-                      disabled={createMutation.isPending}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Meeting Description / Notes</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Slow session for beginners in back room of pub"
-                    value={meetingDescription}
-                    onChange={(e) => setMeetingDescription(e.target.value)}
-                    disabled={createMutation.isPending}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+            {/* Private Group Checkbox with aligned label */}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', marginTop: '0.5rem' }}>
               <input
                 type="checkbox"
                 checked={newGroupPrivate}
                 onChange={(e) => setNewGroupPrivate(e.target.checked)}
                 disabled={createMutation.isPending}
+                style={{ margin: 0, width: '1.1rem', height: '1.1rem', cursor: 'pointer', flexShrink: 0 }}
               />
-              Private group (new members must be approved or use an invite code)
+              <span>Private group (new members must be approved or use an invite code)</span>
             </label>
 
             {createError && <p className="error" style={{ margin: 0 }}>{createError}</p>}
@@ -294,10 +190,7 @@ export function Groups() {
               <button type="button" className="secondary" onClick={() => setShowCreateForm(false)}>
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={createMutation.isPending || !newGroupName.trim() || !newGroupDescription.trim()}
-              >
+              <button type="submit" disabled={createMutation.isPending}>
                 {createMutation.isPending ? 'Creating…' : 'Create Group'}
               </button>
             </div>
@@ -351,11 +244,11 @@ export function Groups() {
       )}
 
       <h2 style={{ marginTop: '2rem' }}>Discover Groups</h2>
-      {otherGroups.length === 0 ? (
+      {publicGroups.length === 0 ? (
         <p className="tune-meta italic">No other public groups found.</p>
       ) : (
         <ul className="tune-list">
-          {otherGroups.map((g) => (
+          {publicGroups.map((g) => (
             <li key={g.groupId} className="card tune-row" style={{ alignItems: 'flex-start' }}>
               <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -385,7 +278,7 @@ export function Groups() {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   )
 }
 

@@ -7,12 +7,12 @@ import { useMsal } from '@azure/msal-react'
 import { currentUserId, currentUserProfile, useSignal } from '../state/appState'
 
 const NAV_LINKS = [
-  { href: '/', label: 'Dashboard', icon: '🏠' },
-  { href: '/tunes', label: 'Tunes', icon: '🎵' },
-  { href: '/repertoire', label: 'Repertoire', icon: '📚' },
-  { href: '/sets', label: 'Set Builder', icon: '🎶' },
-  { href: '/practice', label: 'Practice Room', icon: '🎻' },
-  { href: '/groups', label: 'Groups', icon: '👥' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/tunes', label: 'Tunes' },
+  { href: '/repertoire', label: 'Repertoire' },
+  { href: '/sets', label: 'Set Builder' },
+  { href: '/practice', label: 'Practice Room' },
+  { href: '/groups', label: 'Groups' },
 ]
 
 export function NavBar() {
@@ -24,7 +24,7 @@ export function NavBar() {
     setMounted(true)
   }, [])
 
-  // Auto-close mobile drawer when route changes
+  // Auto-close mobile drawer on route change
   useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
@@ -34,23 +34,29 @@ export function NavBar() {
       <div className="nav-container">
         <Link href="/" className="nav-brand">
           <span className="brand-icon">🎻</span>
-          <span className="brand-name">SessionApp</span>
+          <span className="brand-text">sessionr</span>
         </Link>
 
-        {/* Desktop Links */}
+        {/* Desktop Navigation */}
         <nav className="desktop-nav">
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
             return (
-              <Link key={link.href} href={link.href} className={active ? 'active' : ''}>
-                {link.label}
+              <Link key={link.href} href={link.href} className={`nav-pill ${active ? 'active' : ''}`}>
+                <span>{link.label}</span>
               </Link>
             )
           })}
-          <span className="auth-slot">
-            {!mounted ? <Link href="/login">Sign In</Link> : <MsalAuthWidget />}
-          </span>
         </nav>
+
+        {/* Desktop Auth Section */}
+        <div className="desktop-auth-slot">
+          {!mounted ? (
+            <Link href="/login" className="nav-pill">Sign In</Link>
+          ) : (
+            <MsalAuthWidget />
+          )}
+        </div>
 
         {/* Mobile Hamburger Toggle */}
         <button
@@ -79,7 +85,6 @@ export function NavBar() {
                     className={`mobile-nav-item ${active ? 'active' : ''}`}
                     onClick={() => setMobileOpen(false)}
                   >
-                    <span className="item-icon">{link.icon}</span>
                     <span>{link.label}</span>
                   </Link>
                 )
@@ -101,19 +106,21 @@ function MsalAuthWidget() {
   const profile = useSignal(currentUserProfile)
 
   if (!userId) {
-    return <Link href="/login">Sign In</Link>
+    return <Link href="/login" className="nav-pill">Sign In</Link>
   }
 
+  const initial = profile?.displayName ? profile.displayName.charAt(0).toUpperCase() : 'U'
+
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-      <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{profile?.displayName ?? 'Signed in'}</span>
+    <div className="user-profile-badge">
+      <div className="user-avatar">{initial}</div>
+      <span className="user-name">{profile?.displayName ?? 'Signed in'}</span>
       <button
-        className="secondary"
-        style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', height: 'auto' }}
+        className="secondary btn-sm"
         onClick={() => instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))}
       >
         Sign Out
       </button>
-    </span>
+    </div>
   )
 }

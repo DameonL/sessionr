@@ -156,7 +156,8 @@ public record CreateGroupRequest(
     DateTime? StartDate = null,
     string? MeetingTime = null,
     string? MeetingScheduleText = null,
-    string? MeetingDescription = null);
+    string? MeetingDescription = null,
+    System.Collections.Generic.List<CreateGroupScheduleRequest>? Schedules = null);
 
 public record GroupMeetingScheduleDto(
     Guid GroupMeetingScheduleId,
@@ -194,6 +195,17 @@ public record GroupJoinLeaveRequest(Guid UserId);
 public record JoinGroupRequest(Guid UserId, string? InviteCode);
 
 public record JoinResultDto(string Status);
+
+public record UpdateGroupInfoRequest(
+    Guid UserId,
+    string Name,
+    string Description,
+    string? City,
+    bool IsPrivate);
+
+public record ReplaceGroupSchedulesRequest(
+    Guid UserId,
+    System.Collections.Generic.List<CreateGroupScheduleRequest> Schedules);
 
 public record UpdateGroupPrivacyRequest(Guid UserId, bool IsPrivate);
 

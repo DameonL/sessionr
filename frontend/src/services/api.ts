@@ -423,12 +423,49 @@ export interface CreateGroupParams {
   meetingTime?: string
   meetingScheduleText?: string
   meetingDescription?: string
+  schedules?: Array<{
+    recurrencePattern: RecurrencePattern
+    recurrenceDayOfWeek?: number | null
+    recurrenceWeekOfMonth?: number | null
+    startDate?: string | null
+    meetingTime?: string
+    meetingScheduleText?: string
+    meetingDescription?: string
+  }>
 }
 
 export const createGroup = (params: CreateGroupParams) =>
   apiFetch<GroupSummary>('/groups', {
     method: 'POST',
     body: JSON.stringify(params),
+  })
+
+export const updateGroupInfo = (
+  groupId: string,
+  userId: string,
+  info: { name: string; description: string; city?: string; isPrivate: boolean },
+) =>
+  apiFetch<void>(`/groups/${groupId}/info`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, ...info }),
+  })
+
+export const replaceGroupSchedules = (
+  groupId: string,
+  userId: string,
+  schedules: Array<{
+    recurrencePattern: RecurrencePattern
+    recurrenceDayOfWeek?: number | null
+    recurrenceWeekOfMonth?: number | null
+    startDate?: string | null
+    meetingTime?: string
+    meetingScheduleText?: string
+    meetingDescription?: string
+  }>,
+) =>
+  apiFetch<void>(`/groups/${groupId}/schedules/replace`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, schedules }),
   })
 
 export const createGroupUpdate = (groupId: string, userId: string, title: string, content: string) =>
