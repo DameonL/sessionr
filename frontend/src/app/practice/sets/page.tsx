@@ -9,7 +9,7 @@ import {
   getRepertoire,
   logPractice,
 } from '../../../services/api'
-import { currentUserId } from '../../../state/appState'
+import { currentUserId, useSignal } from '../../../state/appState'
 import { parseSuggestionReason, suggestNextPracticeTunes, type NextTuneSuggestion } from '../../../services/suggestions'
 
 interface SetDraftItem {
@@ -25,7 +25,7 @@ interface SetDraftItem {
 const SetPlayer = dynamic(() => import('../../../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
 
 export default function MedleySetsPage() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const [setDraft, setSetDraft] = useState<SetDraftItem[]>([])
 

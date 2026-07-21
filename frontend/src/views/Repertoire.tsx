@@ -29,7 +29,7 @@ function getSortKey(item: RepertoireItem, field: 'title' | 'tuneType' | 'key'): 
 }
 
 export function Repertoire() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const search = useSignal(repertoireSearch)
 

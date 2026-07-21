@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 
 export function Groups() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const isSignedIn = !!userId
   const queryClient = useQueryClient()
   const [newGroupName, setNewGroupName] = useState('')

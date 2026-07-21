@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getGroupSet } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
 const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
@@ -12,7 +12,7 @@ const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.
 /** Bookmarkable page for a full group set: /groupset/{groupSetId} */
 export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
   const id = groupSetId ?? ''
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
 
   const set = useQuery({ queryKey: ['group-set', id, userId], queryFn: () => getGroupSet(id, userId) })
 

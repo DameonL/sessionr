@@ -3,7 +3,7 @@ import { NavBar } from '../components/NavBar';
 import '../index.css';
 
 export const metadata = {
-  title: 'Session App',
+  title: 'sessionr',
   description: 'Mobile-first PWA for traditional musicians',
 };
 

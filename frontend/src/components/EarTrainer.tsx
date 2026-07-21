@@ -10,7 +10,7 @@ import {
 import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining'
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
 import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 
 const EAR_INSTRUMENT_KEY = 'sessionapp.ear-instrument'
 
@@ -52,7 +52,7 @@ const MISSED_COLOR = '#d97706'
  * long-lived closure created once when the mic starts.
  */
 export function EarTrainer({ item }: EarTrainerProps) {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
 
   const tune = useMemo(() => buildEarTrainingTune(item.abc), [item.abc])

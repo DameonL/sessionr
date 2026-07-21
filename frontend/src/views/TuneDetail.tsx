@@ -15,7 +15,7 @@ import {
   removeFromRepertoire,
   updateUserTune,
 } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 import { foldAbcOctaves, transposeAbc } from '../services/abcTools'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 
@@ -36,7 +36,7 @@ const TRANSPOSE_KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', '
 
 export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   const id = userTuneId ?? ''
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const router = useRouter()
   const queryClient = useQueryClient()
 

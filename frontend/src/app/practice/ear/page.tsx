@@ -7,13 +7,13 @@ import {
   formatTuneType,
   getRepertoire,
 } from '../../../services/api'
-import { currentUserId } from '../../../state/appState'
+import { currentUserId, useSignal } from '../../../state/appState'
 
 // Dynamically import EarTrainer to prevent abcjs SSR errors
 const EarTrainer = dynamic(() => import('../../../components/EarTrainer').then((m) => m.EarTrainer), { ssr: false })
 
 export default function EarTrainingPage() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const [earTuneId, setEarTuneId] = useState<string | null>(null)
 
   const repertoire = useQuery({

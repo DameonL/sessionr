@@ -15,7 +15,7 @@ import {
   type RepertoireItem,
   type TuneSet,
 } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 import { parseSuggestionReason } from '../services/suggestions'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
@@ -38,7 +38,7 @@ interface Draft {
 const DEFAULT_REPETITIONS = 3
 
 export function SetBuilder() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft | null>(null)
 
@@ -171,7 +171,7 @@ function SetEditor({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const draftIds = draft.items.map((i) => i.userTuneId)
   const suggestions = useQuery({
     queryKey: ['suggest-next', userId, draftIds.join('-')],

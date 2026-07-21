@@ -9,12 +9,12 @@ import {
   getSets,
   parseServerDate,
 } from '../services/api'
-import { currentUserId } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
 
 const RUST_DAYS = 30
 
 export function Dashboard() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],

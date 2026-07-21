@@ -9,13 +9,13 @@ import {
   getPracticeQueue,
   logPractice,
 } from '../../../services/api'
-import { currentUserId } from '../../../state/appState'
+import { currentUserId, useSignal } from '../../../state/appState'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../../../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
 
 export default function DailyQueuePage() {
-  const userId = currentUserId.value
+  const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
