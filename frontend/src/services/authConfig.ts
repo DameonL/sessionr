@@ -24,5 +24,5 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest: PopupRequest = {
-  scopes: ["openid", "profile"]
+  scopes: ["openid", "profile", "User.Read", "api://94e2edf0-d97b-4d48-b7c3-c66ec38fee3e/access_as_user"]
 };
