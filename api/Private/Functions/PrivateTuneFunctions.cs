@@ -29,7 +29,6 @@ public class PrivateTuneFunctions(AppDbContext db)
         var tune = await db.Tunes
             .AsNoTracking()
             .Include(t => t.Aliases)
-            .Include(t => t.MasterAbcText)
             .Include(t => t.Settings)
                 .ThenInclude(s => s.Votes)
             .SingleOrDefaultAsync(t => t.TuneId == tuneId);
