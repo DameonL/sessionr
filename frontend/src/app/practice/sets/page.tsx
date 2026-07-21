@@ -5,8 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
 import {
   formatTuneType,
+  getFullRepertoire,
   getPracticeQueue,
-  getRepertoire,
   logPractice,
 } from '../../../services/api'
 import { currentUserId, useSignal } from '../../../state/appState'
@@ -36,7 +36,7 @@ export default function MedleySetsPage() {
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+    queryFn: getFullRepertoire,
   })
 
   const draftIds = setDraft.map((i) => i.userTuneId)
@@ -47,7 +47,7 @@ export default function MedleySetsPage() {
     key: item.key,
     status: item.status,
   }))
-  const calculatedSuggestions = suggestNextPracticeTunes(draftIds, candidates, repertoire.data?.items ?? [])
+  const calculatedSuggestions = suggestNextPracticeTunes(draftIds, candidates, repertoire.data ?? [])
   const suggestions = { data: calculatedSuggestions }
 
   const practiceMutation = useMutation({
@@ -59,7 +59,7 @@ export default function MedleySetsPage() {
   })
 
   const addSuggestion = (s: NextTuneSuggestion) => {
-    const repItem = (repertoire.data?.items ?? []).find((r) => r.userTuneId === s.userTuneId)
+    const repItem = (repertoire.data ?? []).find((r) => r.userTuneId === s.userTuneId)
     if (!repItem) return
 
     setSetDraft([
@@ -76,7 +76,7 @@ export default function MedleySetsPage() {
   }
 
   const handleGenerateRandomSet = () => {
-    const rep = repertoire.data?.items ?? []
+    const rep = repertoire.data ?? []
     if (rep.length === 0) return
 
     const candidatesList = (queue.data ?? []).map((item) => ({

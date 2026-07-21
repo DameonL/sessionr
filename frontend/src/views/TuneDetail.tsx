@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic'
 import {
   TUNE_STATUSES,
   formatTuneType,
-  getRepertoire,
+  getRepertoireItem,
   isToday,
   logPractice,
   parseServerDate,
@@ -40,13 +40,16 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const repertoire = useQuery({
-    queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+  const itemQuery = useQuery({
+    queryKey: ['repertoire-item', id],
+    queryFn: () => getRepertoireItem(id),
+    enabled: id !== '',
+    retry: false,
   })
-  const item = repertoire.data?.items?.find((i) => i.userTuneId === id)
+  const item = itemQuery.data
 
   const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['repertoire-item', id] })
     queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
     queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
   }
@@ -78,15 +81,11 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     },
   })
 
-  if (repertoire.isLoading) {
+  if (itemQuery.isLoading) {
     return <p>Loading…</p>
   }
-  if (repertoire.isError) {
-    return <p className="error">Could not load the tune.</p>
-  }
-  const practicedToday = item?.lastPracticed != null && isToday(item.lastPracticed)
-
-  if (!item) {
+  const notFound = itemQuery.isError && (itemQuery.error as Error).message.includes('404')
+  if (notFound || !item) {
     return (
       <section>
         <p>This tune is not in the repertoire.</p>
@@ -94,6 +93,10 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
       </section>
     )
   }
+  if (itemQuery.isError) {
+    return <p className="error">Could not load the tune.</p>
+  }
+  const practicedToday = item.lastPracticed != null && isToday(item.lastPracticed)
 
   return (
     <section>

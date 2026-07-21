@@ -8,7 +8,7 @@ import {
   getGroupDetails,
   joinGroup,
   leaveGroup,
-  getRepertoire,
+  getFullRepertoireList,
   addToRepertoire,
   formatTuneType,
   searchTunes,
@@ -111,10 +111,10 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     queryFn: () => getGroupSessions(id, userId),
   })
 
-  // Fetch user's own repertoire to check if they already have tunes (signed-in members only)
+  // Fetch user's own repertoire (tune IDs only) to check if they already have tunes (signed-in members only)
   const repertoireQuery = useQuery({
-    queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+    queryKey: ['repertoire-list-full', userId],
+    queryFn: getFullRepertoireList,
     enabled: !!userId,
   })
 
@@ -178,7 +178,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const addTuneMutation = useMutation({
     mutationFn: (tuneId: string) => addToRepertoire(tuneId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
+      queryClient.invalidateQueries({ queryKey: ['repertoire-list-full', userId] })
     },
   })
 
@@ -222,7 +222,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const viewer = details.members.find((m) => m.userId === userId)
   const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner'
   const isOwner = viewer?.role === 'Owner'
-  const userTuneIds = new Set(repertoireQuery.data?.items?.map((t) => t.tuneId) ?? [])
+  const userTuneIds = new Set(repertoireQuery.data?.map((t) => t.tuneId) ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
   const librarySearchMatches = (librarySearch.data?.items ?? []).filter((t) => !masterTuneIds.has(t.tuneId))
 

@@ -87,6 +87,24 @@ public record RepertoireItemDto(
     public string Abc => AbcText;
 }
 
+/// <summary>Lightweight repertoire row for the scrolling list view — no ABC/settings payload.</summary>
+public record RepertoireListItemDto(
+    Guid UserTuneId,
+    Guid TuneId,
+    string Title,
+    string TuneType,
+    string Key,
+    string Status,
+    DateTime? LastPracticed,
+    int? TargetBpm);
+
+/// <summary>Aggregate repertoire counts for the dashboard — computed via SQL GroupBy, not client-side.</summary>
+public record RepertoireStatsDto(
+    int TotalCount,
+    Dictionary<string, int> ByStatus,
+    Dictionary<string, int> ByType,
+    int RustyCount);
+
 public record PracticeQueueItemDto(
     Guid UserTuneId,
     string Title,

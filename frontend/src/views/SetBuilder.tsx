@@ -8,7 +8,7 @@ import {
   createSet,
   deleteSet,
   formatTuneType,
-  getRepertoire,
+  getFullRepertoire,
   getSets,
   suggestNextTune,
   updateSet,
@@ -45,7 +45,7 @@ export function SetBuilder() {
   const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+    queryFn: getFullRepertoire,
   })
 
   const saveMutation = useMutation({
@@ -87,8 +87,8 @@ export function SetBuilder() {
       <SetEditor
         draft={draft}
         setDraft={setDraft}
-        repertoire={repertoire.data?.items ?? []}
-        available={(repertoire.data?.items ?? []).filter(
+        repertoire={repertoire.data ?? []}
+        available={(repertoire.data ?? []).filter(
           (r) => !draft.items.some((i) => i.userTuneId === r.userTuneId),
         )}
         onSave={() => saveMutation.mutate(draft)}

@@ -7,8 +7,8 @@
  */
 import { getBearerToken } from '../state/appState'
 
-const API_BASE = 'https://sessionr-api-private-bphheph3gcdqgee2.westus3-01.azurewebsites.net/api/'
-const PUBLIC_API_BASE = 'https://sessionr-api-public-f7hxfxdwftapd9hf.westus3-01.azurewebsites.net/api/'
+const API_BASE = 'https://api-private.sessionr.org/api/'
+const PUBLIC_API_BASE = 'https://api-public.sessionr.org/api/'
 
 async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false): Promise<T> {
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
@@ -112,6 +112,18 @@ export interface RepertoireItem {
   abc: string
   abcText?: string
   hasCustomAbc: boolean
+}
+
+/** Lightweight repertoire row for the scrolling list — no ABC. Fetch getRepertoireItem for that. */
+export interface RepertoireListItem {
+  userTuneId: string
+  tuneId: string
+  title: string
+  tuneType: string
+  key: string
+  status: string
+  lastPracticed: string | null
+  targetBpm: number | null
 }
 
 export interface PracticeQueueItem {
@@ -232,6 +244,57 @@ export const getRepertoire = (search?: string, type?: string, status?: string, p
   params.set('pageSize', pageSize.toString())
   return apiFetch<PagedResult<RepertoireItem>>(`/repertoire?${params}`)
 }
+
+/** Lightweight rows (no ABC) for the scrolling Repertoire list — call getRepertoireItem for detail. */
+export const getRepertoireList = (search?: string, type?: string, status?: string, page = 1, pageSize = 20) => {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (type) params.set('type', type)
+  if (status) params.set('status', status)
+  params.set('page', page.toString())
+  params.set('pageSize', pageSize.toString())
+  params.set('summary', 'true')
+  return apiFetch<PagedResult<RepertoireListItem>>(`/repertoire?${params}`)
+}
+
+export const getRepertoireItem = (userTuneId: string) =>
+  apiFetch<RepertoireItem>(`/repertoire/items/${userTuneId}`)
+
+/** Full repertoire (with ABC), all pages — for bulk operations like CSV/JSON backup export. */
+export const getFullRepertoire = async (): Promise<RepertoireItem[]> => {
+  const items: RepertoireItem[] = []
+  let page = 1
+  for (;;) {
+    const result = await getRepertoire(undefined, undefined, undefined, page, 100)
+    items.push(...result.items)
+    if (!result.hasMore) break
+    page += 1
+  }
+  return items
+}
+
+/** Lightweight full repertoire (no ABC), all pages — for ID/membership-only checks. */
+export const getFullRepertoireList = async (): Promise<RepertoireListItem[]> => {
+  const items: RepertoireListItem[] = []
+  let page = 1
+  for (;;) {
+    const result = await getRepertoireList(undefined, undefined, undefined, page, 100)
+    items.push(...result.items)
+    if (!result.hasMore) break
+    page += 1
+  }
+  return items
+}
+
+export interface RepertoireStats {
+  totalCount: number
+  byStatus: Record<string, number>
+  byType: Record<string, number>
+  rustyCount: number
+}
+
+/** Aggregate repertoire counts for the dashboard — avoids fetching every row. */
+export const getRepertoireStats = () => apiFetch<RepertoireStats>('/repertoire/stats')
 
 export const addToRepertoire = (tuneId: string, tuneSettingId?: string) =>
   apiFetch<RepertoireItem>('/repertoire', {

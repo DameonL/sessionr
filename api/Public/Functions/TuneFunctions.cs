@@ -73,6 +73,7 @@ public class TuneFunctions(AppDbContext db)
 
         var tune = await db.Tunes
             .AsNoTracking()
+            .Include(t => t.MasterAbcText)
             .Include(t => t.Aliases)
             .Include(t => t.Settings)
                 .ThenInclude(s => s.Votes)

@@ -8,19 +8,19 @@ import {
   TUNE_TYPES,
   addToRepertoire,
   formatTuneType,
-  getRepertoire,
+  getRepertoireList,
   importFromTheSession,
   importTunebook,
   searchTheSession,
   searchTunes,
-  type RepertoireItem,
+  type RepertoireListItem,
 } from '../services/api'
 import { currentUserId, repertoireSearch, useSignal } from '../state/appState'
 import { RepertoireBackup } from '../components/RepertoireBackup'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 
-function getSortKey(item: RepertoireItem, field: 'title' | 'tuneType' | 'key'): string {
+function getSortKey(item: RepertoireListItem, field: 'title' | 'tuneType' | 'key'): string {
   const val = (item[field] || '').toLowerCase()
   if (field === 'title') {
     if (val.startsWith('the ')) return val.slice(4)
@@ -43,7 +43,7 @@ export function Repertoire() {
 
   const repertoireQuery = useInfiniteQuery({
     queryKey: ['repertoire', userId, search, filterType, filterStatus],
-    queryFn: ({ pageParam = 1 }) => getRepertoire(search, filterType, filterStatus, pageParam as number, 20),
+    queryFn: ({ pageParam = 1 }) => getRepertoireList(search, filterType, filterStatus, pageParam as number, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
   })
@@ -242,7 +242,6 @@ export function Repertoire() {
       <TunebookImport userId={userId} onImported={invalidate} />
       <RepertoireBackup
         userId={userId}
-        repertoireItems={allRepertoireItems}
         onImported={invalidate}
       />
       {selectedTuneIdForModal !== null && (

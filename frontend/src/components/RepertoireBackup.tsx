@@ -1,10 +1,12 @@
 import { useRef, useState, type ChangeEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RepertoireItem } from '../services/api'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
   addToRepertoire,
   createTune,
+  getFullRepertoire,
   searchTunes,
   updateUserTune,
 } from '../services/api'
@@ -21,7 +23,6 @@ interface ImportStatus {
 
 interface RepertoireBackupProps {
   userId: string
-  repertoireItems: RepertoireItem[]
   onImported: () => void
 }
 
@@ -160,11 +161,20 @@ export function parseCSV(csvText: string): Record<string, string>[] {
   return rows
 }
 
-export function RepertoireBackup({ userId, repertoireItems, onImported }: RepertoireBackupProps) {
+export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) {
   const [importing, setImporting] = useState(false)
   const [status, setStatus] = useState<ImportStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
+
+  // Export/import need the full repertoire (title + ABC for every tune), unlike the
+  // paginated list on the Repertoire page — fetched separately here, on demand.
+  const repertoireQuery = useQuery({
+    queryKey: ['repertoire-full', userId],
+    queryFn: getFullRepertoire,
+  })
+  const repertoireItems: RepertoireItem[] = repertoireQuery.data ?? []
 
   const handleExportCsv = () => {
     try {
@@ -383,6 +393,7 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
         }
 
         // Finished
+        queryClient.invalidateQueries({ queryKey: ['repertoire-full', userId] })
         onImported()
       } catch (err) {
         setError(`Failed to read or parse file: ${(err as Error).message}`)
@@ -409,10 +420,10 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
       </p>
       
       <div className="detail-controls">
-        <button onClick={handleExportCsv}>⬆ Export CSV</button>
-        <button onClick={handleExportJson}>⬆ Export JSON</button>
-        
-        <button onClick={() => fileInputRef.current?.click()} disabled={importing}>
+        <button onClick={handleExportCsv} disabled={repertoireQuery.isLoading}>⬆ Export CSV</button>
+        <button onClick={handleExportJson} disabled={repertoireQuery.isLoading}>⬆ Export JSON</button>
+
+        <button onClick={() => fileInputRef.current?.click()} disabled={importing || repertoireQuery.isLoading}>
           {importing ? 'Importing…' : '⬇ Import File'}
         </button>
         <input

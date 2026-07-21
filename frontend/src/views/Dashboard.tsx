@@ -6,14 +6,11 @@ import Link from 'next/link'
 import {
   formatTuneType,
   getPracticeQueue,
-  getRepertoire,
+  getRepertoireStats,
   getSets,
   migrateLegacyData,
-  parseServerDate,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
-
-const RUST_DAYS = 30
 
 export function Dashboard() {
   const userId = useSignal(currentUserId)
@@ -37,9 +34,9 @@ export function Dashboard() {
     }
   }
 
-  const repertoire = useQuery({
-    queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+  const stats = useQuery({
+    queryKey: ['repertoire-stats', userId],
+    queryFn: () => getRepertoireStats(),
   })
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
@@ -47,23 +44,9 @@ export function Dashboard() {
   })
   const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
 
-  const items = repertoire.data?.items ?? []
-  const byStatus = new Map<string, number>()
-  const byType = new Map<string, number>()
-  let rustyCount = 0
-  const now = Date.now()
-
-  for (const item of items) {
-    byStatus.set(item.status, (byStatus.get(item.status) ?? 0) + 1)
-    byType.set(item.tuneType, (byType.get(item.tuneType) ?? 0) + 1)
-    if (
-      item.status === 'Active' &&
-      (!item.lastPracticed ||
-        now - parseServerDate(item.lastPracticed).getTime() > RUST_DAYS * 86_400_000)
-    ) {
-      rustyCount++
-    }
-  }
+  const byStatus = stats.data?.byStatus ?? {}
+  const byType = stats.data?.byType ?? {}
+  const rustyCount = stats.data?.rustyCount ?? 0
 
   return (
     <section>
@@ -79,21 +62,21 @@ export function Dashboard() {
         {migrationStatus && <p className="tune-meta">{migrationStatus}</p>}
       </div>
 
-      {repertoire.isError && (
+      {stats.isError && (
         <p className="error">Could not reach the API (is the Functions host running?).</p>
       )}
 
       <div className="stat-grid">
         <div className="card stat">
-          <strong>{items.length}</strong>
+          <strong>{stats.data?.totalCount ?? 0}</strong>
           <span>tunes</span>
         </div>
         <div className="card stat">
-          <strong>{byStatus.get('Active') ?? 0}</strong>
+          <strong>{byStatus['Active'] ?? 0}</strong>
           <span>active</span>
         </div>
         <div className="card stat">
-          <strong>{byStatus.get('Learning') ?? 0}</strong>
+          <strong>{byStatus['Learning'] ?? 0}</strong>
           <span>learning</span>
         </div>
         <div className="card stat">
@@ -106,11 +89,11 @@ export function Dashboard() {
         </div>
       </div>
 
-      {byType.size > 0 && (
+      {Object.keys(byType).length > 0 && (
         <>
           <h2>By type</h2>
           <p className="tune-meta">
-            {[...byType.entries()]
+            {Object.entries(byType)
               .sort((a, b) => b[1] - a[1])
               .map(
                 ([type, count]) =>

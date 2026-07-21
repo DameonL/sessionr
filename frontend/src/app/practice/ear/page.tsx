@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
 import {
   formatTuneType,
-  getRepertoire,
+  getFullRepertoire,
 } from '../../../services/api'
 import { currentUserId, useSignal } from '../../../state/appState'
 
@@ -18,10 +18,10 @@ export default function EarTrainingPage() {
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(),
+    queryFn: getFullRepertoire,
   })
 
-  const earCandidates = [...(repertoire.data?.items ?? [])].sort((a, b) => {
+  const earCandidates = [...(repertoire.data ?? [])].sort((a, b) => {
     const aLearning = a.status === 'Learning' ? 0 : 1
     const bLearning = b.status === 'Learning' ? 0 : 1
     return aLearning - bLearning || a.title.localeCompare(b.title)

@@ -33,6 +33,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         var search = req.Query["search"].ToString();
         var type = req.Query["type"].ToString();
         var status = req.Query["status"].ToString();
+        var summary = bool.TryParse(req.Query["summary"], out var summaryFlag) && summaryFlag;
 
         int.TryParse(req.Query["page"], out var page);
         if (page < 1) page = 1;
@@ -62,12 +63,36 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         var totalCount = await query.CountAsync();
 
-        var items = await query
+        var ordered = query
             .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
                 : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
                 : ut.Tune.Title)
             .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .Take(pageSize);
+
+        var hasMore = (page * pageSize) < totalCount;
+
+        // The scrolling list view only needs enough to render a row and link to the tune's
+        // detail page — ABC and settings are fetched separately, on demand, via
+        // GetRepertoireItem below.
+        if (summary)
+        {
+            var listItems = await ordered
+                .Select(ut => new RepertoireListItemDto(
+                    ut.UserTuneId,
+                    ut.TuneId,
+                    ut.Tune.Title,
+                    ut.Tune.TuneType.ToString(),
+                    ut.TuneSetting != null ? ut.TuneSetting.Key : ut.Tune.Key,
+                    ut.Status.ToString(),
+                    ut.LastPracticed,
+                    ut.TargetBpm))
+                .ToListAsync();
+
+            return new OkObjectResult(new PagedResult<RepertoireListItemDto>(listItems, totalCount, page, pageSize, hasMore));
+        }
+
+        var items = await ordered
             .Select(ut => new RepertoireItemDto(
                 ut.UserTuneId,
                 ut.TuneId,
@@ -81,8 +106,87 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
                 ut.CustomAbcText != null))
             .ToListAsync();
 
-        var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
+    }
+
+    /// <summary>
+    /// GET /api/repertoire/stats — aggregate counts (total, by status, by type, rusty)
+    /// computed via SQL-translated GroupBy/Count queries, for the dashboard.
+    /// </summary>
+    [Function("GetRepertoireStats")]
+    public async Task<IActionResult> GetRepertoireStats(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire/stats")] HttpRequest req)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var userTunes = db.UserTunes.AsNoTracking().Where(ut => ut.UserId == callerUserId.Value);
+
+        var totalCount = await userTunes.CountAsync();
+
+        var byStatusRows = await userTunes
+            .GroupBy(ut => ut.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var byStatus = byStatusRows.ToDictionary(x => x.Status.ToString(), x => x.Count);
+
+        var byTypeRows = await userTunes
+            .GroupBy(ut => ut.Tune.TuneType)
+            .Select(g => new { TuneType = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var byType = byTypeRows.ToDictionary(x => x.TuneType.ToString(), x => x.Count);
+
+        // Mirrors Dashboard's rusty heuristic: Active status AND (never practiced
+        // OR not practiced within RustThreshold).
+        var rustyCutoff = DateTime.UtcNow - RustThreshold;
+        var rustyCount = await userTunes
+            .Where(ut => ut.Status == TuneStatus.Active
+                && (ut.LastPracticed == null || ut.LastPracticed < rustyCutoff))
+            .CountAsync();
+
+        return new OkObjectResult(new RepertoireStatsDto(totalCount, byStatus, byType, rustyCount));
+    }
+
+    /// <summary>GET /api/repertoire/items/{userTuneId} — full detail (including ABC) for a single repertoire tune.</summary>
+    [Function("GetRepertoireItem")]
+    public async Task<IActionResult> GetRepertoireItem(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire/items/{userTuneId:guid}")] HttpRequest req,
+        Guid userTuneId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var userTune = await db.UserTunes
+            .AsNoTracking()
+            .Include(ut => ut.Tune)
+            .Include(ut => ut.TuneSetting)
+            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+
+        if (userTune is null)
+        {
+            return new NotFoundResult();
+        }
+
+        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
+        var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
+
+        return new OkObjectResult(new RepertoireItemDto(
+            userTune.UserTuneId,
+            userTune.TuneId,
+            userTune.Tune.Title,
+            userTune.Tune.TuneType.ToString(),
+            effectiveKey,
+            userTune.Status.ToString(),
+            userTune.LastPracticed,
+            userTune.TargetBpm,
+            effectiveAbc,
+            userTune.CustomAbcText != null));
     }
 
     /// <summary>POST /api/repertoire — add a global tune to the user's repertoire.</summary>
