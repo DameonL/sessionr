@@ -155,7 +155,7 @@ export const searchTunes = (search: string, type?: string) => {
 }
 
 export const createTune = (tune: { title: string; tuneType: string; key: string; abc: string }) =>
-  apiFetchPublic<TuneSummary>('/tunes', { method: 'POST', body: JSON.stringify(tune) })
+  apiFetch<TuneSummary>('/tunes', { method: 'POST', body: JSON.stringify(tune) })
 
 /** thesession.org's own numeric tune ID — not one of our UUIDs. */
 export interface TheSessionResult {
@@ -168,7 +168,7 @@ export const searchTheSession = (q: string) =>
   apiFetchPublic<TheSessionResult[]>(`/import/thesession/search?q=${encodeURIComponent(q)}`)
 
 export const importFromTheSession = (theSessionId: number) =>
-  apiFetchPublic<TuneSummary>('/import/thesession', {
+  apiFetch<TuneSummary>('/import/thesession', {
     method: 'POST',
     body: JSON.stringify({ theSessionId }),
   })
@@ -200,19 +200,19 @@ export const getTuneDetails = (tuneId: string, userId: string) =>
   apiFetchPublic<TuneDetails>(`/tunes/${tuneId}?userId=${userId}`)
 
 export const addTuneSetting = (tuneId: string, key: string, abc: string, submitterName: string) =>
-  apiFetchPublic<TuneSetting>(`/tunes/${tuneId}/settings`, {
+  apiFetch<TuneSetting>(`/tunes/${tuneId}/settings`, {
     method: 'POST',
     body: JSON.stringify({ key, abc, submitterName }),
   })
 
 export const addTuneAlias = (tuneId: string, name: string) =>
-  apiFetchPublic<{ name: string }>(`/tunes/${tuneId}/aliases`, {
+  apiFetch<{ name: string }>(`/tunes/${tuneId}/aliases`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   })
 
 export const voteTuneSetting = (settingId: string, userId: string, value: number) =>
-  apiFetchPublic<{ voteScore: number }>(`/tunes/settings/${settingId}/vote`, {
+  apiFetch<{ voteScore: number }>(`/tunes/settings/${settingId}/vote`, {
     method: 'POST',
     body: JSON.stringify({ userId, value }),
   })
