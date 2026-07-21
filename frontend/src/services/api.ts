@@ -2,15 +2,35 @@
  * Typed client for the two Functions backends: the Private API (personal data
  * and mutations) and the Public API (anonymous-friendly reads + community
  * contributions). Azure Static Web Apps / the local Next.js dev proxy route
- * "/api/public/*" to the Public Functions app and everything else in "/api/*"
+ * "/api/*" to the Public Functions app and everything else in "/api/*"
  * to the Private one (see next.config.ts).
  */
-const API_BASE = '/api'
-const PUBLIC_API_BASE = '/api/public'
+import { getBearerToken } from '../state/appState'
+
+const API_BASE = 'https://sessionr-api-private-bphheph3gcdqgee2.westus3-01.azurewebsites.net/api/'
+const PUBLIC_API_BASE = 'https://sessionr-api-public-f7hxfxdwftapd9hf.westus3-01.azurewebsites.net/api/'
 
 async function doFetch<T>(base: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+  const url = `${cleanBase}${cleanPath}`
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...init?.headers as Record<string, string>,
+  }
+
+  try {
+    const token = await getBearerToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+  } catch (err) {
+    console.error('Failed to get bearer token', err)
+  }
+
+  const res = await fetch(url, {
+    headers,
     ...init,
   })
   if (!res.ok) {

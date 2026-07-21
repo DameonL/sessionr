@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { PublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { loginOrRegisterUser } from '../services/api'
-import { currentUserId, currentUserProfile } from '../state/appState'
+import { currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -39,6 +39,21 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           const pca = new PublicClientApplication(msalConfigObj);
           pca.initialize().then(() => {
             setPcaInstance(pca);
+            setTokenAcquisitionHelper(async () => {
+              const accounts = pca.getAllAccounts();
+              if (accounts.length === 0) return null;
+              const activeAccount = pca.getActiveAccount() || accounts[0];
+              try {
+                const response = await pca.acquireTokenSilent({
+                  scopes: ['openid', 'profile', config.clientId],
+                  account: activeAccount,
+                });
+                return response.idToken || response.accessToken || null;
+              } catch (error) {
+                console.warn('acquireTokenSilent failed:', error);
+                return null;
+              }
+            });
             setLoading(false);
           }).catch((err) => {
             console.error('MSAL initialization failed:', err);

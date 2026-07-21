@@ -27,6 +27,12 @@ export const currentUserId = new Signal('');
 export const currentUserProfile = new Signal<{ displayName: string; email: string } | null>(null);
 export const repertoireSearch = new Signal('');
 
+export let getBearerToken: () => Promise<string | null> = async () => null;
+
+export function setTokenAcquisitionHelper(helper: () => Promise<string | null>) {
+  getBearerToken = helper;
+}
+
 export function useSignal<T>(sig: Signal<T>): T {
   const [val, setVal] = useState(sig.value);
   useEffect(() => {
