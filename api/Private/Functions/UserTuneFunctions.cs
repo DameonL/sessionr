@@ -41,9 +41,11 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var query = db.UserTunes
+        IQueryable<UserTune> query = db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == callerUserId.Value);
+            .Where(ut => ut.UserId == callerUserId.Value)
+            .Include(ut => ut.Tune)
+            .Include(ut => ut.TuneSetting);
 
         if (!string.IsNullOrWhiteSpace(search))
         {

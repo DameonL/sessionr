@@ -110,6 +110,7 @@ export interface RepertoireItem {
   lastPracticed: string | null
   targetBpm: number | null
   abc: string
+  abcText?: string
   hasCustomAbc: boolean
 }
 
@@ -122,6 +123,7 @@ export interface PracticeQueueItem {
   lastPracticed: string | null
   targetBpm: number | null
   abc: string
+  abcText?: string
   reason: string
 }
 

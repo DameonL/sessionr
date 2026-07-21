@@ -17,6 +17,39 @@ public static class GroupAuthorization
     // Excludes visually ambiguous characters (0/O, 1/I).
     private const string InviteCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+    /// <summary>Ensures a user record exists in db.Users for the given authenticated identity.</summary>
+    public static async Task<Guid> EnsureUserExistsAsync(AppDbContext db, Guid userId, string? email = null, string? displayName = null)
+    {
+        var normalizedEmail = !string.IsNullOrWhiteSpace(email) ? email.Trim().ToLowerInvariant() : null;
+
+        var existing = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail));
+        if (existing != null)
+        {
+            return existing.UserId;
+        }
+
+        var newUser = new User
+        {
+            UserId = userId,
+            Email = normalizedEmail ?? $"{userId:N}@auth.sessionr",
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Musician" : displayName.Trim()
+        };
+
+        db.Users.Add(newUser);
+        try
+        {
+            await db.SaveChangesAsync();
+            return newUser.UserId;
+        }
+        catch
+        {
+            // Fallback for concurrency: reload
+            var reload = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail));
+            if (reload != null) return reload.UserId;
+            throw;
+        }
+    }
+
     /// <summary>Extracts authentic caller User ID strictly from Azure EasyAuth headers and JWT Bearer tokens.</summary>
     public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)
     {
@@ -24,9 +57,7 @@ public static class GroupAuthorization
         if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
             Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
         {
-            var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == easyAuthGuid);
-            if (user != null) return user.UserId;
-            return easyAuthGuid;
+            return await EnsureUserExistsAsync(db, easyAuthGuid);
         }
 
         // 2. Azure EasyAuth Encoded Principal Header (Base64-encoded Claims)
@@ -41,6 +72,8 @@ public static class GroupAuthorization
                 {
                     string? oidStr = null;
                     string? emailStr = null;
+                    string? nameStr = null;
+
                     foreach (var claim in claimsArr.EnumerateArray())
                     {
                         var typ = claim.GetProperty("typ").GetString();
@@ -53,23 +86,22 @@ public static class GroupAuthorization
                         {
                             emailStr = val;
                         }
+                        else if (typ == "name" || typ == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+                        {
+                            nameStr = val;
+                        }
                     }
 
                     if (Guid.TryParse(oidStr, out var claimGuid))
                     {
-                        var userByOid = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == claimGuid);
-                        if (userByOid != null) return userByOid.UserId;
+                        return await EnsureUserExistsAsync(db, claimGuid, emailStr, nameStr);
                     }
 
                     if (!string.IsNullOrWhiteSpace(emailStr))
                     {
                         var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
                         if (userByEmail != null) return userByEmail.UserId;
-                    }
-
-                    if (Guid.TryParse(oidStr, out var fallbackGuid))
-                    {
-                        return fallbackGuid;
+                        return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), emailStr, nameStr);
                     }
                 }
             }
@@ -116,21 +148,19 @@ public static class GroupAuthorization
                         if (root.TryGetProperty("email", out var emailProp)) emailStr = emailProp.GetString();
                         else if (root.TryGetProperty("preferred_username", out var prefProp)) emailStr = prefProp.GetString();
 
+                        string? nameStr = null;
+                        if (root.TryGetProperty("name", out var nameProp)) nameStr = nameProp.GetString();
+
                         if (Guid.TryParse(oidStr, out var oidGuid))
                         {
-                            var userByOid = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == oidGuid);
-                            if (userByOid != null) return userByOid.UserId;
+                            return await EnsureUserExistsAsync(db, oidGuid, emailStr, nameStr);
                         }
 
                         if (!string.IsNullOrWhiteSpace(emailStr))
                         {
                             var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == emailStr);
                             if (userByEmail != null) return userByEmail.UserId;
-                        }
-
-                        if (Guid.TryParse(oidStr, out var fallbackGuid))
-                        {
-                            return fallbackGuid;
+                            return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), emailStr, nameStr);
                         }
                     }
                     catch { }

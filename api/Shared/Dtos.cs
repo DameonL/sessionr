@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Functions;
@@ -79,8 +80,12 @@ public record RepertoireItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    string AbcText,
-    bool HasCustomAbc);
+    [property: JsonPropertyName("abcText")] string AbcText,
+    bool HasCustomAbc)
+{
+    [JsonPropertyName("abc")]
+    public string Abc => AbcText;
+}
 
 public record PracticeQueueItemDto(
     Guid UserTuneId,
@@ -90,8 +95,12 @@ public record PracticeQueueItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    string AbcText,
-    string Reason);
+    [property: JsonPropertyName("abcText")] string AbcText,
+    string Reason)
+{
+    [JsonPropertyName("abc")]
+    public string Abc => AbcText;
+}
 
 public record SuggestNextRequest(List<Guid> UserTuneIds);
 
