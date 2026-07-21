@@ -24,7 +24,9 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const isSignedIn = !!userId
   const queryClient = useQueryClient()
 
-  const [practicingSettingId, setPracticingSettingId] = useState<string | null>(null)
+  // undefined = no explicit user choice yet (show the first/most-popular setting);
+  // null = user explicitly hid the player; string = user explicitly picked that setting.
+  const [practicingSettingId, setPracticingSettingId] = useState<string | null | undefined>(undefined)
   const [showNewSettingForm, setShowNewSettingForm] = useState(false)
   const [newSettingKey, setNewSettingKey] = useState('')
   const [newSettingAbc, setNewSettingAbc] = useState('')
@@ -166,8 +168,9 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
         {addedMessage && <p className="tune-meta">{addedMessage}</p>}
 
         <div className="settings-list-container">
-          {details.settings.map((s) => {
-            const isPracticing = practicingSettingId === s.tuneSettingId
+          {details.settings.map((s, index) => {
+            const isPracticing =
+              practicingSettingId === undefined ? index === 0 : practicingSettingId === s.tuneSettingId
             const hasUpvoted = s.userVoteValue === 1
             const hasDownvoted = s.userVoteValue === -1
 

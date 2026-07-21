@@ -38,7 +38,9 @@ export function TuneSettingsModal({
   actionLabel,
 }: TuneSettingsModalProps) {
   const queryClient = useQueryClient()
-  const [previewSettingId, setPreviewSettingId] = useState<string | null>(null)
+  // undefined = no explicit user choice yet (show the first/most-popular setting);
+  // null = user explicitly collapsed everything; string = user explicitly expanded that setting.
+  const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
   
   // Submit new setting states
   const [showNewSettingForm, setShowNewSettingForm] = useState(false)
@@ -203,8 +205,9 @@ export function TuneSettingsModal({
         <div className="modal-section">
           <h3>Select a Setting to Add</h3>
           <div className="settings-list-container">
-            {details.settings.map((s) => {
-              const isPreviewed = previewSettingId === s.tuneSettingId
+            {details.settings.map((s, index) => {
+              const isPreviewed =
+                previewSettingId === undefined ? index === 0 : previewSettingId === s.tuneSettingId
               const hasUpvoted = s.userVoteValue === 1
               const hasDownvoted = s.userVoteValue === -1
 

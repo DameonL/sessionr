@@ -7,20 +7,17 @@ import {
   synthInstrumentOptions,
   type Instruments,
 } from './instruments'
-import {
-  ALL_METRONOME_SOUNDS,
-  BEAT_SOUNDS,
-  DEFAULT_METRONOME_SOUND,
-  MELODIC_SOUNDS,
-  OTHER_PERCUSSION_SOUNDS,
-  findMetronomeSound,
-  getAbcKeyRoot,
-  loadMetronomePrefs,
-  playMetronomeClick,
-  saveMetronomePrefs,
-  type MetronomeSound,
-} from '../services/metronome'
+import { getAbcKeyRoot, playMetronomeClick } from '../services/metronome'
 import { fixAbcRepeats } from '../services/abcTools'
+import {
+  MetronomeControls,
+  formatTime,
+  getOrCreateCursor,
+  toAbcjsSwing,
+  updateCursorPosition,
+  useCommitOnChange,
+  useMetronomePrefs,
+} from './playerControls'
 
 interface TunePlayerProps {
   abc: string
@@ -67,22 +64,15 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   const noteTimingsRef = useRef<abcjs.NoteTimingEvent[]>([])
   const repeatLimitRef = useRef<number | null>(null)
   const repeatPassRef = useRef(1)
-  const useMetronomeRef = useRef(false)
-  const metronomeSoundRef = useRef<MetronomeSound>(DEFAULT_METRONOME_SOUND)
   const keyRootRef = useRef<number>(72)
   const playIdRef = useRef(0)
 
-  // Load persisted metronome prefs once, before first render.
-  const _initPrefs = loadMetronomePrefs()
-  useMetronomeRef.current = _initPrefs.enabled
-  metronomeSoundRef.current = findMetronomeSound(_initPrefs.soundKey)
-  const [useMetronome, setUseMetronome] = useState(() => _initPrefs.enabled)
-  const [metronomeSound, setMetronomeSound] = useState<MetronomeSound>(
-    () => findMetronomeSound(_initPrefs.soundKey),
-  )
+  const metronome = useMetronomePrefs()
+  const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome
+
   const [status, setStatus] = useState<PlayerStatus>('stopped')
   const [tempoPercent, setTempoPercent] = useState(100)
-  const [swingPercent, setSwingPercent] = useState(50)
+  const [swingPercent, setSwingPercent] = useState(0)
   const [repeat, setRepeat] = useState(false)
   const [repeatLimit, setRepeatLimit] = useState<number | null>(null)
   const [instruments, setInstruments] = useState<Instruments>(loadInstruments)
@@ -223,7 +213,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
         millisecondsPerMeasure: visualObj.millisecondsPerMeasure(effectiveBpm),
         options: {
           ...synthInstrumentOptions(activeInstruments),
-          swing: swingPercent,
+          swing: toAbcjsSwing(swingPercent),
         },
       })
       if (playId !== playIdRef.current) {
@@ -369,26 +359,23 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
     setTempoPercent(percent)
   }
 
-  function triggerTempoCommit() {
-    if (status !== 'stopped') {
-      const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
-      play(tempoPercent, instruments, currentFraction)
-    }
-  }
-
   function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
     const percent = Number((e.target as HTMLInputElement).value)
     setSwingPercent(percent)
   }
 
-  function onSwingChange(e: ChangeEvent<HTMLInputElement>) {
-    const percent = Number((e.target as HTMLInputElement).value)
-    setSwingPercent(percent)
+  // Tempo and swing are both baked into the synth buffer, so committing a
+  // change to either (mouse/touch release OR keyboard, via the inputs' native
+  // 'change' event) restarts playback at the current position so the new
+  // value is actually audible, without rebuilding on every drag tick.
+  function restartAtCurrentPosition() {
     if (status !== 'stopped') {
       const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
       play(tempoPercent, instruments, currentFraction)
     }
   }
+  const tempoInputRef = useCommitOnChange(restartAtCurrentPosition)
+  const swingInputRef = useCommitOnChange(restartAtCurrentPosition)
 
   function onInstrumentChange(part: keyof Instruments) {
     return (e: ChangeEvent<HTMLSelectElement>) => {
@@ -435,10 +422,8 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
     })
   }
 
-  const formatTime = (sec: number) => {
-    const whole = Math.max(0, Math.round(sec))
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
-  }
+  const naturalBpm = visualObjRef.current?.getBpm() ?? 0
+  const effectiveBpm = naturalBpm > 0 ? Math.round(naturalBpm * (tempoPercent / 100)) : 0
 
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
@@ -523,50 +508,7 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
         >
           🔁 Repeat
         </button>
-        <button
-          className={useMetronome ? 'toggled' : ''}
-          aria-pressed={useMetronome}
-          onClick={() => {
-            const next = !useMetronome
-            useMetronomeRef.current = next
-            setUseMetronome(next)
-            saveMetronomePrefs({ enabled: next, soundKey: metronomeSoundRef.current.key })
-          }}
-        >
-          🔊 Metronome
-        </button>
-        {useMetronome && (
-          <label>
-            Beat
-            <select
-              value={metronomeSound.key}
-              onChange={(e) => {
-                const sound = ALL_METRONOME_SOUNDS.find(
-                  (s) => s.key === (e.target as HTMLSelectElement).value,
-                ) ?? DEFAULT_METRONOME_SOUND
-                setMetronomeSound(sound)
-                metronomeSoundRef.current = sound
-                saveMetronomePrefs({ enabled: useMetronomeRef.current, soundKey: sound.key })
-              }}
-            >
-              <optgroup label="Beat &amp; Percussion">
-                {BEAT_SOUNDS.map((s) => (
-                  <option key={s.key} value={s.key}>{s.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Other Percussion">
-                {OTHER_PERCUSSION_SOUNDS.map((s) => (
-                  <option key={s.key} value={s.key}>{s.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Melodic Instruments">
-                {MELODIC_SOUNDS.map((s) => (
-                  <option key={s.key} value={s.key}>{s.label}</option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
-        )}
+        <MetronomeControls {...metronome} />
         {repeat && (
           <label>
             Times
@@ -599,39 +541,27 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
         </button>
         {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
         <label>
-          Tempo {tempoPercent}%
+          Tempo {effectiveBpm > 0 ? `${effectiveBpm} BPM (${tempoPercent}%)` : `${tempoPercent}%`}
           <input
+            ref={tempoInputRef}
             type="range"
             min="50"
             max="150"
             step="5"
             value={tempoPercent}
             onChange={onTempoInput}
-            onMouseUp={triggerTempoCommit}
-            onTouchEnd={triggerTempoCommit}
           />
         </label>
         <label>
           Swing {swingPercent}%
           <input
+            ref={swingInputRef}
             type="range"
-            min="50"
-            max="75"
+            min="0"
+            max="100"
             step="1"
             value={swingPercent}
             onChange={onSwingInput}
-            onMouseUp={() => {
-              if (status !== 'stopped') {
-                const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
-                play(tempoPercent, instruments, currentFraction)
-              }
-            }}
-            onTouchEnd={() => {
-              if (status !== 'stopped') {
-                const currentFraction = totalSec > 0 ? positionSec / totalSec : 0
-                play(tempoPercent, instruments, currentFraction)
-              }
-            }}
           />
         </label>
       </div>
@@ -755,29 +685,5 @@ export function TunePlayer({ abc, targetBpm }: TunePlayerProps) {
   }
 }
 
-function getOrCreateCursor(svg: SVGSVGElement | null): SVGLineElement | null {
-  if (!svg) return null
-  let cursor = svg.querySelector('.abcjs-cursor') as SVGLineElement
-  if (!cursor) {
-    cursor = document.createElementNS('http://www.w3.org/2000/svg', 'line')
-    cursor.setAttribute('class', 'abcjs-cursor')
-    cursor.setAttribute('x1', '0')
-    cursor.setAttribute('y1', '0')
-    cursor.setAttribute('x2', '0')
-    cursor.setAttribute('y2', '0')
-    svg.appendChild(cursor)
-  }
-  return cursor
-}
-
-function updateCursorPosition(svg: SVGSVGElement | null, x: number, y1: number, y2: number) {
-  const cursor = getOrCreateCursor(svg)
-  if (cursor) {
-    cursor.setAttribute('x1', String(x))
-    cursor.setAttribute('x2', String(x))
-    cursor.setAttribute('y1', String(y1))
-    cursor.setAttribute('y2', String(y2))
-  }
-}
 
 
