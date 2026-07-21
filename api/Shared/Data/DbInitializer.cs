@@ -12,7 +12,7 @@ public static class DbInitializer
     public static void InitializeDevDatabase(AppDbContext db)
     {
         db.Database.EnsureCreated();
-        EnsureSchemaUpToDate(db);
+        DbSchemaMigrator.EnsureSchemaUpToDate(db, true);
 
         if (db.Tunes.Any())
         {
@@ -305,42 +305,4 @@ public static class DbInitializer
                 """,
         },
     ];
-
-    private static void EnsureSchemaUpToDate(AppDbContext db)
-    {
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN Description TEXT NOT NULL DEFAULT '';");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN City TEXT NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN RecurrencePattern TEXT NOT NULL DEFAULT 'None';");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN RecurrenceDayOfWeek INTEGER NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN RecurrenceWeekOfMonth INTEGER NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN StartDate TEXT NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN MeetingTime TEXT NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN MeetingScheduleText TEXT NULL;");
-        ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN MeetingDescription TEXT NULL;");
-
-        ExecuteSqlSafe(db, """
-            CREATE TABLE IF NOT EXISTS GroupUpdates (
-                GroupUpdateId TEXT NOT NULL PRIMARY KEY,
-                GroupId TEXT NOT NULL,
-                Title TEXT NOT NULL,
-                Content TEXT NOT NULL,
-                CreatedByUserId TEXT NOT NULL,
-                CreatedAt TEXT NOT NULL,
-                FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE,
-                FOREIGN KEY (CreatedByUserId) REFERENCES Users (UserId) ON DELETE RESTRICT
-            );
-        """);
-    }
-
-    private static void ExecuteSqlSafe(AppDbContext db, string sql)
-    {
-        try
-        {
-            db.Database.ExecuteSqlRaw(sql);
-        }
-        catch
-        {
-            // Ignore if column or table already exists in SQLite
-        }
-    }
 }

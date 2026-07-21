@@ -14,6 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMembership> GroupMemberships => Set<GroupMembership>();
     public DbSet<GroupUpdate> GroupUpdates => Set<GroupUpdate>();
+    public DbSet<GroupMeetingSchedule> GroupMeetingSchedules => Set<GroupMeetingSchedule>();
     public DbSet<GroupTune> GroupTunes => Set<GroupTune>();
     public DbSet<GroupSet> GroupSets => Set<GroupSet>();
     public DbSet<GroupSetItem> GroupSetItems => Set<GroupSetItem>();
@@ -104,7 +105,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Group>(entity =>
         {
             entity.HasIndex(g => g.InviteCode).IsUnique();
-            entity.Property(g => g.RecurrencePattern).HasConversion<string>().HasMaxLength(20);
         });
 
         modelBuilder.Entity<GroupUpdate>(entity =>
@@ -120,6 +120,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(gu => gu.CreatedAt);
+        });
+
+        modelBuilder.Entity<GroupMeetingSchedule>(entity =>
+        {
+            entity.HasOne(gms => gms.Group)
+                .WithMany(g => g.Schedules)
+                .HasForeignKey(gms => gms.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(gms => gms.RecurrencePattern).HasConversion<string>().HasMaxLength(20);
         });
 
         // A group's curated master tune list, mirroring the UserTune pattern:

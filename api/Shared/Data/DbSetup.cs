@@ -40,7 +40,7 @@ public static class DbSetup
         return useSqlite;
     }
 
-    /// <summary>Runs the one-off column-add shim and, for local SQLite, the dev seed. Idempotent — safe to call from both apps at startup.</summary>
+    /// <summary>Runs idempotent database schema migrations and, for local SQLite, the dev seed. Safe to call from both apps at startup.</summary>
     public static void InitializeDatabase(IServiceProvider services, bool useSqlite)
     {
         using var scope = services.CreateScope();
@@ -51,14 +51,7 @@ public static class DbSetup
             db.Database.EnsureCreated();
         }
 
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE Tunes ADD TheSessionId INT NULL;");
-        }
-        catch
-        {
-            // Column already exists (or the provider doesn't need the shim) — fine either way.
-        }
+        DbSchemaMigrator.EnsureSchemaUpToDate(db, useSqlite);
 
         if (useSqlite)
         {

@@ -330,7 +330,6 @@ export function Groups() {
                           ? 'Request pending approval'
                           : `${g.memberCount} ${g.memberCount === 1 ? 'member' : 'members'}`}
                       </span>
-                      {g.meetingScheduleText && <span>🕒 {g.meetingScheduleText}</span>}
                     </div>
                   </Link>
                   <button
@@ -370,7 +369,6 @@ export function Groups() {
                 )}
                 <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
                   <span>{g.memberCount} {g.memberCount === 1 ? 'member' : 'members'}</span>
-                  {g.meetingScheduleText && <span>🕒 {g.meetingScheduleText}</span>}
                 </div>
               </Link>
               {isSignedIn ? (

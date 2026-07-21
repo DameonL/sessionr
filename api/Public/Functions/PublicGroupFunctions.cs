@@ -35,10 +35,7 @@ public class PublicGroupFunctions(AppDbContext db)
                 g.Memberships.Count(m => m.Status == GroupMembershipStatus.Active),
                 g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active),
                 g.IsPrivate,
-                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending),
-                g.MeetingScheduleText,
-                g.MeetingDescription
-            ))
+                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending)))
             .ToListAsync();
 
         return new OkObjectResult(groups);
@@ -71,8 +68,7 @@ public class PublicGroupFunctions(AppDbContext db)
         {
             return new OkObjectResult(new GroupDetailsDto(
                 group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
-                null, null, RecurrencePattern.None, null, null, null, null,
-                [], [], [], [], [], []));
+                [], [], [], [], [], [], []));
         }
 
         var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
@@ -162,6 +158,23 @@ public class PublicGroupFunctions(AppDbContext db)
             ))
             .ToListAsync();
 
+        // 7. Group meeting schedules (multiple recurring schedules)
+        var schedules = await db.GroupMeetingSchedules
+            .AsNoTracking()
+            .Where(gms => gms.GroupId == groupId)
+            .OrderBy(gms => gms.CreatedAt)
+            .Select(gms => new GroupMeetingScheduleDto(
+                gms.GroupMeetingScheduleId,
+                gms.GroupId,
+                gms.RecurrencePattern,
+                gms.RecurrenceDayOfWeek,
+                gms.RecurrenceWeekOfMonth,
+                gms.StartDate,
+                gms.MeetingTime,
+                gms.MeetingScheduleText,
+                gms.MeetingDescription))
+            .ToListAsync();
+
         return new OkObjectResult(new GroupDetailsDto(
             group.GroupId,
             group.Name,
@@ -170,19 +183,13 @@ public class PublicGroupFunctions(AppDbContext db)
             group.IsPrivate,
             isViewerAdmin ? group.InviteCode : null,
             viewerMembership?.Status.ToString(),
-            group.MeetingScheduleText,
-            group.MeetingDescription,
-            group.RecurrencePattern,
-            group.RecurrenceDayOfWeek,
-            group.RecurrenceWeekOfMonth,
-            group.StartDate,
-            group.MeetingTime,
             members,
             pendingMembers,
             masterTunes,
             commonTunes,
             recentActivity,
-            updates
+            updates,
+            schedules
         ));
     }
 }

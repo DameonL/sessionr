@@ -319,7 +319,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           </div>
           <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.35rem', fontSize: '0.85rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
             <span>{details.members.length} {details.members.length === 1 ? 'member' : 'members'}</span>
-            {details.meetingScheduleText && <span>🕒 {details.meetingScheduleText}</span>}
+            {details.schedules && details.schedules.length > 0 && (
+              <span>🕒 {details.schedules.map((s) => s.meetingScheduleText || 'Regular meetup').join(' • ')}</span>
+            )}
           </div>
         </div>
 
@@ -399,13 +401,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
       {activeTab === 'overview' && (
         <div>
           <GroupCalendar
-            recurrencePattern={details.recurrencePattern}
-            recurrenceDayOfWeek={details.recurrenceDayOfWeek}
-            recurrenceWeekOfMonth={details.recurrenceWeekOfMonth}
-            startDate={details.startDate}
-            meetingTime={details.meetingTime}
-            meetingScheduleText={details.meetingScheduleText}
-            meetingDescription={details.meetingDescription}
+            schedules={details.schedules ?? []}
             sessions={sessionsQuery.data ?? []}
           />
 

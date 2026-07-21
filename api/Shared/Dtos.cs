@@ -132,9 +132,17 @@ public record GroupDto(
     int MemberCount,
     bool IsMember,
     bool IsPrivate,
-    bool IsPending,
-    string? MeetingScheduleText,
-    string? MeetingDescription = null);
+    bool IsPending);
+
+public record GroupSummary(
+    Guid GroupId,
+    string Name,
+    string? Description,
+    string? City,
+    int MemberCount,
+    bool IsMember,
+    bool IsPrivate,
+    bool IsPending);
 
 public record CreateGroupRequest(
     string Name,
@@ -143,6 +151,27 @@ public record CreateGroupRequest(
     string? City = null,
     bool IsPrivate = false,
     RecurrencePattern RecurrencePattern = RecurrencePattern.None,
+    DayOfWeek? RecurrenceDayOfWeek = null,
+    int? RecurrenceWeekOfMonth = null,
+    DateTime? StartDate = null,
+    string? MeetingTime = null,
+    string? MeetingScheduleText = null,
+    string? MeetingDescription = null);
+
+public record GroupMeetingScheduleDto(
+    Guid GroupMeetingScheduleId,
+    Guid GroupId,
+    RecurrencePattern RecurrencePattern,
+    DayOfWeek? RecurrenceDayOfWeek,
+    int? RecurrenceWeekOfMonth,
+    DateTime? StartDate,
+    string? MeetingTime,
+    string? MeetingScheduleText,
+    string? MeetingDescription);
+
+public record CreateGroupScheduleRequest(
+    Guid UserId,
+    RecurrencePattern RecurrencePattern,
     DayOfWeek? RecurrenceDayOfWeek = null,
     int? RecurrenceWeekOfMonth = null,
     DateTime? StartDate = null,
@@ -214,16 +243,10 @@ public record GroupDetailsDto(
     bool IsPrivate,
     string? InviteCode,
     string? ViewerStatus,
-    string? MeetingScheduleText,
-    string? MeetingDescription,
-    RecurrencePattern RecurrencePattern,
-    DayOfWeek? RecurrenceDayOfWeek,
-    int? RecurrenceWeekOfMonth,
-    DateTime? StartDate,
-    string? MeetingTime,
     System.Collections.Generic.List<GroupMemberDto> Members,
     System.Collections.Generic.List<GroupMemberDto> PendingMembers,
     System.Collections.Generic.List<GroupTuneDto> MasterTunes,
     System.Collections.Generic.List<GroupCommonTuneDto> CommonTunes,
     System.Collections.Generic.List<GroupActivityDto> RecentActivity,
-    System.Collections.Generic.List<GroupUpdateDto> Updates);
+    System.Collections.Generic.List<GroupUpdateDto> Updates,
+    System.Collections.Generic.List<GroupMeetingScheduleDto> Schedules);

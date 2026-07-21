@@ -41,15 +41,24 @@ public class PrivateGroupFunctions(AppDbContext db)
             Description = body.Description.Trim(),
             City = string.IsNullOrWhiteSpace(body.City) ? null : body.City.Trim(),
             IsPrivate = body.IsPrivate,
-            InviteCode = GenerateInviteCode(),
-            RecurrencePattern = body.RecurrencePattern,
-            RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
-            RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
-            StartDate = body.StartDate,
-            MeetingTime = body.MeetingTime?.Trim(),
-            MeetingScheduleText = body.MeetingScheduleText?.Trim(),
-            MeetingDescription = body.MeetingDescription?.Trim()
+            InviteCode = GenerateInviteCode()
         };
+
+        if (body.RecurrencePattern != RecurrencePattern.None)
+        {
+            group.Schedules.Add(new GroupMeetingSchedule
+            {
+                Group = group,
+                RecurrencePattern = body.RecurrencePattern,
+                RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
+                RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
+                StartDate = body.StartDate,
+                MeetingTime = body.MeetingTime?.Trim(),
+                MeetingScheduleText = body.MeetingScheduleText?.Trim(),
+                MeetingDescription = body.MeetingDescription?.Trim()
+            });
+        }
+
         db.Groups.Add(group);
         db.GroupMemberships.Add(new GroupMembership
         {
@@ -68,9 +77,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             1,
             true,
             group.IsPrivate,
-            false,
-            group.MeetingScheduleText,
-            group.MeetingDescription));
+            false));
     }
 
     /// <summary>POST /api/groups/{groupId}/updates — admins/owner post group updates/announcements.</summary>
@@ -157,23 +164,95 @@ public class PrivateGroupFunctions(AppDbContext db)
             return Forbidden("Only group administrators can update the meeting schedule.");
         }
 
-        var group = await db.Groups.FindAsync(groupId);
-        if (group is null)
+        var schedule = await db.GroupMeetingSchedules.FirstOrDefaultAsync(s => s.GroupId == groupId);
+        if (schedule == null)
+        {
+            schedule = new GroupMeetingSchedule { GroupId = groupId };
+            db.GroupMeetingSchedules.Add(schedule);
+        }
+
+        schedule.RecurrencePattern = body.RecurrencePattern;
+        schedule.RecurrenceDayOfWeek = body.RecurrenceDayOfWeek;
+        schedule.RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth;
+        schedule.StartDate = body.StartDate;
+        schedule.MeetingTime = body.MeetingTime?.Trim();
+        schedule.MeetingScheduleText = body.MeetingScheduleText?.Trim();
+        schedule.MeetingDescription = body.MeetingDescription?.Trim();
+
+        await db.SaveChangesAsync();
+
+        return new OkObjectResult(schedule);
+    }
+
+    /// <summary>POST /api/groups/{groupId}/schedules — admins/owner add a recurring meeting schedule.</summary>
+    [Function("AddGroupSchedule")]
+    public async Task<IActionResult> AddGroupSchedule(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedules")] HttpRequest req,
+        Guid groupId)
+    {
+        var body = await req.ReadFromJsonAsync<CreateGroupScheduleRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("UserId is required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, body.UserId);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can add meeting schedules.");
+        }
+
+        var schedule = new GroupMeetingSchedule
+        {
+            GroupId = groupId,
+            RecurrencePattern = body.RecurrencePattern,
+            RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
+            RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
+            StartDate = body.StartDate,
+            MeetingTime = body.MeetingTime?.Trim(),
+            MeetingScheduleText = body.MeetingScheduleText?.Trim(),
+            MeetingDescription = body.MeetingDescription?.Trim()
+        };
+        db.GroupMeetingSchedules.Add(schedule);
+
+        await db.SaveChangesAsync();
+
+        return new OkObjectResult(new GroupMeetingScheduleDto(
+            schedule.GroupMeetingScheduleId,
+            schedule.GroupId,
+            schedule.RecurrencePattern,
+            schedule.RecurrenceDayOfWeek,
+            schedule.RecurrenceWeekOfMonth,
+            schedule.StartDate,
+            schedule.MeetingTime,
+            schedule.MeetingScheduleText,
+            schedule.MeetingDescription));
+    }
+
+    /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId}?userId= — admins/owner delete a schedule.</summary>
+    [Function("DeleteGroupSchedule")]
+    public async Task<IActionResult> DeleteGroupSchedule(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/schedules/{scheduleId:guid}")] HttpRequest req,
+        Guid groupId, Guid scheduleId)
+    {
+        Guid.TryParse(req.Query["userId"], out var userId);
+
+        var actorRole = await db.GetRoleAsync(groupId, userId);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can delete meeting schedules.");
+        }
+
+        var schedule = await db.GroupMeetingSchedules.SingleOrDefaultAsync(s => s.GroupMeetingScheduleId == scheduleId && s.GroupId == groupId);
+        if (schedule is null)
         {
             return new NotFoundResult();
         }
 
-        group.RecurrencePattern = body.RecurrencePattern;
-        group.RecurrenceDayOfWeek = body.RecurrenceDayOfWeek;
-        group.RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth;
-        group.StartDate = body.StartDate;
-        group.MeetingTime = body.MeetingTime?.Trim();
-        group.MeetingScheduleText = body.MeetingScheduleText?.Trim();
-        group.MeetingDescription = body.MeetingDescription?.Trim();
-
+        db.GroupMeetingSchedules.Remove(schedule);
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(group);
+        return new OkResult();
     }
 
     /// <summary>

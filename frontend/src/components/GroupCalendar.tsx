@@ -1,16 +1,10 @@
 "use client";
 
 import { useState } from 'react'
-import { type RecurrencePattern, type GroupSessionData, parseServerDate } from '../services/api'
+import { type RecurrencePattern, type GroupSessionData, type GroupMeetingScheduleData, parseServerDate } from '../services/api'
 
 interface GroupCalendarProps {
-  recurrencePattern: RecurrencePattern
-  recurrenceDayOfWeek: number | null
-  recurrenceWeekOfMonth: number | null
-  startDate?: string | null
-  meetingTime: string | null
-  meetingScheduleText: string | null
-  meetingDescription?: string | null
+  schedules?: GroupMeetingScheduleData[]
   sessions: GroupSessionData[]
 }
 
@@ -21,13 +15,7 @@ const MONTH_NAMES = [
 ]
 
 export function GroupCalendar({
-  recurrencePattern,
-  recurrenceDayOfWeek,
-  recurrenceWeekOfMonth,
-  startDate,
-  meetingTime,
-  meetingScheduleText,
-  meetingDescription,
+  schedules = [],
   sessions,
 }: GroupCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
@@ -55,15 +43,25 @@ export function GroupCalendar({
     setSelectedDate(null)
   }
 
-  // Helper to test if a given day in current month is a meeting day from group schedule settings
-  const isRecurringMeetingDay = (day: number): boolean => {
-    if (recurrencePattern === 'None') return false
+  const allSchedules = schedules
+    .filter((s) => s.recurrencePattern !== 'None')
+    .map((s) => ({
+      pattern: s.recurrencePattern,
+      dayOfWeek: s.recurrenceDayOfWeek,
+      weekOfMonth: s.recurrenceWeekOfMonth,
+      start: s.startDate,
+      time: s.meetingTime,
+      text: s.meetingScheduleText,
+      desc: s.meetingDescription,
+    }))
 
+  // Test if a schedule matches a specific day in the month
+  const matchesSchedule = (sch: typeof allSchedules[0], day: number): boolean => {
     const date = new Date(year, month, day)
     date.setHours(0, 0, 0, 0)
 
-    if (recurrencePattern === 'SpecificDate' && startDate) {
-      const sDate = parseServerDate(startDate)
+    if (sch.pattern === 'SpecificDate' && sch.start) {
+      const sDate = parseServerDate(sch.start)
       return (
         sDate.getFullYear() === year &&
         sDate.getMonth() === month &&
@@ -71,15 +69,15 @@ export function GroupCalendar({
       )
     }
 
-    if (recurrenceDayOfWeek == null) return false
+    if (sch.dayOfWeek == null) return false
     const dayOfWeek = date.getDay()
-    if (dayOfWeek !== recurrenceDayOfWeek) return false
+    if (dayOfWeek !== sch.dayOfWeek) return false
 
-    if (recurrencePattern === 'Weekly') return true
+    if (sch.pattern === 'Weekly') return true
 
-    if (recurrencePattern === 'Biweekly') {
-      if (!startDate) return true
-      const sDate = parseServerDate(startDate)
+    if (sch.pattern === 'Biweekly') {
+      if (!sch.start) return true
+      const sDate = parseServerDate(sch.start)
       sDate.setHours(0, 0, 0, 0)
       if (date < sDate) return false
       const diffDays = Math.round((date.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24))
@@ -87,18 +85,21 @@ export function GroupCalendar({
       return diffWeeks % 2 === 0
     }
 
-    if (recurrencePattern === 'MonthlyNthDay' && recurrenceWeekOfMonth != null) {
+    if (sch.pattern === 'MonthlyNthDay' && sch.weekOfMonth != null) {
       const weekIndex = Math.floor((day - 1) / 7) + 1
-      if (recurrenceWeekOfMonth === 5) {
+      if (sch.weekOfMonth === 5) {
         return day + 7 > daysInMonth
       }
-      return weekIndex === recurrenceWeekOfMonth
+      return weekIndex === sch.weekOfMonth
     }
 
     return false
   }
 
-  // Helper to find specific sessions on a given day
+  const getMatchingSchedulesForDay = (day: number) => {
+    return allSchedules.filter((sch) => matchesSchedule(sch, day))
+  }
+
   const getSessionsForDay = (day: number): GroupSessionData[] => {
     return sessions.filter((s) => {
       const sDate = parseServerDate(s.startsAt)
@@ -119,8 +120,8 @@ export function GroupCalendar({
     calendarCells.push(day)
   }
 
+  const selectedDaySchedules = selectedDate ? getMatchingSchedulesForDay(selectedDate.getDate()) : []
   const selectedDaySessions = selectedDate ? getSessionsForDay(selectedDate.getDate()) : []
-  const selectedDayIsRecurring = selectedDate ? isRecurringMeetingDay(selectedDate.getDate()) : false
 
   return (
     <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
@@ -136,16 +137,16 @@ export function GroupCalendar({
         </div>
       </div>
 
-      {meetingScheduleText && (
+      {allSchedules.length > 0 && (
         <div style={{ marginBottom: '1rem' }}>
-          <p className="tune-meta" style={{ marginTop: 0, marginBottom: '0.25rem', color: 'var(--accent)' }}>
-            🕒 <strong>Schedule:</strong> {meetingScheduleText}
-          </p>
-          {meetingDescription && (
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-              💬 {meetingDescription}
-            </p>
-          )}
+          <strong style={{ color: 'var(--accent)', fontSize: '0.9rem' }}>🕒 Meeting Schedules:</strong>
+          <ul style={{ margin: '0.35rem 0 0 0', paddingLeft: '1.25rem', fontSize: '0.85rem' }}>
+            {allSchedules.map((sch, i) => (
+              <li key={i} style={{ marginBottom: '0.2rem' }}>
+                <strong>{sch.text || 'Regular meetup'}</strong> {sch.desc ? `— ${sch.desc}` : ''}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -163,7 +164,8 @@ export function GroupCalendar({
             return <div key={`empty-${idx}`} style={{ minHeight: '44px', background: 'transparent' }} />
           }
 
-          const isRecurring = isRecurringMeetingDay(day)
+          const daySchedules = getMatchingSchedulesForDay(day)
+          const isRecurring = daySchedules.length > 0
           const specificSessions = getSessionsForDay(day)
           const hasSpecificSession = specificSessions.length > 0
           const isToday = new Date().toDateString() === new Date(year, month, day).toDateString()
@@ -225,23 +227,23 @@ export function GroupCalendar({
           <h4 style={{ margin: '0 0 0.5rem 0' }}>
             Meeting Details for {selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </h4>
-          {!selectedDayIsRecurring && selectedDaySessions.length === 0 ? (
+          {selectedDaySchedules.length === 0 && selectedDaySessions.length === 0 ? (
             <p className="tune-meta italic" style={{ margin: 0 }}>No meeting or session scheduled for this day.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {selectedDayIsRecurring && (
-                <div style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid var(--accent)' }}>
+              {selectedDaySchedules.map((sch, i) => (
+                <div key={i} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid var(--accent)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
                     <span>🔄</span>
-                    <span><strong>Group Meeting:</strong> {meetingScheduleText || 'Regular meetup'} {meetingTime ? `(${meetingTime})` : ''}</span>
+                    <span><strong>Group Meeting:</strong> {sch.text || 'Regular meetup'} {sch.time ? `(${sch.time})` : ''}</span>
                   </div>
-                  {meetingDescription && (
+                  {sch.desc && (
                     <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>
-                      {meetingDescription}
+                      {sch.desc}
                     </p>
                   )}
                 </div>
-              )}
+              ))}
               {selectedDaySessions.map((s) => (
                 <div key={s.groupSessionId} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
                   <strong>📍 {s.title}</strong> {s.location ? `at ${s.location}` : ''} ({parseServerDate(s.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})

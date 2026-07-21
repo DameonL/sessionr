@@ -315,6 +315,18 @@ export const deleteSet = (setId: string) =>
 // --- Groups Types & Functions ---
 export type RecurrencePattern = 'None' | 'Weekly' | 'Biweekly' | 'MonthlyNthDay' | 'SpecificDate'
 
+export interface GroupMeetingScheduleData {
+  groupMeetingScheduleId: string
+  groupId: string
+  recurrencePattern: RecurrencePattern
+  recurrenceDayOfWeek: number | null
+  recurrenceWeekOfMonth: number | null
+  startDate: string | null
+  meetingTime: string | null
+  meetingScheduleText: string | null
+  meetingDescription: string | null
+}
+
 export interface GroupUpdateData {
   groupUpdateId: string
   groupId: string
@@ -334,8 +346,6 @@ export interface GroupSummary {
   isMember: boolean
   isPrivate: boolean
   isPending: boolean
-  meetingScheduleText: string | null
-  meetingDescription: string | null
 }
 
 export type GroupRole = 'Member' | 'Administrator' | 'Owner'
@@ -381,19 +391,13 @@ export interface GroupDetails {
   isPrivate: boolean
   inviteCode: string | null
   viewerStatus: 'Active' | 'Pending' | null
-  meetingScheduleText: string | null
-  meetingDescription: string | null
-  recurrencePattern: RecurrencePattern
-  recurrenceDayOfWeek: number | null
-  recurrenceWeekOfMonth: number | null
-  startDate: string | null
-  meetingTime: string | null
   members: GroupMember[]
   pendingMembers: GroupMember[]
   masterTunes: GroupTuneListItem[]
   commonTunes: GroupCommonTune[]
   recentActivity: GroupActivity[]
   updates: GroupUpdateData[]
+  schedules: GroupMeetingScheduleData[]
 }
 
 export interface JoinResult {
@@ -454,6 +458,29 @@ export const updateGroupSchedule = (
   apiFetch<void>(`/groups/${groupId}/schedule`, {
     method: 'POST',
     body: JSON.stringify({ userId, ...scheduleConfig }),
+  })
+
+export const addGroupSchedule = (
+  groupId: string,
+  userId: string,
+  scheduleConfig: {
+    recurrencePattern: RecurrencePattern
+    recurrenceDayOfWeek?: number | null
+    recurrenceWeekOfMonth?: number | null
+    startDate?: string | null
+    meetingTime?: string
+    meetingScheduleText?: string
+    meetingDescription?: string
+  },
+) =>
+  apiFetch<GroupMeetingScheduleData>(`/groups/${groupId}/schedules`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, ...scheduleConfig }),
+  })
+
+export const deleteGroupSchedule = (groupId: string, scheduleId: string, userId: string) =>
+  apiFetch<void>(`/groups/${groupId}/schedules/${scheduleId}?userId=${userId}`, {
+    method: 'DELETE',
   })
 
 export const joinGroup = (groupId: string, userId: string, inviteCode?: string) =>
