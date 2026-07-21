@@ -297,6 +297,24 @@ export const saveEarTrainingProgress = (
 export const removeFromRepertoire = (userTuneId: string) =>
   apiFetch<void>(`/repertoire/items/${userTuneId}`, { method: 'DELETE' })
 
+// Throwaway: one-time MSAL identity migration. Remove this along with its
+// button in Dashboard.tsx and the MigrateLegacyData endpoint once used.
+export interface MigrateLegacyDataResponse {
+  migrated: boolean
+  legacyEmail: string | null
+  userTunesMigrated: number
+  setsMigrated: number
+  groupMembershipsMigrated: number
+  sessionRsvpsMigrated: number
+  tuneSettingVotesMigrated: number
+  groupUpdatesMigrated: number
+  groupTunesMigrated: number
+  groupSessionsMigrated: number
+}
+
+export const migrateLegacyData = () =>
+  apiFetch<MigrateLegacyDataResponse>('/users/migrate-legacy-data', { method: 'POST' })
+
 export interface PracticeDay {
   date: string
   count: number

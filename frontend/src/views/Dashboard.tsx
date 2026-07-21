@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
@@ -7,6 +8,7 @@ import {
   getPracticeQueue,
   getRepertoire,
   getSets,
+  migrateLegacyData,
   parseServerDate,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
@@ -15,6 +17,25 @@ const RUST_DAYS = 30
 
 export function Dashboard() {
   const userId = useSignal(currentUserId)
+  const [migrationStatus, setMigrationStatus] = useState<string | null>(null)
+  const [migrating, setMigrating] = useState(false)
+
+  const handleMigrateLegacyData = async () => {
+    setMigrating(true)
+    setMigrationStatus(null)
+    try {
+      const result = await migrateLegacyData()
+      setMigrationStatus(
+        result.migrated
+          ? `Migrated data from ${result.legacyEmail}: ${result.userTunesMigrated} tunes, ${result.setsMigrated} sets, ${result.groupMembershipsMigrated} group memberships, ${result.sessionRsvpsMigrated} RSVPs, ${result.tuneSettingVotesMigrated} votes.`
+          : 'No legacy account found for this email — nothing to migrate.',
+      )
+    } catch (err) {
+      setMigrationStatus(err instanceof Error ? err.message : 'Migration failed.')
+    } finally {
+      setMigrating(false)
+    }
+  }
 
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
@@ -47,6 +68,16 @@ export function Dashboard() {
   return (
     <section>
       <h1>Dashboard</h1>
+
+      {/* Throwaway: one-time MSAL identity migration. Remove this block, the
+          migrateLegacyData call in services/api.ts, and the MigrateLegacyData
+          endpoint once the migration has been run. */}
+      <div className="card">
+        <button type="button" onClick={handleMigrateLegacyData} disabled={migrating}>
+          {migrating ? 'Migrating…' : 'Migrate legacy account data'}
+        </button>
+        {migrationStatus && <p className="tune-meta">{migrationStatus}</p>}
+      </div>
 
       {repertoire.isError && (
         <p className="error">Could not reach the API (is the Functions host running?).</p>
