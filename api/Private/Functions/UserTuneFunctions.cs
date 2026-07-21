@@ -21,13 +21,43 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "repertoire/{userId:guid}")] HttpRequest req,
         Guid userId)
     {
-        var repertoire = await db.UserTunes
+        var search = req.Query["search"].ToString();
+        var type = req.Query["type"].ToString();
+        var status = req.Query["status"].ToString();
+
+        int.TryParse(req.Query["page"], out var page);
+        if (page < 1) page = 1;
+
+        int.TryParse(req.Query["pageSize"], out var pageSize);
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == userId)
+            .Where(ut => ut.UserId == userId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(ut => EF.Functions.Like(ut.Tune.Title, $"%{search}%"));
+        }
+        if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
+        {
+            query = query.Where(ut => ut.Tune.TuneType == tuneType);
+        }
+        if (Enum.TryParse<TuneStatus>(status, ignoreCase: true, out var tuneStatus))
+        {
+            query = query.Where(ut => ut.Status == tuneStatus);
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
             // Trad convention: ignore a leading "The" or "A" when sorting titles.
             .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
                 : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
                 : ut.Tune.Title)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(ut => new RepertoireItemDto(
                 ut.UserTuneId,
                 ut.TuneId,
@@ -41,7 +71,8 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
                 ut.CustomAbcText != null))
             .ToListAsync();
 
-        return new OkObjectResult(repertoire);
+        var hasMore = (page * pageSize) < totalCount;
+        return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
     }
 
     /// <summary>POST /api/repertoire/{userId} — add a global tune to the user's repertoire.</summary>

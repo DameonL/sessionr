@@ -234,9 +234,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner'
   const isOwner = viewer?.role === 'Owner'
   const canDelete = deleteConfirmText.trim().toLowerCase() === details.name.trim().toLowerCase() && !deleteMutation.isPending
-  const userTuneIds = new Set(repertoireQuery.data?.map((t) => t.tuneId) ?? [])
+  const userTuneIds = new Set(repertoireQuery.data?.items?.map((t) => t.tuneId) ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
-  const librarySearchMatches = (librarySearch.data ?? []).filter((t) => !masterTuneIds.has(t.tuneId))
+  const librarySearchMatches = (librarySearch.data?.items ?? []).filter((t) => !masterTuneIds.has(t.tuneId))
 
   const canRemove = (target: GroupMember) => {
     if (target.userId === userId) return false

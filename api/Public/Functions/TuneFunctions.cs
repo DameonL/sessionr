@@ -37,16 +37,27 @@ public class TuneFunctions(AppDbContext db)
             query = query.Where(t => t.Key == key);
         }
 
+        int.TryParse(req.Query["page"], out var page);
+        if (page < 1) page = 1;
+
+        int.TryParse(req.Query["pageSize"], out var pageSize);
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var totalCount = await query.CountAsync();
+
         var results = await query
             // Trad convention: ignore a leading "The" or "A" when sorting titles.
             .OrderBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
                 : t.Title.StartsWith("A ") ? t.Title.Substring(2)
                 : t.Title)
-            .Take(50)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key))
             .ToListAsync();
 
-        return new OkObjectResult(results);
+        var hasMore = (page * pageSize) < totalCount;
+        return new OkObjectResult(new PagedResult<TuneDto>(results, totalCount, page, pageSize, hasMore));
     }
 
     /// <summary>GET /api/tunes/{tuneId} — fetch full tune details, alternate settings, and aliases.</summary>

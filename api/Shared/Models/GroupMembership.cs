@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace SessionApp.Api.Models;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum GroupRole
 {
     Member,
@@ -8,6 +11,7 @@ public enum GroupRole
 }
 
 /// <summary>Pending members are awaiting admin approval to join a private group.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum GroupMembershipStatus
 {
     Active,

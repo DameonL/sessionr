@@ -337,7 +337,7 @@ export function RepertoireBackup({ userId, repertoireItems, onImported }: Repert
               }
             } else {
               // Not in repertoire. Check if global tune exists.
-              const searchResults = await searchTunes(item.title)
+              const searchResults = (await searchTunes(item.title)).items
               const existingGlobal = searchResults.find(
                 (t) => t.title.toLowerCase() === item.title.toLowerCase()
               )

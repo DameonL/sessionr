@@ -1,19 +1,24 @@
 "use client";
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { searchTunes, formatTuneType, TUNE_TYPES } from '../services/api'
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 
 /** Public tune library browser — works without an account. */
 export function TuneLibrary() {
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('')
 
-  const library = useQuery({
+  const libraryQuery = useInfiniteQuery({
     queryKey: ['tune-library', search, filterType],
-    queryFn: () => searchTunes(search, filterType),
+    queryFn: ({ pageParam = 1 }) => searchTunes(search, filterType, pageParam, 20),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
   })
+
+  const allTunes = libraryQuery.data?.pages.flatMap((p) => p.items) ?? []
 
   return (
     <section>
@@ -41,11 +46,11 @@ export function TuneLibrary() {
         </label>
       </div>
 
-      {library.isLoading && <p>Loading…</p>}
-      {library.isError && <p className="error">Could not load the tune library.</p>}
+      {libraryQuery.isLoading && <p>Loading…</p>}
+      {libraryQuery.isError && <p className="error">Could not load the tune library.</p>}
 
       <ul className="tune-list">
-        {(library.data ?? []).map((tune) => (
+        {allTunes.map((tune) => (
           <li key={tune.tuneId} className="card tune-row">
             <Link href={`/tunes/${tune.tuneId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
               <span className="tune-title">{tune.title}</span>
@@ -56,9 +61,16 @@ export function TuneLibrary() {
           </li>
         ))}
       </ul>
-      {!library.isLoading && (library.data ?? []).length === 0 && (
+
+      {!libraryQuery.isLoading && allTunes.length === 0 && (
         <p className="tune-meta italic">No tunes found.</p>
       )}
+
+      <InfiniteScrollSentinel
+        hasMore={libraryQuery.hasNextPage}
+        isLoadingMore={libraryQuery.isFetchingNextPage}
+        onLoadMore={() => libraryQuery.fetchNextPage()}
+      />
     </section>
   )
 }

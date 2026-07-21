@@ -21,7 +21,7 @@ export default function EarTrainingPage() {
     queryFn: () => getRepertoire(userId),
   })
 
-  const earCandidates = [...(repertoire.data ?? [])].sort((a, b) => {
+  const earCandidates = [...(repertoire.data?.items ?? [])].sort((a, b) => {
     const aLearning = a.status === 'Learning' ? 0 : 1
     const bLearning = b.status === 'Learning' ? 0 : 1
     return aLearning - bLearning || a.title.localeCompare(b.title)

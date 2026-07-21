@@ -26,7 +26,7 @@ export function Dashboard() {
   })
   const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(userId) })
 
-  const items = repertoire.data ?? []
+  const items = repertoire.data?.items ?? []
   const byStatus = new Map<string, number>()
   const byType = new Map<string, number>()
   let rustyCount = 0

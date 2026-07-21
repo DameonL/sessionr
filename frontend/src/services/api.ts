@@ -167,11 +167,21 @@ export const TUNE_TYPES = [
 
 // --- Endpoints ---
 
-export const searchTunes = (search: string, type?: string) => {
+export interface PagedResult<T> {
+  items: T[]
+  totalCount: number
+  page: number
+  pageSize: number
+  hasMore: boolean
+}
+
+export const searchTunes = (search: string, type?: string, page = 1, pageSize = 20) => {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
   if (type) params.set('type', type)
-  return apiFetchPublic<TuneSummary[]>(`/tunes?${params}`)
+  params.set('page', page.toString())
+  params.set('pageSize', pageSize.toString())
+  return apiFetchPublic<PagedResult<TuneSummary>>(`/tunes?${params}`)
 }
 
 export const createTune = (tune: { title: string; tuneType: string; key: string; abc: string }) =>
@@ -207,8 +217,15 @@ export const importTunebook = (userId: string, memberId: string) =>
     body: JSON.stringify({ userId, memberId: Number(memberId) }),
   })
 
-export const getRepertoire = (userId: string) =>
-  apiFetch<RepertoireItem[]>(`/repertoire/${userId}`)
+export const getRepertoire = (userId: string, search?: string, type?: string, status?: string, page = 1, pageSize = 20) => {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (type) params.set('type', type)
+  if (status) params.set('status', status)
+  params.set('page', page.toString())
+  params.set('pageSize', pageSize.toString())
+  return apiFetch<PagedResult<RepertoireItem>>(`/repertoire/${userId}?${params}`)
+}
 
 export const addToRepertoire = (userId: string, tuneId: string, tuneSettingId?: string) =>
   apiFetch<RepertoireItem>(`/repertoire/${userId}`, {
@@ -404,8 +421,14 @@ export interface JoinResult {
   status: 'Active' | 'Pending'
 }
 
-export const getGroups = (userId: string) =>
-  apiFetchPublic<GroupSummary[]>(`/groups?userId=${userId}`)
+export const getGroups = (userId: string, search?: string, page = 1, pageSize = 20) => {
+  const params = new URLSearchParams()
+  if (userId) params.set('userId', userId)
+  if (search) params.set('search', search)
+  params.set('page', page.toString())
+  params.set('pageSize', pageSize.toString())
+  return apiFetchPublic<PagedResult<GroupSummary>>(`/groups?${params}`)
+}
 
 export const getGroupDetails = (groupId: string, userId: string) =>
   apiFetchPublic<GroupDetails>(`/groups/${groupId}?userId=${userId}`)

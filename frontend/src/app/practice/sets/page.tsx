@@ -47,7 +47,7 @@ export default function MedleySetsPage() {
     key: item.key,
     status: item.status,
   }))
-  const calculatedSuggestions = suggestNextPracticeTunes(draftIds, candidates, repertoire.data ?? [])
+  const calculatedSuggestions = suggestNextPracticeTunes(draftIds, candidates, repertoire.data?.items ?? [])
   const suggestions = { data: calculatedSuggestions }
 
   const practiceMutation = useMutation({
@@ -59,7 +59,7 @@ export default function MedleySetsPage() {
   })
 
   const addSuggestion = (s: NextTuneSuggestion) => {
-    const repItem = (repertoire.data ?? []).find((r) => r.userTuneId === s.userTuneId)
+    const repItem = (repertoire.data?.items ?? []).find((r) => r.userTuneId === s.userTuneId)
     if (!repItem) return
 
     setSetDraft([
@@ -76,7 +76,7 @@ export default function MedleySetsPage() {
   }
 
   const handleGenerateRandomSet = () => {
-    const rep = repertoire.data ?? []
+    const rep = repertoire.data?.items ?? []
     if (rep.length === 0) return
 
     const candidatesList = (queue.data ?? []).map((item) => ({

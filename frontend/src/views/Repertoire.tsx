@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   TUNE_STATUSES,
@@ -18,6 +18,7 @@ import {
 import { currentUserId, repertoireSearch, useSignal } from '../state/appState'
 import { RepertoireBackup } from '../components/RepertoireBackup'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 
 function getSortKey(item: RepertoireItem, field: 'title' | 'tuneType' | 'key'): string {
   const val = (item[field] || '').toLowerCase()
@@ -40,10 +41,14 @@ export function Repertoire() {
   const [sortField, setSortField] = useState<'title' | 'tuneType' | 'key'>('title')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
-  const repertoire = useQuery({
-    queryKey: ['repertoire', userId],
-    queryFn: () => getRepertoire(userId),
+  const repertoireQuery = useInfiniteQuery({
+    queryKey: ['repertoire', userId, search, filterType, filterStatus],
+    queryFn: ({ pageParam = 1 }) => getRepertoire(userId, search, filterType, filterStatus, pageParam as number, 20),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
   })
+
+  const allRepertoireItems = repertoireQuery.data?.pages.flatMap((p) => p.items) ?? []
 
   const library = useQuery({
     queryKey: ['tunes', search],
@@ -76,20 +81,9 @@ export function Repertoire() {
   }
 
   const filteredItems = useMemo(() => {
-    const raw = repertoire.data ?? []
-    return raw
+    return allRepertoireItems
       .filter((item) => {
-        if (filterType && item.tuneType !== filterType) return false
         if (filterKey && item.key !== filterKey) return false
-        if (filterStatus && item.status !== filterStatus) return false
-        if (search) {
-          const s = search.toLowerCase()
-          return (
-            item.title.toLowerCase().includes(s) ||
-            item.tuneType.toLowerCase().includes(s) ||
-            item.key.toLowerCase().includes(s)
-          )
-        }
         return true
       })
       .sort((a, b) => {
@@ -99,10 +93,10 @@ export function Repertoire() {
         const result = left < right ? -1 : 1
         return sortDirection === 'asc' ? result : -result
       })
-  }, [repertoire.data, search, filterType, filterKey, filterStatus, sortField, sortDirection])
+  }, [allRepertoireItems, filterKey, sortField, sortDirection])
 
-  const ownedTuneIds = new Set((repertoire.data ?? []).map((i) => i.tuneId))
-  const libraryMatches = (library.data ?? []).filter((t) => !ownedTuneIds.has(t.tuneId))
+  const ownedTuneIds = new Set(allRepertoireItems.map((i) => i.tuneId))
+  const libraryMatches = (library.data?.items ?? []).filter((t) => !ownedTuneIds.has(t.tuneId))
 
   return (
     <section>
@@ -133,7 +127,7 @@ export function Repertoire() {
           Filter by key
           <select value={filterKey} onChange={(e) => setFilterKey(e.target.value)}>
             <option value="">All keys</option>
-            {[...new Set((repertoire.data ?? []).map((item) => item.key))]
+            {[...new Set(allRepertoireItems.map((item) => item.key))]
               .sort()
               .map((key) => (
                 <option key={key} value={key}>
@@ -170,8 +164,8 @@ export function Repertoire() {
         </label>
       </div>
 
-      {repertoire.isLoading && <p>Loading…</p>}
-      {repertoire.isError && <p className="error">Could not load repertoire.</p>}
+      {repertoireQuery.isLoading && <p>Loading…</p>}
+      {repertoireQuery.isError && <p className="error">Could not load repertoire.</p>}
 
       <ul className="tune-list">
         {filteredItems.map((item) => (
@@ -186,7 +180,12 @@ export function Repertoire() {
           </li>
         ))}
       </ul>
-      {!repertoire.isLoading && filteredItems.length === 0 && <p>No tunes match.</p>}
+      <InfiniteScrollSentinel
+        hasMore={repertoireQuery.hasNextPage}
+        isLoadingMore={repertoireQuery.isFetchingNextPage}
+        onLoadMore={() => repertoireQuery.fetchNextPage()}
+      />
+      {!repertoireQuery.isLoading && filteredItems.length === 0 && <p>No tunes match.</p>}
 
       {libraryMatches.length > 0 && (
         <>
@@ -243,7 +242,7 @@ export function Repertoire() {
       <TunebookImport userId={userId} onImported={invalidate} />
       <RepertoireBackup
         userId={userId}
-        repertoireItems={repertoire.data ?? []}
+        repertoireItems={allRepertoireItems}
         onImported={invalidate}
       />
       {selectedTuneIdForModal !== null && (

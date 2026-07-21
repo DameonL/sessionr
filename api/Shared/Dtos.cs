@@ -262,3 +262,10 @@ public record GroupDetailsDto(
     System.Collections.Generic.List<GroupActivityDto> RecentActivity,
     System.Collections.Generic.List<GroupUpdateDto> Updates,
     System.Collections.Generic.List<GroupMeetingScheduleDto> Schedules);
+
+public record PagedResult<T>(
+    System.Collections.Generic.List<T> Items,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    bool HasMore);

@@ -19,14 +19,30 @@ public class PublicGroupFunctions(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "groups")] HttpRequest req)
     {
         Guid.TryParse(req.Query["userId"], out var userId);
+        var search = req.Query["search"].ToString();
 
-        // Private groups are hidden from discovery unless the caller already
-        // has a membership row (active or pending) on them.
-        // Private groups hide their description from non-members.
-        var groups = await db.Groups
+        int.TryParse(req.Query["page"], out var page);
+        if (page < 1) page = 1;
+
+        int.TryParse(req.Query["pageSize"], out var pageSize);
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = db.Groups
             .AsNoTracking()
-            .Where(g => !g.IsPrivate || g.Memberships.Any(m => m.UserId == userId))
+            .Where(g => !g.IsPrivate || g.Memberships.Any(m => m.UserId == userId));
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(g => EF.Functions.Like(g.Name, $"%{search}%") || (g.City != null && EF.Functions.Like(g.City, $"%{search}%")));
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var groups = await query
             .OrderBy(g => g.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(g => new GroupDto(
                 g.GroupId,
                 g.Name,
@@ -38,7 +54,8 @@ public class PublicGroupFunctions(AppDbContext db)
                 g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending)))
             .ToListAsync();
 
-        return new OkObjectResult(groups);
+        var hasMore = (page * pageSize) < totalCount;
+        return new OkObjectResult(new PagedResult<GroupDto>(groups, totalCount, page, pageSize, hasMore));
     }
 
     /// <summary>GET /api/groups/{groupId}?userId={userId} — fetch group dashboard details.</summary>

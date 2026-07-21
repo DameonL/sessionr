@@ -44,7 +44,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     queryKey: ['repertoire', userId],
     queryFn: () => getRepertoire(userId),
   })
-  const item = repertoire.data?.find((i) => i.userTuneId === id)
+  const item = repertoire.data?.items?.find((i) => i.userTuneId === id)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })

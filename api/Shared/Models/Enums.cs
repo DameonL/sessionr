@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace SessionApp.Api.Models;
 
 /// <summary>Rhythmic category of a traditional tune.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TuneType
 {
     Reel,
@@ -19,6 +22,7 @@ public enum TuneType
 }
 
 /// <summary>Where a tune sits in the user's practice lifecycle.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TuneStatus
 {
     Wishlist,
@@ -29,6 +33,7 @@ public enum TuneStatus
 }
 
 /// <summary>Type of recurring meeting schedule for a group.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RecurrencePattern
 {
     None,

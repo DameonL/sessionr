@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 
 export function Groups() {
   const userId = useSignal(currentUserId)
@@ -23,9 +24,11 @@ export function Groups() {
   const [createError, setCreateError] = useState<string | null>(null)
 
   // Fetch groups
-  const groupsQuery = useQuery({
+  const groupsQuery = useInfiniteQuery({
     queryKey: ['groups', userId],
-    queryFn: () => getGroups(userId),
+    queryFn: ({ pageParam = 1 }) => getGroups(userId, undefined, pageParam, 20),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
   })
 
   const invalidate = () => {
@@ -95,8 +98,9 @@ export function Groups() {
     return <section><p className="error">Could not load groups.</p></section>
   }
 
-  const myGroups = (groupsQuery.data ?? []).filter((g) => g.isMember || g.isPending)
-  const publicGroups = (groupsQuery.data ?? []).filter((g) => !g.isMember && !g.isPending && !g.isPrivate)
+  const allGroups = groupsQuery.data?.pages.flatMap((p) => p.items) ?? []
+  const myGroups = allGroups.filter((g) => g.isMember || g.isPending)
+  const publicGroups = allGroups.filter((g) => !g.isMember && !g.isPending && !g.isPrivate)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -278,7 +282,11 @@ export function Groups() {
           ))}
         </ul>
       )}
+      <InfiniteScrollSentinel
+        hasMore={groupsQuery.hasNextPage}
+        isLoadingMore={groupsQuery.isFetchingNextPage}
+        onLoadMore={() => groupsQuery.fetchNextPage()}
+      />
     </div>
   )
 }
-

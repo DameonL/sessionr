@@ -87,8 +87,8 @@ export function SetBuilder() {
       <SetEditor
         draft={draft}
         setDraft={setDraft}
-        repertoire={repertoire.data ?? []}
-        available={(repertoire.data ?? []).filter(
+        repertoire={repertoire.data?.items ?? []}
+        available={(repertoire.data?.items ?? []).filter(
           (r) => !draft.items.some((i) => i.userTuneId === r.userTuneId),
         )}
         onSave={() => saveMutation.mutate(draft)}
