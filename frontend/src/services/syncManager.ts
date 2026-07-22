@@ -36,21 +36,23 @@ export function initSyncManager(): void {
   }, PERIODIC_INTERVAL_MS)
 
   // Don't attempt the first sync until AuthProvider's own MSAL bootstrap has
-  // settled. Firing getBearerToken concurrently with the app's own initial
+  // settled — firing getBearerToken concurrently with the app's own initial
   // acquireTokenSilent call (which happens on every cold load) makes MSAL
-  // throw block_iframe_reload — it only allows one hidden-iframe silent
-  // renewal in flight at a time.
-  const attemptInitialSync = () => {
+  // throw block_iframe_reload, since it only allows one hidden-iframe silent
+  // renewal in flight at a time. This same subscription also catches a
+  // *fresh* sign-in later (status flipping back to 'authenticated' after the
+  // user completes an interactive login from the "Sign In to Sync" button),
+  // which is what actually clears authRequired below and gives sync another
+  // real chance — as opposed to the periodic timer blindly re-hammering a
+  // session that's already known to be unrefreshable.
+  authStatus.subscribe((status) => {
+    if (status === 'pending') return
+    if (status === 'authenticated') authRequired.value = false
     if (navigator.onLine) void runSync()
-  }
-  if (authStatus.value !== 'pending') {
-    attemptInitialSync()
-  } else {
-    const unsubscribe = authStatus.subscribe((status) => {
-      if (status === 'pending') return
-      unsubscribe()
-      attemptInitialSync()
-    })
+  })
+
+  if (authStatus.value !== 'pending' && navigator.onLine) {
+    void runSync()
   }
 }
 
@@ -72,6 +74,18 @@ async function runSync(): Promise<void> {
       return
     }
 
+    // Once a token attempt has already failed, don't keep calling
+    // acquireTokenSilent on every online event / 60s tick — a session that
+    // can't refresh silently won't start succeeding on its own, and hammering
+    // it repeatedly is what produced the block_iframe_reload loop (each
+    // attempt colliding with MSAL's own still-unwinding previous attempt).
+    // The banner's "Sign In to Sync" button drives an interactive
+    // loginRedirect instead; a fresh 'authenticated' status is what clears
+    // this flag and lets sync try again for real.
+    if (authRequired.value) {
+      return
+    }
+
     // Non-forcing: the shared helper already checks the cached token's
     // expiry and only falls through to a live acquireTokenSilent call (with
     // its own internal forceRefresh escalation) when actually needed —
@@ -86,7 +100,6 @@ async function runSync(): Promise<void> {
       )
       return
     }
-    authRequired.value = false
 
     const ordered = mutations.slice().sort((a, b) => a.timestamp - b.timestamp)
     let succeeded = 0
