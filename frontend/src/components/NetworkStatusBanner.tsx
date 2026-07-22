@@ -2,6 +2,8 @@
 
 import { useMsal } from '@azure/msal-react'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
+import { loginRequest } from '../services/authConfig'
+import { showToast } from '../state/appState'
 
 export function NetworkStatusBanner() {
   const { isOnline, pendingCount, isSyncing, authRequired, triggerSync } = useNetworkStatus()
@@ -25,7 +27,19 @@ export function NetworkStatusBanner() {
         authRequired ? (
           <button
             className="secondary btn-sm"
-            onClick={() => instance.loginRedirect().catch((err) => console.error('Sign-in failed:', err))}
+            onClick={() => {
+              // loginRedirect, not loginPopup — popups get blocked too
+              // unreliably in practice. No redirectStartPage is passed, so
+              // MSAL defaults it to the current page and (with
+              // navigateToLoginRequestUrl defaulting true, unset here) will
+              // bring the user back to wherever they clicked this from once
+              // the round trip completes, same as MsalLoginPanel's own
+              // loginRedirect call.
+              instance.loginRedirect(loginRequest).catch((err) => {
+                console.error('Sign-in failed:', err)
+                showToast('Sign-in failed. Please try again.', 'error')
+              })
+            }}
           >
             Sign In to Sync
           </button>
