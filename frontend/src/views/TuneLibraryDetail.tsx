@@ -112,7 +112,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     return (
       <section>
         <p className="error">Could not load this tune.</p>
-        <Link href="/tunes">← Back to Tune Library</Link>
+        <Link href="/tunes" prefetch={false}>← Back to Tune Library</Link>
       </section>
     )
   }
@@ -120,7 +120,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   return (
     <section>
       <div style={{ marginBottom: '1rem' }}>
-        <Link href="/tunes">← Tune Library</Link>
+        <Link href="/tunes" prefetch={false}>← Tune Library</Link>
       </div>
 
       <div className="set-header">
@@ -221,7 +221,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                         + Add to Repertoire
                       </button>
                     ) : (
-                      <Link href="/login">
+                      <Link href="/login" prefetch={false}>
                         <button className="secondary" title="Sign in to add this to your repertoire">
                           Sign in to add
                         </button>

@@ -213,7 +213,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     return (
       <section>
         <p className="error">Could not load group details.</p>
-        <Link href="/groups">← Back to groups</Link>
+        <Link href="/groups" prefetch={false}>← Back to groups</Link>
       </section>
     )
   }
@@ -241,7 +241,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     return (
       <section>
         <div style={{ marginBottom: '1rem' }}>
-          <Link href="/groups">← Back to groups</Link>
+          <Link href="/groups" prefetch={false}>← Back to groups</Link>
         </div>
         <h1>🔒 {details.name}</h1>
         <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
@@ -250,7 +250,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           {!showSignedInUi ? (
             <>
               <p className="tune-meta">Sign in to request access or enter an invite code.</p>
-              <Link href="/login"><button>Sign In</button></Link>
+              <Link href="/login" prefetch={false}><button>Sign In</button></Link>
             </>
           ) : isPending ? (
             <>
@@ -300,7 +300,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   return (
     <section>
       <div style={{ marginBottom: '1rem' }}>
-        <Link href="/groups">← Back to groups</Link>
+        <Link href="/groups" prefetch={false}>← Back to groups</Link>
       </div>
 
       <div className="set-header">
@@ -333,7 +333,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             Join Group
           </button>
         ) : (
-          <Link href="/login"><button>Sign In to Join</button></Link>
+          <Link href="/login" prefetch={false}><button>Sign In to Join</button></Link>
         )}
       </div>
 
@@ -357,7 +357,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             <strong>Guest View:</strong> You are viewing this group dashboard{showSignedInUi ? '' : ' as a visitor'}.{' '}
             {showSignedInUi ? 'Join the group to share your repertoire and play history.' : (
               <>
-                <Link href="/login">Sign in</Link> to join, RSVP, and share your repertoire.
+                <Link href="/login" prefetch={false}>Sign in</Link> to join, RSVP, and share your repertoire.
               </>
             )}
           </p>

@@ -43,23 +43,23 @@ export function Dashboard() {
       )}
 
       <div className="stat-grid">
-        <Link className="card stat quiet-link" href="/repertoire">
+        <Link className="card stat quiet-link" href="/repertoire" prefetch={false}>
           <strong>{statValue(stats.data?.totalCount, stats.isPending)}</strong>
           <span>tunes</span>
         </Link>
-        <Link className="card stat quiet-link" href="/repertoire?status=Active">
+        <Link className="card stat quiet-link" href="/repertoire?status=Active" prefetch={false}>
           <strong>{statValue(byStatus['Active'], stats.isPending)}</strong>
           <span>active</span>
         </Link>
-        <Link className="card stat quiet-link" href="/repertoire?status=Learning">
+        <Link className="card stat quiet-link" href="/repertoire?status=Learning" prefetch={false}>
           <strong>{statValue(byStatus['Learning'], stats.isPending)}</strong>
           <span>learning</span>
         </Link>
-        <Link className="card stat quiet-link" href="/repertoire?status=Active">
+        <Link className="card stat quiet-link" href="/repertoire?status=Active" prefetch={false}>
           <strong className={rustyCount > 0 ? 'rusty' : ''}>{statValue(rustyCount, stats.isPending)}</strong>
           <span>going rusty</span>
         </Link>
-        <Link className="card stat quiet-link" href="/sets">
+        <Link className="card stat quiet-link" href="/sets" prefetch={false}>
           <strong>{statValue(sets.data?.length, sets.isPending)}</strong>
           <span>sets</span>
         </Link>
@@ -74,7 +74,7 @@ export function Dashboard() {
               .map(([type, count], index) => (
                 <span key={type}>
                   {index > 0 && ' · '}
-                  <Link href={`/repertoire?type=${type}`}>
+                  <Link href={`/repertoire?type=${type}`} prefetch={false}>
                     {count} {formatTuneType(type).toLowerCase()}
                     {count > 1 ? 's' : ''}
                   </Link>
@@ -88,13 +88,13 @@ export function Dashboard() {
       {queue.isPending && <p>Loading…</p>}
       {(queue.data ?? []).slice(0, 3).map((item) => (
         <div key={item.userTuneId} className="card">
-          <Link className="tune-row" href={`/tune/${item.userTuneId}`}>
+          <Link className="tune-row" href={`/tune/${item.userTuneId}`} prefetch={false}>
             <span className="tune-title">{item.title}</span>
             <span className="tune-meta">{item.reason}</span>
           </Link>
         </div>
       ))}
-      {(queue.data ?? []).length > 0 && <Link href="/practice">Open the Practice Room →</Link>}
+      {(queue.data ?? []).length > 0 && <Link href="/practice" prefetch={false}>Open the Practice Room →</Link>}
     </section>
   )
 }

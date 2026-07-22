@@ -827,7 +827,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
                 <div className="set-header">
                   <h2>
                     {href ? (
-                      <Link className="quiet-link" href={href}>
+                      <Link className="quiet-link" href={href} prefetch={false}>
                         {index + 1}. {item.title}
                       </Link>
                     ) : (

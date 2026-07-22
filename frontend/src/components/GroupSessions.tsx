@@ -306,7 +306,7 @@ function SessionCard({
           </div>
         ) : (
           <p className="tune-meta" style={{ marginTop: '0.5rem' }}>
-            <Link href="/login">Sign in</Link> and join the group to RSVP.
+            <Link href="/login" prefetch={false}>Sign in</Link> and join the group to RSVP.
           </p>
         )
       )}

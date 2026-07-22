@@ -94,7 +94,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     return (
       <section>
         <p>This tune is not in the repertoire.</p>
-        <Link href="/repertoire">← Back to repertoire</Link>
+        <Link href="/repertoire" prefetch={false}>← Back to repertoire</Link>
       </section>
     )
   }
@@ -102,7 +102,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
 
   return (
     <section>
-      <Link href="/repertoire">← Repertoire</Link>
+      <Link href="/repertoire" prefetch={false}>← Repertoire</Link>
       <div className="set-header">
         <h1>{item.title}</h1>
         <span className={`badge badge-${item.status.toLowerCase()}`}>{item.status}</span>

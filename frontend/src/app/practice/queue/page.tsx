@@ -49,7 +49,7 @@ export default function DailyQueuePage() {
         <div className="card practice-current">
           <div className="set-header">
             <h2>
-              <Link className="quiet-link" href={`/tune/${current.userTuneId}`}>{current.title}</Link>
+              <Link className="quiet-link" href={`/tune/${current.userTuneId}`} prefetch={false}>{current.title}</Link>
             </h2>
             <span className="tune-meta">
               {formatTuneType(current.tuneType)} · {current.key}

@@ -13,9 +13,9 @@ export function Landing() {
           no account needed. Sign in to track your own repertoire and join a group.
         </p>
         <div className="detail-controls" style={{ justifyContent: 'center', marginTop: '1rem' }}>
-          <Link href="/tunes"><button>Browse Tunes</button></Link>
-          <Link href="/groups"><button className="secondary">Browse Groups</button></Link>
-          <Link href="/login"><button className="secondary">Sign In</button></Link>
+          <Link href="/tunes" prefetch={false}><button>Browse Tunes</button></Link>
+          <Link href="/groups" prefetch={false}><button className="secondary">Browse Groups</button></Link>
+          <Link href="/login" prefetch={false}><button className="secondary">Sign In</button></Link>
         </div>
       </div>
     </section>

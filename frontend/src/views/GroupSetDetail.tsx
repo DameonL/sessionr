@@ -37,7 +37,7 @@ export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
   return (
     <section>
       <div style={{ marginBottom: '1rem' }}>
-        <Link href={`/group/${groupId}`}>← Back to group</Link>
+        <Link href={`/group/${groupId}`} prefetch={false}>← Back to group</Link>
       </div>
       <div className="set-header">
         <h1>{title}</h1>

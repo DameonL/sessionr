@@ -22,7 +22,7 @@ export function RequireAuth({ children, message }: { children: ReactNode; messag
       <section>
         <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
           <p>{message ?? 'Sign in to use this feature.'}</p>
-          <Link href="/login"><button>Sign In</button></Link>
+          <Link href="/login" prefetch={false}><button>Sign In</button></Link>
         </div>
       </section>
     )

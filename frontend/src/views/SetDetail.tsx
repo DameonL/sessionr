@@ -21,7 +21,7 @@ export function SetDetail({ setId }: { setId?: string }) {
     return (
       <section>
         <p className="error">Could not load this set.</p>
-        <Link href="/sets">← Back to sets</Link>
+        <Link href="/sets" prefetch={false}>← Back to sets</Link>
       </section>
     )
   }
@@ -30,7 +30,7 @@ export function SetDetail({ setId }: { setId?: string }) {
 
   return (
     <section>
-      <Link href="/sets">← Sets</Link>
+      <Link href="/sets" prefetch={false}>← Sets</Link>
       <div className="set-header">
         <h1>{title}</h1>
         <span className="tune-meta">{analysis.totalPlaytime} min</span>

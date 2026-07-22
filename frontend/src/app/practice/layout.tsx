@@ -38,13 +38,13 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
 
       <RequireAuth message="Sign in to use the Practice Room — your daily queue, medley sets, and ear training are tied to your personal repertoire. (Want to just play a tune? Try the Tune Library.)">
         <div className="detail-controls" style={{ marginBottom: '1.5rem', justifyContent: 'center' }}>
-          <Link href="/practice/queue" className={pathname === '/practice/queue' ? 'toggled' : ''}>
+          <Link href="/practice/queue" className={pathname === '/practice/queue' ? 'toggled' : ''} prefetch={false}>
             📋 Daily Queue
           </Link>
-          <Link href="/practice/sets" className={pathname === '/practice/sets' ? 'toggled' : ''}>
+          <Link href="/practice/sets" className={pathname === '/practice/sets' ? 'toggled' : ''} prefetch={false}>
             🎛 Medley Sets
           </Link>
-          <Link href="/practice/ear" className={pathname === '/practice/ear' ? 'toggled' : ''}>
+          <Link href="/practice/ear" className={pathname === '/practice/ear' ? 'toggled' : ''} prefetch={false}>
             👂 Ear Training
           </Link>
         </div>
