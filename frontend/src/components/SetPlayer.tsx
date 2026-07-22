@@ -107,12 +107,15 @@ export function SetPlayer({
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const isFullscreenRef = useRef(false)
 
   const isSingle = isSingleTune || items.length === 1
 
   useEffect(() => {
     const handleFsChange = () => {
-      setIsFullscreen(document.fullscreenElement === containerRef.current)
+      const next = document.fullscreenElement === containerRef.current
+      isFullscreenRef.current = next
+      setIsFullscreen(next)
     }
     document.addEventListener('fullscreenchange', handleFsChange)
     return () => document.removeEventListener('fullscreenchange', handleFsChange)
@@ -126,7 +129,7 @@ export function SetPlayer({
     }
   }
 
-  const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}`).join(',')
+  const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}:${i.abc}`).join(',')
 
   useEffect(() => {
     noteTimingsRef.current = []
@@ -151,7 +154,7 @@ export function SetPlayer({
   }, [itemsKey, targetBpm])
 
   function checkAutoScroll(tuneIndex: number, ev: { top?: number }) {
-    if (!isFullscreen || typeof ev.top !== 'number') return
+    if (!isFullscreenRef.current || typeof ev.top !== 'number') return
     const lines = tuneLinesRef.current[tuneIndex] || []
     if (lines.length === 0) return
 
@@ -179,7 +182,8 @@ export function SetPlayer({
     }
 
     const scrollContainer =
-      (containerRef.current?.querySelector('.set-player-tunes-list') as HTMLElement | null) ?? containerRef.current
+      (containerRef.current?.querySelector('.set-player-tunes-list, .sheet-music') as HTMLElement | null) ??
+      containerRef.current
     scrollToKeepLinesVisible(scrollContainer, svg, currentLine, nextLine, nextSvg)
   }
 
