@@ -1,9 +1,20 @@
 "use client";
 
 import { useState } from 'react'
-import { type RecurrencePattern, type GroupSessionData, type GroupMeetingScheduleData, parseServerDate } from '../services/api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  addGroupScheduleException,
+  deleteGroupScheduleException,
+  type GroupSessionData,
+  type GroupMeetingScheduleData,
+  parseServerDate,
+} from '../services/api'
+import { showToast } from '../state/appState'
 
 interface GroupCalendarProps {
+  groupId: string
+  userId: string
+  isAdmin: boolean
   schedules?: GroupMeetingScheduleData[]
   sessions: GroupSessionData[]
 }
@@ -15,11 +26,41 @@ const MONTH_NAMES = [
 ]
 
 export function GroupCalendar({
+  groupId,
+  userId,
+  isAdmin,
   schedules = [],
   sessions,
 }: GroupCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const queryClient = useQueryClient()
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['group-details', groupId, userId] })
+
+  const addExceptionMutation = useMutation({
+    mutationFn: ({ scheduleId, exceptionDate }: { scheduleId: string; exceptionDate: string }) =>
+      addGroupScheduleException(groupId, scheduleId, exceptionDate),
+    onSuccess: () => {
+      invalidate()
+      showToast('Meeting cancelled for that date.')
+    },
+    onError: (err: any) => {
+      showToast(err.message || 'Failed to cancel this date.', 'error')
+    },
+  })
+
+  const deleteExceptionMutation = useMutation({
+    mutationFn: ({ scheduleId, exceptionId }: { scheduleId: string; exceptionId: string }) =>
+      deleteGroupScheduleException(groupId, scheduleId, exceptionId),
+    onSuccess: () => {
+      invalidate()
+      showToast('Meeting restored.')
+    },
+    onError: (err: any) => {
+      showToast(err.message || 'Failed to restore this date.', 'error')
+    },
+  })
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -46,6 +87,7 @@ export function GroupCalendar({
   const allSchedules = schedules
     .filter((s) => s.recurrencePattern !== 'None')
     .map((s) => ({
+      id: s.groupMeetingScheduleId,
       pattern: s.recurrencePattern,
       dayOfWeek: s.recurrenceDayOfWeek,
       weekOfMonth: s.recurrenceWeekOfMonth,
@@ -53,6 +95,7 @@ export function GroupCalendar({
       time: s.meetingTime,
       text: s.meetingScheduleText,
       desc: s.meetingDescription,
+      exceptions: s.exceptions ?? [],
     }))
 
   // Test if a schedule matches a specific day in the month
@@ -96,8 +139,18 @@ export function GroupCalendar({
     return false
   }
 
+  const isExcepted = (sch: typeof allSchedules[0], day: number) => {
+    const date = new Date(year, month, day)
+    return sch.exceptions.find((ex) => {
+      const exDate = parseServerDate(ex.exceptionDate)
+      return exDate.getFullYear() === date.getFullYear() && exDate.getMonth() === date.getMonth() && exDate.getDate() === date.getDate()
+    })
+  }
+
   const getMatchingSchedulesForDay = (day: number) => {
-    return allSchedules.filter((sch) => matchesSchedule(sch, day))
+    return allSchedules
+      .filter((sch) => matchesSchedule(sch, day))
+      .map((sch) => ({ ...sch, exception: isExcepted(sch, day) }))
   }
 
   const getSessionsForDay = (day: number): GroupSessionData[] => {
@@ -122,6 +175,9 @@ export function GroupCalendar({
 
   const selectedDaySchedules = selectedDate ? getMatchingSchedulesForDay(selectedDate.getDate()) : []
   const selectedDaySessions = selectedDate ? getSessionsForDay(selectedDate.getDate()) : []
+
+  const toIsoDate = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
   return (
     <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
@@ -165,7 +221,8 @@ export function GroupCalendar({
           }
 
           const daySchedules = getMatchingSchedulesForDay(day)
-          const isRecurring = daySchedules.length > 0
+          const isRecurring = daySchedules.some((s) => !s.exception)
+          const allCancelled = daySchedules.length > 0 && daySchedules.every((s) => s.exception)
           const specificSessions = getSessionsForDay(day)
           const hasSpecificSession = specificSessions.length > 0
           const isToday = new Date().toDateString() === new Date(year, month, day).toDateString()
@@ -180,6 +237,8 @@ export function GroupCalendar({
 
           if (isRecurring || hasSpecificSession) {
             bg = 'rgba(77, 208, 165, 0.15)'
+          } else if (allCancelled) {
+            bg = 'rgba(148, 148, 148, 0.12)'
           }
 
           if (isSelected) {
@@ -206,10 +265,13 @@ export function GroupCalendar({
               }}
             >
               <span style={{ fontSize: '0.85rem', fontWeight: isToday ? 700 : 400 }}>{day}</span>
-              {(isRecurring || hasSpecificSession) && (
+              {(isRecurring || hasSpecificSession || allCancelled) && (
                 <div style={{ display: 'flex', gap: '2px' }}>
                   {isRecurring && (
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} title="Group Meeting Day" />
+                  )}
+                  {!isRecurring && allCancelled && (
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--muted)' }} title="Meeting Cancelled" />
                   )}
                   {hasSpecificSession && (
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6' }} title="Scheduled Session Event" />
@@ -232,10 +294,47 @@ export function GroupCalendar({
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {selectedDaySchedules.map((sch, i) => (
-                <div key={i} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid var(--accent)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
-                    <span>🔄</span>
-                    <span><strong>Group Meeting:</strong> {sch.text || 'Regular meetup'} {sch.time ? `(${sch.time})` : ''}</span>
+                <div
+                  key={i}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    background: 'var(--surface-3)',
+                    borderRadius: '6px',
+                    borderLeft: `3px solid ${sch.exception ? 'var(--muted)' : 'var(--accent)'}`,
+                    opacity: sch.exception ? 0.75 : 1,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: sch.exception ? 'var(--muted)' : 'var(--accent)' }}>
+                      <span>{sch.exception ? '🚫' : '🔄'}</span>
+                      <span>
+                        <strong>{sch.exception ? 'Cancelled: ' : 'Group Meeting: '}</strong>
+                        <span style={{ textDecoration: sch.exception ? 'line-through' : 'none' }}>
+                          {sch.text || 'Regular meetup'} {sch.time ? `(${sch.time})` : ''}
+                        </span>
+                      </span>
+                    </div>
+                    {isAdmin && sch.pattern !== 'SpecificDate' && (
+                      sch.exception ? (
+                        <button
+                          className="secondary"
+                          style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                          disabled={deleteExceptionMutation.isPending}
+                          onClick={() => deleteExceptionMutation.mutate({ scheduleId: sch.id, exceptionId: sch.exception!.groupScheduleExceptionId })}
+                        >
+                          Un-cancel
+                        </button>
+                      ) : (
+                        <button
+                          className="secondary"
+                          style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                          disabled={addExceptionMutation.isPending}
+                          onClick={() => addExceptionMutation.mutate({ scheduleId: sch.id, exceptionDate: toIsoDate(selectedDate) })}
+                        >
+                          Cancel this date
+                        </button>
+                      )
+                    )}
                   </div>
                   {sch.desc && (
                     <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>

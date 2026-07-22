@@ -631,6 +631,10 @@ button.toggled {
   font-size: 0.8rem;
 }
 
+a.stat:hover {
+  outline: 1px solid var(--accent);
+}
+
 .practice-current {
   padding: 0.75rem;
 }

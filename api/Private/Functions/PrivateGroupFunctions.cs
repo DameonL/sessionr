@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.GroupFeedSupport;
 
 namespace SessionApp.Api.Functions;
 
@@ -139,10 +140,12 @@ public class PrivateGroupFunctions(AppDbContext db)
             .ToListAsync();
 
         // 4. Shared Repertoire (Common Tunes)
-        // Find tunes known by group members, ordered by member count descending
+        // Find tunes known by group members, ordered by member count descending. Only counts
+        // tunes a member has marked Active — Wishlist/Learning/Rusty/Retired don't reflect
+        // tunes they can actually play together at a session.
         var commonTunes = await db.UserTunes
             .AsNoTracking()
-            .Where(ut => activeMemberIds.Contains(ut.UserId))
+            .Where(ut => activeMemberIds.Contains(ut.UserId) && ut.Status == TuneStatus.Active)
             .GroupBy(ut => new { ut.TuneId, ut.Tune.Title, ut.Tune.TuneType, ut.Tune.Key })
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key.Title)
@@ -157,18 +160,9 @@ public class PrivateGroupFunctions(AppDbContext db)
             ))
             .ToListAsync();
 
-        // 5. Activity feed: practice log events by members
-        var recentActivity = await db.PracticeLog
-            .AsNoTracking()
-            .Where(p => activeMemberIds.Contains(p.UserTune.UserId))
-            .OrderByDescending(p => p.PracticedAt)
-            .Take(25)
-            .Select(p => new GroupActivityDto(
-                p.UserTune.User.DisplayName,
-                p.UserTune.Tune.Title,
-                p.PracticedAt
-            ))
-            .ToListAsync();
+        // 5. Activity feed: system-generated events (tunes learned, members joined), persisted
+        // as permanent history — not re-derived live from current membership.
+        var feed = await BuildGroupFeedAsync(db, groupId);
 
         // 6. Admin updates / announcements feed
         var updates = await db.GroupUpdates
@@ -190,6 +184,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         // 7. Group meeting schedules (multiple recurring schedules)
         var schedules = await db.GroupMeetingSchedules
             .AsNoTracking()
+            .Include(gms => gms.Exceptions)
             .Where(gms => gms.GroupId == groupId)
             .OrderBy(gms => gms.CreatedAt)
             .Select(gms => new GroupMeetingScheduleDto(
@@ -201,7 +196,10 @@ public class PrivateGroupFunctions(AppDbContext db)
                 gms.StartDate,
                 gms.MeetingTime,
                 gms.MeetingScheduleText,
-                gms.MeetingDescription))
+                gms.MeetingDescription,
+                gms.Exceptions
+                    .Select(ex => new GroupScheduleExceptionDto(ex.GroupScheduleExceptionId, ex.GroupMeetingScheduleId, ex.ExceptionDate))
+                    .ToList()))
             .ToListAsync();
 
         return new OkObjectResult(new GroupDetailsDto(
@@ -216,7 +214,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             pendingMembers,
             masterTunes,
             commonTunes,
-            recentActivity,
+            feed,
             updates,
             schedules
         ));
@@ -482,7 +480,8 @@ public class PrivateGroupFunctions(AppDbContext db)
             schedule.StartDate,
             schedule.MeetingTime,
             schedule.MeetingScheduleText,
-            schedule.MeetingDescription));
+            schedule.MeetingDescription,
+            []));
     }
 
     /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId} — admins/owner delete a schedule.</summary>
@@ -510,6 +509,92 @@ public class PrivateGroupFunctions(AppDbContext db)
         }
 
         db.GroupMeetingSchedules.Remove(schedule);
+        await db.SaveChangesAsync();
+
+        return new NoContentResult();
+    }
+
+    /// <summary>POST /api/groups/{groupId}/schedules/{scheduleId}/exceptions — admins/owner cancel a single occurrence of a recurring schedule.</summary>
+    [Function("AddGroupScheduleException")]
+    public async Task<IActionResult> AddGroupScheduleException(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/schedules/{scheduleId:guid}/exceptions")] HttpRequest req,
+        Guid groupId, Guid scheduleId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can cancel meeting schedule occurrences.");
+        }
+
+        var body = await req.ReadFromJsonAsync<CreateGroupScheduleExceptionRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("Request body is required.");
+        }
+
+        var scheduleExists = await db.GroupMeetingSchedules.AnyAsync(s => s.GroupMeetingScheduleId == scheduleId && s.GroupId == groupId);
+        if (!scheduleExists)
+        {
+            return new NotFoundResult();
+        }
+
+        var alreadyExcepted = await db.GroupScheduleExceptions
+            .AnyAsync(e => e.GroupMeetingScheduleId == scheduleId && e.ExceptionDate.Date == body.ExceptionDate.Date);
+        if (alreadyExcepted)
+        {
+            return new ConflictObjectResult("This date has already been cancelled.");
+        }
+
+        var exception = new GroupScheduleException
+        {
+            GroupMeetingScheduleId = scheduleId,
+            ExceptionDate = body.ExceptionDate.Date,
+            CreatedByUserId = callerUserId.Value,
+        };
+        db.GroupScheduleExceptions.Add(exception);
+        await db.SaveChangesAsync();
+
+        return new OkObjectResult(new GroupScheduleExceptionDto(exception.GroupScheduleExceptionId, exception.GroupMeetingScheduleId, exception.ExceptionDate));
+    }
+
+    /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId}/exceptions/{exceptionId} — admins/owner un-cancel a previously cancelled occurrence.</summary>
+    [Function("DeleteGroupScheduleException")]
+    public async Task<IActionResult> DeleteGroupScheduleException(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "groups/{groupId:guid}/schedules/{scheduleId:guid}/exceptions/{exceptionId:guid}")] HttpRequest req,
+        Guid groupId, Guid scheduleId, Guid exceptionId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
+        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        {
+            return Forbidden("Only group administrators can restore cancelled meeting schedule occurrences.");
+        }
+
+        var scheduleExists = await db.GroupMeetingSchedules.AnyAsync(s => s.GroupMeetingScheduleId == scheduleId && s.GroupId == groupId);
+        if (!scheduleExists)
+        {
+            return new NotFoundResult();
+        }
+
+        var exception = await db.GroupScheduleExceptions
+            .SingleOrDefaultAsync(e => e.GroupScheduleExceptionId == exceptionId && e.GroupMeetingScheduleId == scheduleId);
+        if (exception is null)
+        {
+            return new NotFoundResult();
+        }
+
+        db.GroupScheduleExceptions.Remove(exception);
         await db.SaveChangesAsync();
 
         return new NoContentResult();
@@ -660,6 +745,17 @@ public class PrivateGroupFunctions(AppDbContext db)
             Role = GroupRole.Member,
             Status = status
         });
+
+        if (status == GroupMembershipStatus.Active)
+        {
+            db.GroupFeedEvents.Add(new GroupFeedEvent
+            {
+                GroupId = groupId,
+                UserId = callerUserId.Value,
+                EventType = GroupFeedEventType.MemberJoined,
+            });
+        }
+
         await db.SaveChangesAsync();
 
         return new OkObjectResult(new JoinResultDto(status.ToString()));
@@ -972,6 +1068,14 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         target.Status = GroupMembershipStatus.Active;
         target.JoinedAt = DateTime.UtcNow;
+
+        db.GroupFeedEvents.Add(new GroupFeedEvent
+        {
+            GroupId = groupId,
+            UserId = targetUserId,
+            EventType = GroupFeedEventType.MemberJoined,
+        });
+
         await db.SaveChangesAsync();
 
         return new NoContentResult();

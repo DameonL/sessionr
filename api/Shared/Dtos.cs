@@ -193,7 +193,8 @@ public record GroupMeetingScheduleDto(
     DateTime? StartDate,
     string? MeetingTime,
     string? MeetingScheduleText,
-    string? MeetingDescription);
+    string? MeetingDescription,
+    List<GroupScheduleExceptionDto> Exceptions);
 
 public record CreateGroupScheduleRequest(
     RecurrencePattern RecurrencePattern,
@@ -234,7 +235,13 @@ public record GroupMemberDto(Guid UserId, string DisplayName, string Email, stri
 
 public record GroupCommonTuneDto(Guid TuneId, string Title, string TuneType, string Key, int MemberCount, int TotalMembersInGroup);
 
-public record GroupActivityDto(string MemberName, string TuneTitle, DateTime PracticedAt);
+public record GroupFeedEventDto(string MemberName, string EventType, List<string> TuneTitles, DateTime CreatedAt);
+
+public record TuneLearnedPayload(List<Guid> TuneIds);
+
+public record GroupScheduleExceptionDto(Guid GroupScheduleExceptionId, Guid GroupMeetingScheduleId, DateTime ExceptionDate);
+
+public record CreateGroupScheduleExceptionRequest(DateTime ExceptionDate);
 
 public record GroupTuneDto(
     Guid GroupTuneId,
@@ -275,7 +282,7 @@ public record GroupDetailsDto(
     List<GroupMemberDto> PendingMembers,
     List<GroupTuneDto> MasterTunes,
     List<GroupCommonTuneDto> CommonTunes,
-    List<GroupActivityDto> RecentActivity,
+    List<GroupFeedEventDto> Feed,
     List<GroupUpdateDto> Updates,
     List<GroupMeetingScheduleDto> Schedules);
 

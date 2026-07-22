@@ -444,6 +444,12 @@ export const deleteSet = (setId: string) =>
 // --- Groups Types & Functions ---
 export type RecurrencePattern = 'None' | 'Weekly' | 'Biweekly' | 'MonthlyNthDay' | 'SpecificDate'
 
+export interface GroupScheduleExceptionData {
+  groupScheduleExceptionId: string
+  groupMeetingScheduleId: string
+  exceptionDate: string
+}
+
 export interface GroupMeetingScheduleData {
   groupMeetingScheduleId: string
   groupId: string
@@ -454,6 +460,7 @@ export interface GroupMeetingScheduleData {
   meetingTime: string | null
   meetingScheduleText: string | null
   meetingDescription: string | null
+  exceptions: GroupScheduleExceptionData[]
 }
 
 export interface GroupUpdateData {
@@ -495,10 +502,13 @@ export interface GroupCommonTune {
   totalMembersInGroup: number
 }
 
-export interface GroupActivity {
+export type GroupFeedEventType = 'TuneLearned' | 'MemberJoined'
+
+export interface GroupFeedEventData {
   memberName: string
-  tuneTitle: string
-  practicedAt: string
+  eventType: GroupFeedEventType
+  tuneTitles: string[]
+  createdAt: string
 }
 
 export interface GroupTuneListItem {
@@ -524,7 +534,7 @@ export interface GroupDetails {
   pendingMembers: GroupMember[]
   masterTunes: GroupTuneListItem[]
   commonTunes: GroupCommonTune[]
-  recentActivity: GroupActivity[]
+  feed: GroupFeedEventData[]
   updates: GroupUpdateData[]
   schedules: GroupMeetingScheduleData[]
 }
@@ -648,6 +658,17 @@ export const addGroupSchedule = (
 
 export const deleteGroupSchedule = (groupId: string, scheduleId: string) =>
   apiFetch<void>(`/groups/${groupId}/schedules/${scheduleId}`, {
+    method: 'DELETE',
+  })
+
+export const addGroupScheduleException = (groupId: string, scheduleId: string, exceptionDate: string) =>
+  apiFetch<GroupScheduleExceptionData>(`/groups/${groupId}/schedules/${scheduleId}/exceptions`, {
+    method: 'POST',
+    body: JSON.stringify({ exceptionDate }),
+  })
+
+export const deleteGroupScheduleException = (groupId: string, scheduleId: string, exceptionId: string) =>
+  apiFetch<void>(`/groups/${groupId}/schedules/${scheduleId}/exceptions/${exceptionId}`, {
     method: 'DELETE',
   })
 

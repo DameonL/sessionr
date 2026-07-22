@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace SessionApp.Api.Models;
 
@@ -17,4 +18,5 @@ public class GroupMeetingSchedule
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Group Group { get; set; } = null!;
+    public ICollection<GroupScheduleException> Exceptions { get; set; } = new List<GroupScheduleException>();
 }

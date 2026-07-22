@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +18,9 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 {
     /// <summary>Tunes unplayed for this long count as rusty.</summary>
     private static readonly TimeSpan RustThreshold = TimeSpan.FromDays(30);
+
+    /// <summary>A burst of tunes marked Active within this window collapses into one feed entry.</summary>
+    private static readonly TimeSpan TuneLearnedMergeWindow = TimeSpan.FromMinutes(30);
 
     /// <summary>Tunes practiced within this time frame are hidden from the practice queue.</summary>
     private static readonly TimeSpan PracticeCooldown = TimeSpan.FromHours(12);
@@ -285,6 +290,8 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return new NotFoundResult();
         }
 
+        var previousStatus = userTune.Status;
+
         if (body.Status is not null)
         {
             if (!Enum.TryParse<TuneStatus>(body.Status, ignoreCase: true, out var status))
@@ -323,6 +330,11 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         await db.SaveChangesAsync();
 
+        if (previousStatus != TuneStatus.Active && userTune.Status == TuneStatus.Active)
+        {
+            await RecordTuneLearnedFeedEventsAsync(callerUserId.Value, userTune.TuneId);
+        }
+
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
         var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
 
@@ -337,6 +349,64 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             userTune.TargetBpm,
             effectiveAbc,
             userTune.CustomAbcText != null));
+    }
+
+    /// <summary>
+    /// Records a "member learned a tune" feed entry in every group the user currently belongs
+    /// to, once per (group, tune) ever. A burst of tunes marked Active in quick succession
+    /// merges into a single recent entry per group instead of flooding the feed with one row
+    /// per tune. Runs after the primary status update has already committed, in its own
+    /// save/try-catch, so a failure here can never roll back the tune status change itself.
+    /// </summary>
+    private async Task RecordTuneLearnedFeedEventsAsync(Guid userId, Guid tuneId)
+    {
+        try
+        {
+            var groupIds = await db.GroupMemberships
+                .Where(gm => gm.UserId == userId && gm.Status == GroupMembershipStatus.Active)
+                .Select(gm => gm.GroupId)
+                .ToListAsync();
+
+            foreach (var groupId in groupIds)
+            {
+                var existingEvents = await db.GroupFeedEvents
+                    .Where(e => e.GroupId == groupId && e.UserId == userId && e.EventType == GroupFeedEventType.TuneLearned)
+                    .OrderByDescending(e => e.CreatedAt)
+                    .ToListAsync();
+
+                var alreadyRecorded = existingEvents.Any(e =>
+                    JsonSerializer.Deserialize<TuneLearnedPayload>(e.Payload)?.TuneIds.Contains(tuneId) == true);
+                if (alreadyRecorded)
+                {
+                    continue;
+                }
+
+                var mostRecent = existingEvents.FirstOrDefault();
+                if (mostRecent != null && DateTime.UtcNow - mostRecent.CreatedAt < TuneLearnedMergeWindow)
+                {
+                    var payload = JsonSerializer.Deserialize<TuneLearnedPayload>(mostRecent.Payload) ?? new TuneLearnedPayload(new List<Guid>());
+                    payload.TuneIds.Add(tuneId);
+                    mostRecent.Payload = JsonSerializer.Serialize(payload);
+                    mostRecent.CreatedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    db.GroupFeedEvents.Add(new GroupFeedEvent
+                    {
+                        GroupId = groupId,
+                        UserId = userId,
+                        EventType = GroupFeedEventType.TuneLearned,
+                        Payload = JsonSerializer.Serialize(new TuneLearnedPayload(new List<Guid> { tuneId })),
+                    });
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogWarning(ex, "Failed to record TuneLearned feed event(s) for user {UserId}, tune {TuneId}.", userId, tuneId);
+        }
     }
 
     /// <summary>POST /api/repertoire/items/{userTuneId}/practiced — log a practice event for a tune.</summary>

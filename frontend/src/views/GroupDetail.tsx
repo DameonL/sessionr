@@ -377,7 +377,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           Shared Repertoire
         </button>
         <button className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')} style={tabStyle(activeTab === 'activity')}>
-          Practice Feed
+          Activity
         </button>
         <button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')} style={tabStyle(activeTab === 'members')}>
           Members ({details.members.length})
@@ -401,6 +401,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
       {activeTab === 'overview' && (
         <div>
           <GroupCalendar
+            groupId={id}
+            userId={userId}
+            isAdmin={isAdmin}
             schedules={details.schedules ?? []}
             sessions={sessionsQuery.data ?? []}
           />
@@ -553,17 +556,24 @@ export function GroupDetail({ groupId }: { groupId: string }) {
       {activeTab === 'activity' && (
         <div>
           <h2>Recent Activity</h2>
-          {details.recentActivity.length === 0 ? (
-            <p className="tune-meta italic">No practice activity logged yet by members of this group.</p>
+          {details.feed.length === 0 ? (
+            <p className="tune-meta italic">No activity yet in this group.</p>
           ) : (
             <div className="activity-feed" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {details.recentActivity.map((act, i) => (
+              {details.feed.map((event, i) => (
                 <div key={i} className="card" style={{ padding: '0.75rem 1rem' }}>
                   <p style={{ margin: 0 }}>
-                    <strong>{act.memberName}</strong> practiced <em>{act.tuneTitle}</em>
+                    <strong>{event.memberName}</strong>{' '}
+                    {event.eventType === 'MemberJoined' ? (
+                      'joined the group'
+                    ) : event.tuneTitles.length === 1 ? (
+                      <>learned <em>{event.tuneTitles[0]}</em></>
+                    ) : (
+                      <>learned {event.tuneTitles.length} tunes: <em>{event.tuneTitles.join(', ')}</em></>
+                    )}
                   </p>
                   <span className="tune-meta" style={{ fontSize: '0.8rem', display: 'block', marginTop: '0.25rem' }}>
-                    {new Date(act.practicedAt).toLocaleString()}
+                    {new Date(event.createdAt).toLocaleString()}
                   </span>
                 </div>
               ))}

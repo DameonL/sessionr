@@ -25,6 +25,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TuneAlias> TuneAliases => Set<TuneAlias>();
     public DbSet<TuneSetting> TuneSettings => Set<TuneSetting>();
     public DbSet<TuneSettingVote> TuneSettingVotes => Set<TuneSettingVote>();
+    public DbSet<GroupFeedEvent> GroupFeedEvents => Set<GroupFeedEvent>();
+    public DbSet<GroupScheduleException> GroupScheduleExceptions => Set<GroupScheduleException>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -130,6 +132,42 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.Property(gms => gms.RecurrencePattern).HasConversion<string>().HasMaxLength(20);
+        });
+
+        modelBuilder.Entity<GroupScheduleException>(entity =>
+        {
+            entity.HasOne(e => e.GroupMeetingSchedule)
+                .WithMany(gms => gms.Exceptions)
+                .HasForeignKey(e => e.GroupMeetingScheduleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // A schedule can only be cancelled once for a given date.
+            entity.HasIndex(e => new { e.GroupMeetingScheduleId, e.ExceptionDate }).IsUnique();
+        });
+
+        modelBuilder.Entity<GroupFeedEvent>(entity =>
+        {
+            entity.HasOne(e => e.Group)
+                .WithMany()
+                .HasForeignKey(e => e.GroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(e => e.EventType).HasConversion<string>().HasMaxLength(20);
+
+            // Feed listing reads by group ordered by recency; the dedupe/merge check on
+            // write reads by (group, user) regardless of order.
+            entity.HasIndex(e => new { e.GroupId, e.CreatedAt });
+            entity.HasIndex(e => new { e.GroupId, e.UserId });
         });
 
         // A group's curated master tune list, mirroring the UserTune pattern:

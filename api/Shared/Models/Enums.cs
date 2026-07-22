@@ -42,3 +42,11 @@ public enum RecurrencePattern
     MonthlyNthDay,
     SpecificDate
 }
+
+/// <summary>Kind of system-generated entry in a group's activity feed.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum GroupFeedEventType
+{
+    TuneLearned,
+    MemberJoined
+}

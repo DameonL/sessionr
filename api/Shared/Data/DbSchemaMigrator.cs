@@ -76,6 +76,34 @@ public static class DbSchemaMigrator
                         CONSTRAINT FK_GroupMeetingSchedules_Groups_GroupId FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE
                     );
                 END
+
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('GroupScheduleExceptions') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE GroupScheduleExceptions (
+                        GroupScheduleExceptionId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        GroupMeetingScheduleId UNIQUEIDENTIFIER NOT NULL,
+                        ExceptionDate DATETIME2 NOT NULL,
+                        CreatedByUserId UNIQUEIDENTIFIER NOT NULL,
+                        CreatedAt DATETIME2 NOT NULL,
+                        CONSTRAINT FK_GroupScheduleExceptions_GroupMeetingSchedules_GroupMeetingScheduleId FOREIGN KEY (GroupMeetingScheduleId) REFERENCES GroupMeetingSchedules (GroupMeetingScheduleId) ON DELETE CASCADE,
+                        CONSTRAINT FK_GroupScheduleExceptions_Users_CreatedByUserId FOREIGN KEY (CreatedByUserId) REFERENCES Users (UserId) ON DELETE NO ACTION,
+                        CONSTRAINT UQ_GroupScheduleExceptions_Schedule_Date UNIQUE (GroupMeetingScheduleId, ExceptionDate)
+                    );
+                END
+
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID('GroupFeedEvents') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE GroupFeedEvents (
+                        GroupFeedEventId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        GroupId UNIQUEIDENTIFIER NOT NULL,
+                        UserId UNIQUEIDENTIFIER NOT NULL,
+                        EventType NVARCHAR(20) NOT NULL,
+                        Payload NVARCHAR(MAX) NOT NULL DEFAULT '{}',
+                        CreatedAt DATETIME2 NOT NULL,
+                        CONSTRAINT FK_GroupFeedEvents_Groups_GroupId FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE,
+                        CONSTRAINT FK_GroupFeedEvents_Users_UserId FOREIGN KEY (UserId) REFERENCES Users (UserId) ON DELETE NO ACTION
+                    );
+                END
             """);
         }
         else
@@ -118,6 +146,32 @@ public static class DbSchemaMigrator
                     MeetingDescription TEXT NULL,
                     CreatedAt TEXT NOT NULL,
                     FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE
+                );
+            """);
+
+            ExecuteSqlSafe(db, """
+                CREATE TABLE IF NOT EXISTS GroupScheduleExceptions (
+                    GroupScheduleExceptionId TEXT NOT NULL PRIMARY KEY,
+                    GroupMeetingScheduleId TEXT NOT NULL,
+                    ExceptionDate TEXT NOT NULL,
+                    CreatedByUserId TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    FOREIGN KEY (GroupMeetingScheduleId) REFERENCES GroupMeetingSchedules (GroupMeetingScheduleId) ON DELETE CASCADE,
+                    FOREIGN KEY (CreatedByUserId) REFERENCES Users (UserId) ON DELETE RESTRICT,
+                    UNIQUE (GroupMeetingScheduleId, ExceptionDate)
+                );
+            """);
+
+            ExecuteSqlSafe(db, """
+                CREATE TABLE IF NOT EXISTS GroupFeedEvents (
+                    GroupFeedEventId TEXT NOT NULL PRIMARY KEY,
+                    GroupId TEXT NOT NULL,
+                    UserId TEXT NOT NULL,
+                    EventType TEXT NOT NULL,
+                    Payload TEXT NOT NULL DEFAULT '{}',
+                    CreatedAt TEXT NOT NULL,
+                    FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE,
+                    FOREIGN KEY (UserId) REFERENCES Users (UserId) ON DELETE RESTRICT
                 );
             """);
         }

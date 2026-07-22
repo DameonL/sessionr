@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.GroupFeedSupport;
 
 namespace SessionApp.Api.Functions;
 
@@ -132,10 +133,12 @@ public class PublicGroupFunctions(AppDbContext db)
             .ToListAsync();
 
         // 4. Shared Repertoire (Common Tunes)
-        // Find tunes known by group members, ordered by member count descending
+        // Find tunes known by group members, ordered by member count descending. Only counts
+        // tunes a member has marked Active — Wishlist/Learning/Rusty/Retired don't reflect
+        // tunes they can actually play together at a session.
         var commonTunes = await db.UserTunes
             .AsNoTracking()
-            .Where(ut => activeMemberIds.Contains(ut.UserId))
+            .Where(ut => activeMemberIds.Contains(ut.UserId) && ut.Status == TuneStatus.Active)
             .GroupBy(ut => new { ut.TuneId, ut.Tune.Title, ut.Tune.TuneType, ut.Tune.Key })
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key.Title)
@@ -150,18 +153,9 @@ public class PublicGroupFunctions(AppDbContext db)
             ))
             .ToListAsync();
 
-        // 5. Activity feed: practice log events by members
-        var recentActivity = await db.PracticeLog
-            .AsNoTracking()
-            .Where(p => activeMemberIds.Contains(p.UserTune.UserId))
-            .OrderByDescending(p => p.PracticedAt)
-            .Take(25)
-            .Select(p => new GroupActivityDto(
-                p.UserTune.User.DisplayName,
-                p.UserTune.Tune.Title,
-                p.PracticedAt
-            ))
-            .ToListAsync();
+        // 5. Activity feed: system-generated events (tunes learned, members joined), persisted
+        // as permanent history — not re-derived live from current membership.
+        var feed = await BuildGroupFeedAsync(db, groupId);
 
         // 6. Admin updates / announcements feed
         var updates = await db.GroupUpdates
@@ -183,6 +177,7 @@ public class PublicGroupFunctions(AppDbContext db)
         // 7. Group meeting schedules (multiple recurring schedules)
         var schedules = await db.GroupMeetingSchedules
             .AsNoTracking()
+            .Include(gms => gms.Exceptions)
             .Where(gms => gms.GroupId == groupId)
             .OrderBy(gms => gms.CreatedAt)
             .Select(gms => new GroupMeetingScheduleDto(
@@ -194,7 +189,10 @@ public class PublicGroupFunctions(AppDbContext db)
                 gms.StartDate,
                 gms.MeetingTime,
                 gms.MeetingScheduleText,
-                gms.MeetingDescription))
+                gms.MeetingDescription,
+                gms.Exceptions
+                    .Select(ex => new GroupScheduleExceptionDto(ex.GroupScheduleExceptionId, ex.GroupMeetingScheduleId, ex.ExceptionDate))
+                    .ToList()))
             .ToListAsync();
 
         return new OkObjectResult(new GroupDetailsDto(
@@ -209,7 +207,7 @@ public class PublicGroupFunctions(AppDbContext db)
             pendingMembers,
             masterTunes,
             commonTunes,
-            recentActivity,
+            feed,
             updates,
             schedules
         ));
