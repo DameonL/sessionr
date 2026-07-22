@@ -34,7 +34,7 @@ export function NavBar() {
     <header className="app-header">
       <div className="nav-container">
         <Link href="/" className="nav-brand" prefetch={false}>
-          <span className="brand-icon"><img src="logo-transparent-bordered.png" /></span>
+          <span className="brand-icon"><img src="favicon.svg" /></span>
           <span className="brand-text">sessionr</span>
         </Link>
 
