@@ -48,6 +48,7 @@ export function Repertoire() {
     queryFn: ({ pageParam = 1 }) => getRepertoireList(search, filterType, filterStatus, pageParam as number, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
+    enabled: !!userId,
   })
 
   const allRepertoireItems = repertoireQuery.data?.pages.flatMap((p) => p.items) ?? []
@@ -172,7 +173,7 @@ export function Repertoire() {
       <ul className="tune-list">
         {filteredItems.map((item) => (
           <li key={item.userTuneId} className="card">
-            <Link className="tune-row" href={`/tune/${item.userTuneId}`}>
+            <Link className="tune-row" href={`/tune/${item.userTuneId}`} prefetch={false}>
               <span className="tune-title">{item.title}</span>
               <span className="tune-meta">
                 {formatTuneType(item.tuneType)} · {item.key}

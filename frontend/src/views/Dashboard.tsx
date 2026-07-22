@@ -16,12 +16,14 @@ export function Dashboard() {
   const stats = useQuery({
     queryKey: ['repertoire-stats', userId],
     queryFn: () => getRepertoireStats(),
+    enabled: !!userId,
   })
   const queue = useQuery({
     queryKey: ['practice-queue', userId],
     queryFn: () => getPracticeQueue(),
+    enabled: !!userId,
   })
-  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
+  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
 
   const byStatus = stats.data?.byStatus ?? {}
   const byType = stats.data?.byType ?? {}

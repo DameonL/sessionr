@@ -104,12 +104,14 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const groupQuery = useQuery({
     queryKey: ['group-details', id, userId],
     queryFn: () => getGroupDetails(id, userId),
+    enabled: authStatus !== 'pending',
   })
 
   // Fetch group sessions for calendar
   const sessionsQuery = useQuery({
     queryKey: ['group-sessions', id, userId],
     queryFn: () => getGroupSessions(id, userId),
+    enabled: authStatus !== 'pending',
   })
 
   // Fetch user's own repertoire (tune IDs only) to check if they already have tunes (signed-in members only)

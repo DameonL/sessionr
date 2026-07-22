@@ -32,17 +32,19 @@ export function NavBar() {
   return (
     <header className="app-header">
       <div className="nav-container">
-        <Link href="/" className="nav-brand">
+        <Link href="/" className="nav-brand" prefetch={false}>
           <span className="brand-icon">🎻</span>
           <span className="brand-text">sessionr</span>
         </Link>
 
-        {/* Desktop Navigation */}
+        {/* Desktop Navigation. prefetch={false}: these 6 links render on every single page
+            load app-wide, so their default viewport-based RSC prefetch adds 6 wasted requests
+            per page view — defer fetching until the user actually clicks one. */}
         <nav className="desktop-nav">
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
             return (
-              <Link key={link.href} href={link.href} className={`nav-pill ${active ? 'active' : ''}`}>
+              <Link key={link.href} href={link.href} className={`nav-pill ${active ? 'active' : ''}`} prefetch={false}>
                 <span>{link.label}</span>
               </Link>
             )
@@ -111,7 +113,7 @@ function MsalAuthWidget() {
   }
 
   if (!userId) {
-    return <Link href="/login" className="nav-pill">Sign In</Link>
+    return <Link href="/login" className="nav-pill" prefetch={false}>Sign In</Link>
   }
 
   const initial = profile?.displayName ? profile.displayName.charAt(0).toUpperCase() : 'U'

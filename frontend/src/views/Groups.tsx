@@ -30,6 +30,7 @@ export function Groups() {
     queryFn: ({ pageParam = 1 }) => getGroups(userId, undefined, pageParam, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
+    enabled: status !== 'pending',
   })
 
   const invalidate = () => {
@@ -211,7 +212,7 @@ export function Groups() {
             <ul className="tune-list">
               {myGroups.map((g) => (
                 <li key={g.groupId} className="card tune-row" style={{ alignItems: 'flex-start' }}>
-                  <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
+                  <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }} prefetch={false}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span className="tune-title">{g.isPrivate ? '🔒 ' : ''}{g.name}</span>
                       {g.city && <span style={{ fontSize: '0.85rem', color: 'var(--accent)' }}>📍 {g.city}</span>}

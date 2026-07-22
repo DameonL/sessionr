@@ -12,6 +12,7 @@ import {
   type GroupSetSummaryData,
   type GroupTuneListItem,
 } from '../services/api'
+import { useAuthStatus } from '../state/appState'
 
 interface DraftItem {
   groupTuneId: string
@@ -41,11 +42,13 @@ export function GroupSetBuilder({
   masterTunes: GroupTuneListItem[]
 }) {
   const queryClient = useQueryClient()
+  const authStatus = useAuthStatus()
   const [draft, setDraft] = useState<Draft | null>(null)
 
   const sets = useQuery({
     queryKey: ['group-sets', groupId, userId],
     queryFn: () => getGroupSets(groupId, userId),
+    enabled: authStatus !== 'pending',
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['group-sets', groupId, userId] })
@@ -116,7 +119,7 @@ export function GroupSetBuilder({
         <div key={set.groupSetId} className="card set-card" style={{ marginTop: '1rem' }}>
           <div className="set-header">
             <h3>
-              <Link className="quiet-link" href={`/groupset/${set.groupSetId}`}>{set.title}</Link>
+              <Link className="quiet-link" href={`/groupset/${set.groupSetId}`} prefetch={false}>{set.title}</Link>
             </h3>
             <span className="tune-meta">{set.analysis.totalPlaytime} min</span>
           </div>
@@ -140,7 +143,7 @@ export function GroupSetBuilder({
             </ul>
           )}
           <div className="detail-controls">
-            <Link href={`/groupset/${set.groupSetId}`}>
+            <Link href={`/groupset/${set.groupSetId}`} prefetch={false}>
               <button>▶ View &amp; play</button>
             </Link>
             {isAdmin && (

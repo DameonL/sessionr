@@ -13,6 +13,7 @@ import {
   type GroupSessionData,
   type RsvpStatus,
 } from '../services/api'
+import { useAuthStatus } from '../state/appState'
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -42,12 +43,14 @@ export function GroupSessions({
   isMember: boolean
 }) {
   const queryClient = useQueryClient()
+  const authStatus = useAuthStatus()
   const [form, setForm] = useState<FormState | null>(null)
   const [showPast, setShowPast] = useState(false)
 
   const sessions = useQuery({
     queryKey: ['group-sessions', groupId, userId],
     queryFn: () => getGroupSessions(groupId, userId),
+    enabled: authStatus !== 'pending',
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['group-sessions', groupId, userId] })

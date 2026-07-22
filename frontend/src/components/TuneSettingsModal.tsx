@@ -12,6 +12,7 @@ import {
   updateUserTune,
   formatTuneType,
 } from '../services/api'
+import { useAuthStatus } from '../state/appState'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
 const SheetMusic = dynamic(() => import('./SheetMusic').then((m) => m.SheetMusic), { ssr: false })
@@ -38,6 +39,7 @@ export function TuneSettingsModal({
   actionLabel,
 }: TuneSettingsModalProps) {
   const queryClient = useQueryClient()
+  const authStatus = useAuthStatus()
   // undefined = no explicit user choice yet (show the first/most-popular setting);
   // null = user explicitly collapsed everything; string = user explicitly expanded that setting.
   const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
@@ -57,6 +59,7 @@ export function TuneSettingsModal({
   const { data: details, isLoading, isError, refetch } = useQuery({
     queryKey: ['tune-details', tuneId, userId],
     queryFn: () => getTuneDetails(tuneId, userId),
+    enabled: authStatus !== 'pending',
   })
 
   // Add or switch setting mutation

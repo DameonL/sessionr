@@ -52,7 +52,7 @@ export function TuneLibrary() {
       <ul className="tune-list">
         {allTunes.map((tune) => (
           <li key={tune.tuneId} className="card tune-row">
-            <Link href={`/tunes/${tune.tuneId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
+            <Link href={`/tunes/${tune.tuneId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }} prefetch={false}>
               <span className="tune-title">{tune.title}</span>
               <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
                 {formatTuneType(tune.tuneType)} · {tune.key}

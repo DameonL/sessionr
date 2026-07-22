@@ -1,13 +1,26 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { PublicClientApplication } from '@azure/msal-browser'
+import { Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
 import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
+}
+
+// MsalProvider must always receive a real instance (it calls instance.getLogger() synchronously
+// on every render), but the real PublicClientApplication isn't constructed until /api/config and
+// pca.initialize() resolve. Rendering under a Fragment until then and swapping to <MsalProvider>
+// once ready changes the wrapper's element type, which makes React unmount and remount the whole
+// children tree (NavBar + the active page) partway through every page load — silently doubling
+// every userId-keyed data fetch that happens to be in flight at that moment. Using this
+// placeholder (msal-react's own stub, patched so getLogger doesn't throw) keeps <MsalProvider>
+// as a constant wrapper across the whole lifecycle, so only its `instance` prop ever changes.
+const placeholderPca: IPublicClientApplication = {
+  ...stubbedPublicClientApplication,
+  getLogger: () => new Logger({}),
 }
 
 function isJwtExpired(token: string, bufferSeconds = 30): boolean {
@@ -25,7 +38,6 @@ let cachedToken: string | null = null
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
-  const [loading, setLoading] = useState(true)
   const [configError, setConfigError] = useState(false)
   const [syncingUser, setSyncingUser] = useState<string | null>(null)
 
@@ -107,29 +119,21 @@ export default function AuthProvider({ children }: AuthProviderProps) {
                 }
               }
             });
-            setLoading(false);
           }).catch((err) => {
             console.error('MSAL initialization failed:', err);
             authStatus.value = 'anonymous';
-            setLoading(false);
           });
         } else {
           authStatus.value = 'anonymous';
           setConfigError(true);
-          setLoading(false);
         }
       })
       .catch((err) => {
         console.error('Failed to fetch MSAL config:', err);
         authStatus.value = 'anonymous';
         setConfigError(true);
-        setLoading(false);
       });
   }, []);
-
-  if (loading) {
-    return <>{children}</>
-  }
 
   if (configError) {
     return (
@@ -167,16 +171,14 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     );
   }
 
-  if (!pcaInstance) {
-    return <>{children}</>
-  }
-
   return (
-    <MsalProvider instance={pcaInstance}>
-      <MsalBackgroundSync
-        onSyncStart={(name) => setSyncingUser(name)}
-        onSyncEnd={() => setSyncingUser(null)}
-      />
+    <MsalProvider instance={pcaInstance ?? placeholderPca}>
+      {pcaInstance && (
+        <MsalBackgroundSync
+          onSyncStart={(name) => setSyncingUser(name)}
+          onSyncEnd={() => setSyncingUser(null)}
+        />
+      )}
       {children}
       {syncingUser && (
         <div className="signin-modal-overlay">

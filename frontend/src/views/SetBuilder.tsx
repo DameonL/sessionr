@@ -42,10 +42,11 @@ export function SetBuilder() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft | null>(null)
 
-  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets() })
+  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
     queryFn: getFullRepertoire,
+    enabled: !!userId,
   })
 
   const saveMutation = useMutation({
@@ -109,7 +110,7 @@ export function SetBuilder() {
         <div key={set.setId} className="card set-card">
           <div className="set-header">
             <h2>
-              <Link className="quiet-link" href={`/set/${set.setId}`}>{set.title}</Link>
+              <Link className="quiet-link" href={`/set/${set.setId}`} prefetch={false}>{set.title}</Link>
             </h2>
             <span className="tune-meta">{set.analysis.totalPlaytime} min</span>
           </div>
@@ -133,7 +134,7 @@ export function SetBuilder() {
             </ul>
           )}
           <div className="detail-controls">
-            <Link href={`/set/${set.setId}`}>
+            <Link href={`/set/${set.setId}`} prefetch={false}>
               <button>▶ View &amp; play</button>
             </Link>
             <button onClick={() => startEdit(set)}>Edit</button>
@@ -176,6 +177,7 @@ function SetEditor({
   const suggestions = useQuery({
     queryKey: ['suggest-next', userId, draftIds.join('-')],
     queryFn: () => suggestNextTune(draftIds),
+    enabled: !!userId,
   })
 
   const addItem = (item: Omit<DraftItem, 'repetitions'>) =>

@@ -148,6 +148,7 @@ export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) 
   const repertoireQuery = useQuery({
     queryKey: ['repertoire-full', userId],
     queryFn: getFullRepertoire,
+    enabled: !!userId,
   })
   const repertoireItems: RepertoireItem[] = repertoireQuery.data ?? []
 

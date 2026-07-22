@@ -15,8 +15,13 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
 
+  // Content-Type: application/json isn't a CORS-safelisted header, so sending it
+  // unconditionally forces a preflight (OPTIONS) round trip on every single cross-origin
+  // call, even bodiless GETs. Only set it when there's actually a JSON body to describe —
+  // anonymous/public GETs with no Authorization header then qualify as CORS-simple requests
+  // and skip preflight entirely.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
     ...init?.headers as Record<string, string>,
   }
 

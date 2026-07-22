@@ -40,6 +40,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const { data: details, isLoading, isError, refetch } = useQuery({
     queryKey: ['tune-details', id, userId],
     queryFn: () => getTuneDetails(id, userId),
+    enabled: authStatus !== 'pending',
   })
 
   const voteMutation = useMutation({
