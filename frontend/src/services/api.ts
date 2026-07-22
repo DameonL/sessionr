@@ -5,7 +5,14 @@
  * "/api/*" to the Public Functions app and everything else in "/api/*"
  * to the Private one (see next.config.ts).
  */
-import { getBearerToken } from '../state/appState'
+import { getBearerToken, showToast } from '../state/appState'
+import {
+  cachePutResponse,
+  getCachedResponse,
+  patchCachedRepertoireItem,
+  queuePendingMutation,
+  type PendingMutation,
+} from './offlineDb'
 
 const API_BASE = 'https://api-private.sessionr.org/api/'
 const PUBLIC_API_BASE = 'https://api-public.sessionr.org/api/'
@@ -14,6 +21,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
+  const method = (init?.method ?? 'GET').toUpperCase()
 
   // Content-Type: application/json isn't a CORS-safelisted header, so sending it
   // unconditionally forces a preflight (OPTIONS) round trip on every single cross-origin
@@ -34,10 +42,27 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     console.error('Failed to get bearer token', err)
   }
 
-  const res = await fetch(url, {
-    headers,
-    ...init,
-  })
+  // Skip straight to the offline path rather than waiting on a fetch that's
+  // certain to fail — navigator.onLine is false only when the browser is
+  // confident there's no connectivity at all.
+  const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
+
+  let res: Response
+  if (!knownOffline) {
+    try {
+      res = await fetch(url, { headers, ...init })
+    } catch (err) {
+      // A thrown fetch means the request never reached a server (DNS/CORS/
+      // dropped connection) — as opposed to an HTTP error status below,
+      // which the backend actually responded to and shouldn't be treated
+      // as "offline".
+      if (!(err instanceof TypeError)) throw err
+      return handleUnreachable<T>(method, url, path, init)
+    }
+  } else {
+    return handleUnreachable<T>(method, url, path, init)
+  }
+
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     if (res.status === 401 && !isRetry) {
@@ -46,14 +71,95 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     }
     throw new Error(detail || `API ${res.status}: ${res.statusText}`)
   }
+
+  let data: T
   if (res.status === 204) {
-    return undefined as T
+    data = undefined as T
+  } else {
+    const text = await res.text()
+    data = (!text || !text.trim()) ? (undefined as T) : (JSON.parse(text) as T)
   }
-  const text = await res.text()
-  if (!text || !text.trim()) {
-    return undefined as T
+
+  if (method === 'GET') {
+    void cachePutResponse(url, data)
   }
-  return JSON.parse(text) as T
+  return data
+}
+
+async function handleUnreachable<T>(method: string, url: string, path: string, init?: RequestInit): Promise<T> {
+  if (method === 'GET') {
+    const cached = await getCachedResponse<T>(url)
+    if (cached !== undefined) return cached
+    throw new Error('You appear to be offline, and no cached data is available for this yet.')
+  }
+  return queueOfflineMutation<T>(method, url, path, init)
+}
+
+function classifyMutation(method: string, path: string): { mutationType: PendingMutation['mutationType']; description: string } {
+  if (method === 'POST' && /\/repertoire\/items\/[^/]+\/practiced$/.test(path)) {
+    return { mutationType: 'practice_log', description: 'Practice log' }
+  }
+  if ((method === 'PATCH' || method === 'DELETE') && /\/repertoire\/items\/[^/]+$/.test(path)) {
+    return { mutationType: 'repertoire_patch', description: method === 'DELETE' ? 'Repertoire removal' : 'Repertoire update' }
+  }
+  if (path.startsWith('/sets')) {
+    return { mutationType: 'set_mutation', description: 'Set change' }
+  }
+  return { mutationType: 'other', description: `${method} ${path}` }
+}
+
+/** Marks a mutation as caught by the offline queue rather than genuinely failed. */
+export class OfflineQueuedError extends Error {
+  offlineQueued = true
+  constructor(description: string) {
+    super(`${description} — queued offline, will sync when back online.`)
+    this.name = 'OfflineQueuedError'
+  }
+}
+
+async function queueOfflineMutation<T>(method: string, url: string, path: string, init?: RequestInit): Promise<T> {
+  const { mutationType, description } = classifyMutation(method, path)
+  const mutation: PendingMutation = {
+    id: crypto.randomUUID(),
+    timestamp: Date.now(),
+    url,
+    method: method as PendingMutation['method'],
+    body: typeof init?.body === 'string' ? init.body : undefined,
+    description,
+    mutationType,
+  }
+  await queuePendingMutation(mutation)
+
+  // Practice logs and repertoire patches are the two flows with a defined
+  // optimistic-success shape, so those return real data instead of erroring —
+  // everything else (sets, groups, tune contributions, ...) is still safely
+  // queued for replay, but doFetch can't fabricate a type-correct response
+  // for every endpoint shape, so those surface as a catchable OfflineQueuedError.
+  if (mutationType === 'practice_log') {
+    const userTuneId = /\/repertoire\/items\/([^/]+)\/practiced$/.exec(path)?.[1]
+    if (userTuneId) {
+      const lastPracticed = new Date().toISOString()
+      const itemUrl = url.replace(/\/practiced$/, '')
+      await patchCachedRepertoireItem(itemUrl, userTuneId, { lastPracticed })
+      showToast('Practice logged offline. Will sync when back online.', 'info')
+      return { userTuneId, lastPracticed } as unknown as T
+    }
+  }
+
+  if (mutationType === 'repertoire_patch' && method === 'PATCH') {
+    const userTuneId = /\/repertoire\/items\/([^/]+)$/.exec(path)?.[1]
+    if (userTuneId && typeof init?.body === 'string') {
+      const patch = JSON.parse(init.body) as Record<string, unknown>
+      const merged = await patchCachedRepertoireItem(url, userTuneId, patch)
+      if (merged) {
+        showToast('Change saved offline. Will sync when back online.', 'info')
+        return merged as unknown as T
+      }
+    }
+  }
+
+  showToast(`${description} queued offline. Will sync when back online.`, 'info')
+  throw new OfflineQueuedError(description)
 }
 
 /** Calls the Private API (personal data, mutations). */

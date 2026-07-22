@@ -1104,6 +1104,39 @@ a.stat:hover {
   text-align: center;
 }
 
+/* Offline / Sync Status Banner */
+.network-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 1.5rem;
+  background: rgba(77, 208, 165, 0.1);
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.network-status-banner.offline {
+  background: rgba(239, 100, 97, 0.12);
+}
+
+.network-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.network-status-banner.offline .network-status-dot {
+  background: var(--danger);
+}
+
+.network-status-text {
+  flex: 1;
+  color: var(--muted);
+}
+
 /* Toast Notifications */
 .toast-container {
   position: fixed;

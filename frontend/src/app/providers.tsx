@@ -1,27 +1,23 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import AuthProvider from '../components/AuthProvider';
 import { ToastContainer } from '../components/Toast';
+import { queryClient } from '../services/queryClient';
+import { initSyncManager } from '../services/syncManager';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: {
-        refetchOnWindowFocus: false,
-      },
-    },
-  }));
-
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    const enableSw = process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_ENABLE_SW === 'true';
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && enableSw) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
           .then((reg) => console.log('PWA Service Worker registered:', reg.scope))
           .catch((err) => console.error('PWA Service Worker registration failed:', err))
       })
     }
+    initSyncManager();
   }, []);
 
   return (

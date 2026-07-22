@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useMsal } from '@azure/msal-react'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
+import { NetworkStatusBanner } from './NetworkStatusBanner'
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
@@ -71,6 +72,8 @@ export function NavBar() {
           <span className="bar"></span>
         </button>
       </div>
+
+      <NetworkStatusBanner />
 
       {/* Mobile Menu Drawer & Overlay */}
       {mobileOpen && (
