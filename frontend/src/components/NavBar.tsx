@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useMsal } from '@azure/msal-react'
-import { currentUserId, currentUserProfile, useSignal } from '../state/appState'
+import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
@@ -52,7 +52,7 @@ export function NavBar() {
         {/* Desktop Auth Section */}
         <div className="desktop-auth-slot">
           {!mounted ? (
-            <Link href="/login" className="nav-pill">Sign In</Link>
+            <div className="nav-pill" />
           ) : (
             <MsalAuthWidget />
           )}
@@ -90,7 +90,7 @@ export function NavBar() {
                 )
               })}
               <div className="mobile-auth-section">
-                {!mounted ? <Link href="/login">Sign In</Link> : <MsalAuthWidget />}
+                {!mounted ? <div className="nav-pill" /> : <MsalAuthWidget />}
               </div>
             </nav>
           </div>
@@ -104,6 +104,11 @@ function MsalAuthWidget() {
   const { instance } = useMsal()
   const userId = useSignal(currentUserId)
   const profile = useSignal(currentUserProfile)
+  const status = useAuthStatus()
+
+  if (status === 'pending') {
+    return <div className="nav-pill" />
+  }
 
   if (!userId) {
     return <Link href="/login" className="nav-pill">Sign In</Link>

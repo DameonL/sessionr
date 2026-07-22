@@ -27,6 +27,9 @@ export const currentUserId = new Signal('');
 export const currentUserProfile = new Signal<{ displayName: string; email: string } | null>(null);
 export const repertoireSearch = new Signal('');
 
+export type AuthStatus = 'pending' | 'authenticated' | 'anonymous';
+export const authStatus = new Signal<AuthStatus>('pending');
+
 export let getBearerToken: (forceRefresh?: boolean) => Promise<string | null> = async () => null;
 
 export function setTokenAcquisitionHelper(helper: (forceRefresh?: boolean) => Promise<string | null>) {
@@ -40,6 +43,8 @@ export function useSignal<T>(sig: Signal<T>): T {
   }, [sig]);
   return val;
 }
+
+export const useAuthStatus = () => useSignal(authStatus);
 
 export interface ToastMessage {
   id: string

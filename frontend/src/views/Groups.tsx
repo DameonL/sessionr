@@ -4,13 +4,14 @@ import { useState } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
-import { currentUserId, useSignal } from '../state/appState'
+import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 
 export function Groups() {
   const userId = useSignal(currentUserId)
-  const isSignedIn = !!userId
+  const status = useAuthStatus()
+  const showSignedInUi = status !== 'anonymous'
   const queryClient = useQueryClient()
 
   // Form fields
@@ -110,7 +111,7 @@ export function Groups() {
             Find traditional music sessions, view meeting calendars, and connect with local musicians.
           </p>
         </div>
-        {isSignedIn && (
+        {showSignedInUi && (
           <button
             onClick={() => {
               setShowCreateForm(!showCreateForm)
@@ -201,7 +202,7 @@ export function Groups() {
         </form>
       )}
 
-      {isSignedIn ? (
+      {showSignedInUi ? (
         <>
           <h2>My Groups</h2>
           {myGroups.length === 0 ? (
@@ -267,7 +268,7 @@ export function Groups() {
                   <span>{g.memberCount} {g.memberCount === 1 ? 'member' : 'members'}</span>
                 </div>
               </Link>
-              {isSignedIn ? (
+              {showSignedInUi ? (
                 <button
                   onClick={() => joinMutation.mutate(g.groupId)}
                   disabled={joinMutation.isPending}

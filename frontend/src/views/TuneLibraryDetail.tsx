@@ -12,7 +12,7 @@ import {
   addToRepertoire,
   formatTuneType,
 } from '../services/api'
-import { currentUserId, useSignal } from '../state/appState'
+import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -21,7 +21,8 @@ const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => 
 export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const id = tuneId ?? ''
   const userId = useSignal(currentUserId)
-  const isSignedIn = !!userId
+  const authStatus = useAuthStatus()
+  const showSignedInUi = authStatus !== 'anonymous'
   const queryClient = useQueryClient()
 
   // undefined = no explicit user choice yet (show the first/most-popular setting);
@@ -160,7 +161,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
       <div className="modal-section" style={{ marginTop: '1.5rem' }}>
         <h3>Settings</h3>
         <p className="tune-meta italic">
-          {isSignedIn
+          {showSignedInUi
             ? 'Play a setting to practice along, or add it to your repertoire.'
             : 'Play any setting to practice along. Sign in to vote or add a setting to your own repertoire.'}
         </p>
@@ -187,8 +188,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                       <button
                         className={`vote-btn upvote-btn ${hasUpvoted ? 'active' : ''}`}
                         onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, 1)}
-                        disabled={!isSignedIn || voteMutation.isPending}
-                        title={isSignedIn ? 'Upvote' : 'Sign in to vote'}
+                        disabled={!showSignedInUi || voteMutation.isPending}
+                        title={showSignedInUi ? 'Upvote' : 'Sign in to vote'}
                       >
                         ▲
                       </button>
@@ -196,8 +197,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                       <button
                         className={`vote-btn downvote-btn ${hasDownvoted ? 'active' : ''}`}
                         onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, -1)}
-                        disabled={!isSignedIn || voteMutation.isPending}
-                        title={isSignedIn ? 'Downvote' : 'Sign in to vote'}
+                        disabled={!showSignedInUi || voteMutation.isPending}
+                        title={showSignedInUi ? 'Downvote' : 'Sign in to vote'}
                       >
                         ▼
                       </button>
@@ -210,7 +211,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                       {isPracticing ? 'Hide Player' : '▶ Play & Practice'}
                     </button>
 
-                    {isSignedIn ? (
+                    {showSignedInUi ? (
                       <button
                         className="add-setting-action"
                         onClick={() => addToRepertoireMutation.mutate(s.tuneSettingId)}

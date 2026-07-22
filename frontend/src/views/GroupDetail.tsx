@@ -25,7 +25,7 @@ import {
   type GroupMember,
   type GroupTuneListItem,
 } from '../services/api'
-import { currentUserId, useSignal, showToast } from '../state/appState'
+import { currentUserId, useAuthStatus, useSignal, showToast } from '../state/appState'
 import { Dialog } from '../components/Dialog'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { TransferOwnershipModal } from '../components/TransferOwnershipModal'
@@ -74,6 +74,7 @@ function RoleBadge({ role }: { role: GroupMember['role'] }) {
 export function GroupDetail({ groupId }: { groupId: string }) {
   const id = groupId
   const userId = useSignal(currentUserId)
+  const authStatus = useAuthStatus()
   const queryClient = useQueryClient()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -216,7 +217,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   }
 
   const details = groupQuery.data
-  const isSignedIn = !!userId
+  const showSignedInUi = authStatus !== 'anonymous'
   const isMember = details.viewerStatus === 'Active'
   const isPending = details.viewerStatus === 'Pending'
   const viewer = details.members.find((m) => m.userId === userId)
@@ -244,7 +245,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
           <p>This is a private group. {isPending ? '' : 'You need an invite code or admin approval to join.'}</p>
 
-          {!isSignedIn ? (
+          {!showSignedInUi ? (
             <>
               <p className="tune-meta">Sign in to request access or enter an invite code.</p>
               <Link href="/login"><button>Sign In</button></Link>
@@ -322,7 +323,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           >
             Leave Group
           </button>
-        ) : isSignedIn ? (
+        ) : showSignedInUi ? (
           <button
             onClick={() => joinMutation.mutate()}
             disabled={joinMutation.isPending}
@@ -351,8 +352,8 @@ export function GroupDetail({ groupId }: { groupId: string }) {
       {!isMember && (
         <div className="card" style={{ background: 'rgba(234, 179, 8, 0.1)', border: '1px solid var(--accent)', padding: '1rem', marginBottom: '1.5rem' }}>
           <p style={{ margin: 0, color: 'var(--accent)' }}>
-            <strong>Guest View:</strong> You are viewing this group dashboard{isSignedIn ? '' : ' as a visitor'}.{' '}
-            {isSignedIn ? 'Join the group to share your repertoire and play history.' : (
+            <strong>Guest View:</strong> You are viewing this group dashboard{showSignedInUi ? '' : ' as a visitor'}.{' '}
+            {showSignedInUi ? 'Join the group to share your repertoire and play history.' : (
               <>
                 <Link href="/login">Sign in</Link> to join, RSVP, and share your repertoire.
               </>

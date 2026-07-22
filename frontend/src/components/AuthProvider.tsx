@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { PublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
-import { currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
+import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -110,15 +110,18 @@ export default function AuthProvider({ children }: AuthProviderProps) {
             setLoading(false);
           }).catch((err) => {
             console.error('MSAL initialization failed:', err);
+            authStatus.value = 'anonymous';
             setLoading(false);
           });
         } else {
+          authStatus.value = 'anonymous';
           setConfigError(true);
           setLoading(false);
         }
       })
       .catch((err) => {
         console.error('Failed to fetch MSAL config:', err);
+        authStatus.value = 'anonymous';
         setConfigError(true);
         setLoading(false);
       });
@@ -216,9 +219,11 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
         .then((profile) => {
           currentUserId.value = profile.userId
           currentUserProfile.value = { email: profile.email, displayName: profile.displayName }
+          authStatus.value = 'authenticated'
         })
         .catch((err) => {
           console.error('Failed to sync user with DB:', err)
+          authStatus.value = 'anonymous'
         })
         .finally(() => {
           onSyncEnd()
@@ -226,6 +231,7 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
     } else {
       currentUserId.value = ''
       currentUserProfile.value = null
+      authStatus.value = 'anonymous'
       onSyncEnd()
     }
   }, [isAuthenticated, accounts])
