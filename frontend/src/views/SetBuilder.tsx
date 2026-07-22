@@ -208,9 +208,26 @@ function SetEditor({
     setDraft({ ...draft, items })
   }
 
+  const canSave = !saving && draft.title.trim().length > 0 && draft.items.length > 0
+
+  const renderActionControls = (extraStyle?: React.CSSProperties) => (
+    <div className="detail-controls" style={{ margin: 0, ...extraStyle }}>
+      <button onClick={onSave} disabled={!canSave}>
+        {saving ? 'Saving…' : 'Save set'}
+      </button>
+      <button type="button" className="secondary" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  )
+
   return (
     <section>
-      <h1>{draft.setId === null ? 'New set' : 'Edit set'}</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+        <h1 style={{ margin: 0 }}>{draft.setId === null ? 'New set' : 'Edit set'}</h1>
+        {renderActionControls()}
+      </div>
+
       <input
         className="search-box"
         type="text"
@@ -280,6 +297,13 @@ function SetEditor({
         </>
       )}
 
+      {/* Mid-editor Action Controls */}
+      <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+        {renderActionControls()}
+      </div>
+
+      {error && <p className="error" style={{ marginBottom: '1rem' }}>{error}</p>}
+
       {(suggestions.data ?? []).length > 0 && (
         <>
           <h2>{draft.items.length === 0 ? 'Suggested openers' : 'Suggested next'}</h2>
@@ -327,11 +351,9 @@ function SetEditor({
         ))}
       </ul>
 
-      <div className="detail-controls">
-        <button onClick={onSave} disabled={saving || !draft.title || draft.items.length === 0}>
-          {saving ? 'Saving…' : 'Save set'}
-        </button>
-        <button onClick={onCancel}>Cancel</button>
+      {/* Bottom Action Controls */}
+      <div style={{ marginTop: '1rem' }}>
+        {renderActionControls()}
       </div>
       {error && <p className="error">{error}</p>}
     </section>
