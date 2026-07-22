@@ -27,16 +27,40 @@ public class PrivateSetFunctions(AppDbContext db, SetAnalyzer analyzer)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var sets = await db.Sets
+        // List view: project only the fields needed for a row + analysis — never reads the
+        // (potentially large) ABC columns off disk, unlike the singular GetSet detail view.
+        var raw = await db.Sets
             .AsNoTracking()
             .Where(s => s.UserId == callerUserId.Value)
-            .Include(s => s.Items.OrderBy(i => i.SequenceNumber))
-            .ThenInclude(i => i.UserTune)
-            .ThenInclude(ut => ut.Tune)
             .OrderBy(s => s.Title)
+            .Select(s => new
+            {
+                s.SetId,
+                s.Title,
+                Items = s.Items
+                    .OrderBy(i => i.SequenceNumber)
+                    .Select(i => new
+                    {
+                        i.UserTuneId,
+                        i.SequenceNumber,
+                        i.Repetitions,
+                        i.UserTune.Tune.Title,
+                        i.UserTune.Tune.TuneType,
+                        i.UserTune.Tune.Key
+                    })
+                    .ToList()
+            })
             .ToListAsync();
 
-        return new OkObjectResult(sets.Select(s => SetSupport.ToDto(s, analyzer)).ToList());
+        var sets = raw
+            .Select(s => SetSupport.ToSummaryDto(
+                s.SetId,
+                s.Title,
+                s.Items.Select(i => (i.UserTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType, i.Key)).ToList(),
+                analyzer))
+            .ToList();
+
+        return new OkObjectResult(sets);
     }
 
     /// <summary>POST /api/sets — create a set from an ordered list of repertoire tunes.</summary>

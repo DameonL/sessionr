@@ -67,15 +67,12 @@ public class TuneFunctions(AppDbContext db)
         Guid tuneId)
     {
         // Anonymous, unauthenticated route: never trust a caller-supplied userId — userVote
-        // always comes back 0 here. Signed-in callers get their real vote from the Private
-        // app's GetTuneDetails instead.
-        var userId = Guid.Empty;
-
+        // always comes back 0 here, so there's no need to load any Votes at all. Signed-in
+        // callers get their real vote from the Private app's GetTuneDetails instead.
         var tune = await db.Tunes
             .AsNoTracking()
             .Include(t => t.Aliases)
             .Include(t => t.Settings)
-                .ThenInclude(s => s.Votes)
             .SingleOrDefaultAsync(t => t.TuneId == tuneId);
 
         if (tune is null)
@@ -85,10 +82,7 @@ public class TuneFunctions(AppDbContext db)
 
         var aliases = tune.Aliases.Select(a => a.Name).ToList();
         var settings = tune.Settings
-            .Select(s => {
-                var userVote = s.Votes.FirstOrDefault(v => v.UserId == userId)?.Value ?? 0;
-                return new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, userVote);
-            })
+            .Select(s => new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, 0))
             .OrderByDescending(s => s.VoteScore)
             .ToList();
 

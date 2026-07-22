@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,25 @@ namespace SessionApp.Api.Functions;
 /// <summary>Shared group-set helpers used by both the public (view) and private (mutate) group-set endpoints.</summary>
 public static class GroupSetSupport
 {
+    /// <summary>Builds a list-view summary DTO (no ABC) directly from a lightweight, SQL-projected shape,
+    /// so the ABC/settings columns are never read off disk for a list request.</summary>
+    public static GroupSetSummaryDto ToSummaryDto(
+        Guid groupSetId,
+        Guid groupId,
+        string title,
+        List<(Guid GroupTuneId, int SequenceNumber, int Repetitions, string Title, TuneType TuneType, string Key)> items,
+        SetAnalyzer analyzer)
+    {
+        var analysis = analyzer.Analyze(items.Select(i => (i.Title, i.TuneType, i.Key, i.Repetitions)).ToList());
+
+        return new GroupSetSummaryDto(
+            groupSetId,
+            groupId,
+            title,
+            items.Select(i => new GroupSetItemSummaryDto(i.GroupTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType.ToString(), i.Key)).ToList(),
+            analysis);
+    }
+
     public static async Task<IActionResult?> EnsureCanViewAsync(AppDbContext db, Guid groupId, Guid userId)
     {
         var group = await db.Groups.AsNoTracking().SingleOrDefaultAsync(g => g.GroupId == groupId);

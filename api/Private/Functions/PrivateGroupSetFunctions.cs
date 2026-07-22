@@ -34,17 +34,42 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
             return viewError;
         }
 
-        var sets = await db.GroupSets
+        // List view: project only the fields needed for a row + analysis — never reads the
+        // (potentially large) ABC columns off disk, unlike the singular GetGroupSet detail view.
+        var raw = await db.GroupSets
             .AsNoTracking()
             .Where(gs => gs.GroupId == groupId)
-            .Include(gs => gs.Items.OrderBy(i => i.SequenceNumber))
-            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.Tune)
-            .Include(gs => gs.Items)
-            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.TuneSetting)
             .OrderBy(gs => gs.Title)
+            .Select(gs => new
+            {
+                gs.GroupSetId,
+                gs.GroupId,
+                gs.Title,
+                Items = gs.Items
+                    .OrderBy(i => i.SequenceNumber)
+                    .Select(i => new
+                    {
+                        i.GroupTuneId,
+                        i.SequenceNumber,
+                        i.Repetitions,
+                        i.GroupTune.Tune.Title,
+                        i.GroupTune.Tune.TuneType,
+                        Key = i.GroupTune.TuneSetting != null ? i.GroupTune.TuneSetting.Key : i.GroupTune.Tune.Key
+                    })
+                    .ToList()
+            })
             .ToListAsync();
 
-        return new OkObjectResult(sets.Select(s => GroupSetSupport.ToDto(s, analyzer)).ToList());
+        var sets = raw
+            .Select(s => GroupSetSupport.ToSummaryDto(
+                s.GroupSetId,
+                s.GroupId,
+                s.Title,
+                s.Items.Select(i => (i.GroupTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType, i.Key)).ToList(),
+                analyzer))
+            .ToList();
+
+        return new OkObjectResult(sets);
     }
 
     /// <summary>GET /api/groupsets/{groupSetId} — a single group set with analysis (requires sign-in).</summary>

@@ -9,7 +9,7 @@ import {
   formatTuneType,
   getGroupSets,
   updateGroupSet,
-  type GroupSetData,
+  type GroupSetSummaryData,
   type GroupTuneListItem,
 } from '../services/api'
 
@@ -71,7 +71,7 @@ export function GroupSetBuilder({
     },
   })
 
-  const startEdit = (set: GroupSetData) =>
+  const startEdit = (set: GroupSetSummaryData) =>
     setDraft({
       groupSetId: set.groupSetId,
       title: set.title,

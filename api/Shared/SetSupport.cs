@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -12,6 +13,23 @@ namespace SessionApp.Api.Functions;
 /// <summary>Shared DTO projection used by both the public (view) and private (mutate) personal-set endpoints.</summary>
 public static class SetSupport
 {
+    /// <summary>Builds a list-view summary DTO (no ABC) directly from a lightweight, SQL-projected shape,
+    /// so the ABC/settings columns are never read off disk for a list request.</summary>
+    public static SetSummaryDto ToSummaryDto(
+        Guid setId,
+        string title,
+        List<(Guid UserTuneId, int SequenceNumber, int Repetitions, string Title, TuneType TuneType, string Key)> items,
+        SetAnalyzer analyzer)
+    {
+        var analysis = analyzer.Analyze(items.Select(i => (i.Title, i.TuneType, i.Key, i.Repetitions)).ToList());
+
+        return new SetSummaryDto(
+            setId,
+            title,
+            items.Select(i => new SetItemSummaryDto(i.UserTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType.ToString(), i.Key)).ToList(),
+            analysis);
+    }
+
     public static object ToDto(Set set, SetAnalyzer analyzer)
     {
         var ordered = set.Items.OrderBy(i => i.SequenceNumber).ToList();

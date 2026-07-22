@@ -80,8 +80,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         var userId = callerUserId.Value;
 
         var group = await db.Groups
-            .Include(g => g.Memberships).ThenInclude(m => m.User)
-            .AsSplitQuery()
+            .AsNoTracking()
             .SingleOrDefaultAsync(g => g.GroupId == groupId);
 
         if (group is null)
@@ -89,7 +88,11 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var viewerMembership = group.Memberships.FirstOrDefault(m => m.UserId == userId);
+        // Cheap existence check first — a private group's member+user graph is only worth
+        // loading once we know the viewer is actually allowed to see it.
+        var viewerMembership = await db.GroupMemberships
+            .AsNoTracking()
+            .SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId);
         var viewerIsActive = viewerMembership is { Status: GroupMembershipStatus.Active };
 
         // Private groups reveal nothing but their name/privacy flag and the viewer's own
@@ -103,24 +106,30 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
 
-        var activeMemberIds = group.Memberships
+        var memberships = await db.GroupMemberships
+            .AsNoTracking()
+            .Include(m => m.User)
+            .Where(m => m.GroupId == groupId)
+            .ToListAsync();
+
+        var activeMemberIds = memberships
             .Where(m => m.Status == GroupMembershipStatus.Active)
             .Select(m => m.UserId)
             .ToList();
 
         // 1. Members list, owner/admins first
-        var members = group.Memberships
+        var members = memberships
             .Where(m => m.Status == GroupMembershipStatus.Active)
             .OrderBy(m => m.Role switch { GroupRole.Owner => 0, GroupRole.Administrator => 1, _ => 2 })
             .ThenBy(m => m.User.DisplayName)
-            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.User.Email, m.Role.ToString()))
+            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.Role.ToString()))
             .ToList();
 
         // 2. Pending join requests awaiting admin approval
-        var pendingMembers = group.Memberships
+        var pendingMembers = memberships
             .Where(m => m.Status == GroupMembershipStatus.Pending)
             .OrderBy(m => m.JoinedAt)
-            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.User.Email, m.Role.ToString()))
+            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.Role.ToString()))
             .ToList();
 
         // 3. Master tune list curated by admins/owner

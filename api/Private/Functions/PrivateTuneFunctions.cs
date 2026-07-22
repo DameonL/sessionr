@@ -30,7 +30,6 @@ public class PrivateTuneFunctions(AppDbContext db)
             .AsNoTracking()
             .Include(t => t.Aliases)
             .Include(t => t.Settings)
-                .ThenInclude(s => s.Votes)
             .SingleOrDefaultAsync(t => t.TuneId == tuneId);
 
         if (tune is null)
@@ -38,12 +37,15 @@ public class PrivateTuneFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
+        // Only the caller's own votes on this tune's settings — not every vote ever cast.
+        var myVotes = await db.TuneSettingVotes
+            .AsNoTracking()
+            .Where(v => v.UserId == userId && v.TuneSetting.TuneId == tuneId)
+            .ToDictionaryAsync(v => v.TuneSettingId, v => v.Value);
+
         var aliases = tune.Aliases.Select(a => a.Name).ToList();
         var settings = tune.Settings
-            .Select(s => {
-                var userVote = s.Votes.FirstOrDefault(v => v.UserId == userId)?.Value ?? 0;
-                return new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, userVote);
-            })
+            .Select(s => new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, myVotes.GetValueOrDefault(s.TuneSettingId)))
             .OrderByDescending(s => s.VoteScore)
             .ToList();
 
@@ -187,7 +189,6 @@ public class PrivateTuneFunctions(AppDbContext db)
         }
 
         var setting = await db.TuneSettings
-            .Include(s => s.Votes)
             .SingleOrDefaultAsync(s => s.TuneSettingId == settingId);
 
         if (setting is null)
@@ -216,7 +217,10 @@ public class PrivateTuneFunctions(AppDbContext db)
         if (val < -1) val = -1;
         if (val > 1) val = 1;
 
-        var existingVote = setting.Votes.FirstOrDefault(v => v.UserId == callerUserId.Value);
+        var existingVote = await db.TuneSettingVotes
+            .SingleOrDefaultAsync(v => v.TuneSettingId == settingId && v.UserId == callerUserId.Value);
+        var previousValue = existingVote?.Value ?? 0;
+
         if (existingVote is not null)
         {
             if (val == 0)
@@ -239,9 +243,10 @@ public class PrivateTuneFunctions(AppDbContext db)
             db.TuneSettingVotes.Add(vote);
         }
 
+        setting.VoteScore += val - previousValue;
+
         await db.SaveChangesAsync();
 
-        var score = setting.Votes.Sum(v => v.Value);
-        return new OkObjectResult(new { voteScore = score });
+        return new OkObjectResult(new { voteScore = setting.VoteScore });
     }
 }

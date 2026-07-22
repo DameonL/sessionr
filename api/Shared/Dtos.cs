@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Functions;
 
@@ -34,6 +35,12 @@ public record SaveGroupSetRequest(string Title, List<SaveGroupSetItem> Items);
 
 public record GroupSetItemDto(Guid GroupTuneId, int SequenceNumber, int Repetitions, string Title, string TuneType, string Key, string Abc);
 
+/// <summary>Lightweight group-set row for the list view — no ABC payload.</summary>
+public record GroupSetItemSummaryDto(Guid GroupTuneId, int SequenceNumber, int Repetitions, string Title, string TuneType, string Key);
+
+/// <summary>Lightweight group set for the list view — no ABC payload, still includes playtime/transition analysis.</summary>
+public record GroupSetSummaryDto(Guid GroupSetId, Guid GroupId, string Title, List<GroupSetItemSummaryDto> Items, SetAnalysis Analysis);
+
 public record CreateSessionRequest(string Title, string? Location, DateTime StartsAt, string? Notes, int RepeatWeeks = 1);
 
 public record UpdateSessionRequest(string? Title, string? Location, DateTime? StartsAt, string? Notes, bool? IsCancelled);
@@ -52,10 +59,7 @@ public record GroupSessionDto(
     string CreatedByDisplayName,
     int GoingCount,
     int MaybeCount,
-    string? UserRsvp,
-    List<SessionRsvpMemberDto> Rsvps);
-
-public record SessionRsvpMemberDto(Guid UserId, string DisplayName, string Status);
+    string? UserRsvp);
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
 
@@ -150,6 +154,12 @@ public record SetItemDto(
     string Key,
     string Abc);
 
+/// <summary>Lightweight set row for the list view — no ABC payload.</summary>
+public record SetItemSummaryDto(Guid UserTuneId, int SequenceNumber, int Repetitions, string Title, string TuneType, string Key);
+
+/// <summary>Lightweight set for the list view — no ABC payload, still includes playtime/transition analysis.</summary>
+public record SetSummaryDto(Guid SetId, string Title, List<SetItemSummaryDto> Items, SetAnalysis Analysis);
+
 public record GroupDto(
     Guid GroupId,
     string Name,
@@ -231,7 +241,7 @@ public record UpdateGroupPrivacyRequest(bool IsPrivate);
 
 public record InviteCodeDto(string InviteCode);
 
-public record GroupMemberDto(Guid UserId, string DisplayName, string Email, string Role);
+public record GroupMemberDto(Guid UserId, string DisplayName, string Role);
 
 public record GroupCommonTuneDto(Guid TuneId, string Title, string TuneType, string Key, int MemberCount, int TotalMembersInGroup);
 

@@ -13,7 +13,7 @@ import {
   suggestNextTune,
   updateSet,
   type RepertoireItem,
-  type TuneSet,
+  type TuneSetSummary,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 import { parseSuggestionReason } from '../services/suggestions'
@@ -69,7 +69,7 @@ export function SetBuilder() {
     },
   })
 
-  const startEdit = (set: TuneSet) =>
+  const startEdit = (set: TuneSetSummary) =>
     setDraft({
       setId: set.setId,
       title: set.title,

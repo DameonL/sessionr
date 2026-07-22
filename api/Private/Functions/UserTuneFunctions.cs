@@ -27,6 +27,12 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
     private const int PracticeQueueSize = 8;
 
+    /// <summary>How far back to scan a group's TuneLearned feed events for the merge-window and
+    /// dedupe checks. Bounds an otherwise unbounded per-write history scan; comfortably covers
+    /// realistic merge bursts. A tune re-learned after a gap of more than this many TuneLearned
+    /// events in the same group could in theory be re-announced — an accepted tradeoff.</summary>
+    private const int TuneLearnedDedupeLookback = 20;
+
     /// <summary>GET /api/repertoire — the user's tunes with effective ABC.</summary>
     [Function("GetRepertoire")]
     public async Task<IActionResult> GetRepertoire(
@@ -214,7 +220,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return new BadRequestObjectResult("TuneId is required.");
         }
 
-        var tune = await db.Tunes.Include(t => t.Settings).SingleOrDefaultAsync(t => t.TuneId == body.TuneId);
+        var tune = await db.Tunes.SingleOrDefaultAsync(t => t.TuneId == body.TuneId);
         if (tune is null)
         {
             return new NotFoundObjectResult($"Tune {body.TuneId} not found.");
@@ -228,7 +234,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         if (body.TuneSettingId is not null)
         {
-            var settingBelongs = tune.Settings.Any(s => s.TuneSettingId == body.TuneSettingId);
+            var settingBelongs = await db.TuneSettings.AnyAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == body.TuneId);
             if (!settingBelongs)
             {
                 return new BadRequestObjectResult("TuneSettingId does not belong to the given tune.");
@@ -372,6 +378,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
                 var existingEvents = await db.GroupFeedEvents
                     .Where(e => e.GroupId == groupId && e.UserId == userId && e.EventType == GroupFeedEventType.TuneLearned)
                     .OrderByDescending(e => e.CreatedAt)
+                    .Take(TuneLearnedDedupeLookback)
                     .ToListAsync();
 
                 var alreadyRecorded = existingEvents.Any(e =>
@@ -542,7 +549,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
     }
 
     private sealed record QueueCandidate(
-        UserTune Ut,
+        Guid UserTuneId,
         string Category,
         string Reason,
         int? DaysSince
@@ -564,13 +571,14 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         var cooldownCutoff = DateTime.UtcNow - PracticeCooldown;
 
+        // Rank on the lightweight fields only — ABC/settings are fetched afterward, only for
+        // the small number of tunes that actually make the cut.
         var candidates = await db.UserTunes
             .AsNoTracking()
             .Where(ut => ut.UserId == callerUserId.Value
                 && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active || ut.Status == TuneStatus.Rusty)
                 && (ut.LastPracticed == null || ut.LastPracticed < cooldownCutoff))
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
+            .Select(ut => new { ut.UserTuneId, ut.Status, ut.LastPracticed })
             .ToListAsync();
 
         var now = DateTime.UtcNow;
@@ -580,19 +588,19 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         {
             if (ut.Status == TuneStatus.Learning)
             {
-                list.Add(new QueueCandidate(ut, "Learning", "Actively learning", null));
+                list.Add(new QueueCandidate(ut.UserTuneId, "Learning", "Actively learning", null));
             }
             else if (ut.Status == TuneStatus.Rusty)
             {
                 var days = ut.LastPracticed.HasValue ? (int?)(now - ut.LastPracticed.Value).TotalDays : null;
                 var reason = days.HasValue ? $"Not practiced in {days} days" : "Marked as rusty";
-                list.Add(new QueueCandidate(ut, "Rusty", reason, days));
+                list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", reason, days));
             }
             else if (ut.Status == TuneStatus.Active)
             {
                 if (!ut.LastPracticed.HasValue)
                 {
-                    list.Add(new QueueCandidate(ut, "Rusty", "Active tune never logged", null));
+                    list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", "Active tune never logged", null));
                 }
                 else
                 {
@@ -600,13 +608,13 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
                     if (age >= RustThreshold)
                     {
                         var days = (int)age.TotalDays;
-                        list.Add(new QueueCandidate(ut, "Rusty", $"Unplayed for {days} days", days));
+                        list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", $"Unplayed for {days} days", days));
                     }
                     else
                     {
                         var days = (int)age.TotalDays;
                         var reason = days == 0 ? "Practiced today" : $"Practiced {days} days ago";
-                        list.Add(new QueueCandidate(ut, "Maintenance", reason, days));
+                        list.Add(new QueueCandidate(ut.UserTuneId, "Maintenance", reason, days));
                     }
                 }
             }
@@ -618,19 +626,30 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             .Take(PracticeQueueSize)
             .ToList();
 
+        var selectedIds = selected.Select(x => x.UserTuneId).ToList();
+
+        var fullData = await db.UserTunes
+            .AsNoTracking()
+            .Where(ut => selectedIds.Contains(ut.UserTuneId))
+            .Include(ut => ut.Tune)
+            .Include(ut => ut.TuneSetting)
+            .ToDictionaryAsync(ut => ut.UserTuneId);
+
         var queue = selected
-            .OrderBy(x => x.Category == "Learning" ? 0 : x.Category == "Rusty" ? 1 : 2)
-            .ThenByDescending(x => x.DaysSince ?? int.MaxValue)
-            .Select(x => new PracticeQueueItemDto(
-                x.Ut.UserTuneId,
-                x.Ut.Tune.Title,
-                x.Ut.Tune.TuneType.ToString(),
-                x.Ut.TuneSetting != null ? x.Ut.TuneSetting.Key : x.Ut.Tune.Key,
-                x.Ut.Status.ToString(),
-                x.Ut.LastPracticed,
-                x.Ut.TargetBpm,
-                x.Ut.CustomAbcText ?? (x.Ut.TuneSetting != null ? x.Ut.TuneSetting.AbcText : x.Ut.Tune.MasterAbcText),
-                x.Reason))
+            .Select(x =>
+            {
+                var ut = fullData[x.UserTuneId];
+                return new PracticeQueueItemDto(
+                    ut.UserTuneId,
+                    ut.Tune.Title,
+                    ut.Tune.TuneType.ToString(),
+                    ut.TuneSetting != null ? ut.TuneSetting.Key : ut.Tune.Key,
+                    ut.Status.ToString(),
+                    ut.LastPracticed,
+                    ut.TargetBpm,
+                    ut.CustomAbcText ?? (ut.TuneSetting != null ? ut.TuneSetting.AbcText : ut.Tune.MasterAbcText),
+                    x.Reason);
+            })
             .ToList();
 
         return new OkObjectResult(queue);

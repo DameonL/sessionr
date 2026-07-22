@@ -180,6 +180,23 @@ export interface TuneSet {
   analysis: SetAnalysis
 }
 
+// Lightweight set row for the list view — no ABC payload. Fetch the singular set (getSet) for that.
+export interface SetItemSummary {
+  userTuneId: string
+  sequenceNumber: number
+  repetitions: number
+  title: string
+  tuneType: string
+  key: string
+}
+
+export interface TuneSetSummary {
+  setId: string
+  title: string
+  items: SetItemSummary[]
+  analysis: SetAnalysis
+}
+
 export const TUNE_STATUSES = ['Wishlist', 'Learning', 'Active', 'Rusty', 'Retired'] as const
 
 export const TUNE_TYPES = [
@@ -422,7 +439,7 @@ export const suggestNextTune = (userTuneIds: string[]) =>
     body: JSON.stringify({ userTuneIds }),
   })
 
-export const getSets = () => apiFetch<TuneSet[]>('/sets')
+export const getSets = () => apiFetch<TuneSetSummary[]>('/sets')
 
 export const getSet = (setId: string) => apiFetchPublic<TuneSet>(`/sets/${setId}`)
 
@@ -489,7 +506,6 @@ export type GroupRole = 'Member' | 'Administrator' | 'Owner'
 export interface GroupMember {
   userId: string
   displayName: string
-  email: string
   role: GroupRole
 }
 
@@ -768,6 +784,24 @@ export interface GroupSetData {
   analysis: SetAnalysis
 }
 
+// Lightweight group-set row for the list view — no ABC payload. Fetch the singular set (getGroupSet) for that.
+export interface GroupSetItemSummaryData {
+  groupTuneId: string
+  sequenceNumber: number
+  repetitions: number
+  title: string
+  tuneType: string
+  key: string
+}
+
+export interface GroupSetSummaryData {
+  groupSetId: string
+  groupId: string
+  title: string
+  items: GroupSetItemSummaryData[]
+  analysis: SetAnalysis
+}
+
 export interface SaveGroupSetItem {
   groupTuneId: string
   repetitions: number
@@ -775,8 +809,8 @@ export interface SaveGroupSetItem {
 
 export const getGroupSets = (groupId: string, userId: string) =>
   userId
-    ? apiFetch<GroupSetData[]>(`/groups/${groupId}/sets`)
-    : apiFetchPublic<GroupSetData[]>(`/groups/${groupId}/sets`)
+    ? apiFetch<GroupSetSummaryData[]>(`/groups/${groupId}/sets`)
+    : apiFetchPublic<GroupSetSummaryData[]>(`/groups/${groupId}/sets`)
 
 export const getGroupSet = (groupSetId: string, userId: string) =>
   userId ? apiFetch<GroupSetData>(`/groupsets/${groupSetId}`) : apiFetchPublic<GroupSetData>(`/groupsets/${groupSetId}`)
