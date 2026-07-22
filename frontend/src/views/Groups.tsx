@@ -244,7 +244,7 @@ export function Groups() {
         </>
       ) : (
         <p className="tune-meta italic">
-          <Link href="/login">Sign in</Link> to see and join your own groups.
+          <Link href="/login" prefetch={false}>Sign in</Link> to see and join your own groups.
         </p>
       )}
 
@@ -255,7 +255,7 @@ export function Groups() {
         <ul className="tune-list">
           {publicGroups.map((g) => (
             <li key={g.groupId} className="card tune-row" style={{ alignItems: 'flex-start' }}>
-              <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }}>
+              <Link href={`/group/${g.groupId}`} style={{ flex: 1, textDecoration: 'none', color: 'inherit' }} prefetch={false}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span className="tune-title">{g.name}</span>
                   {g.city && <span style={{ fontSize: '0.85rem', color: 'var(--accent)' }}>📍 {g.city}</span>}
@@ -277,7 +277,7 @@ export function Groups() {
                   Join
                 </button>
               ) : (
-                <Link href="/login"><button className="secondary">Sign in to join</button></Link>
+                <Link href="/login" prefetch={false}><button className="secondary">Sign in to join</button></Link>
               )}
             </li>
           ))}

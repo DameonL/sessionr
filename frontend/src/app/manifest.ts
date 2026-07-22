@@ -1,5 +1,10 @@
 import { MetadataRoute } from 'next'
 
+// Static content, never varies per-request — the default dynamic-route caching
+// (max-age=0, must-revalidate) means every single page load refetches this
+// otherwise. A day is generous for something that only changes on deploy.
+export const revalidate = 86400
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'sessionr',
