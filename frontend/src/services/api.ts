@@ -187,6 +187,32 @@ export const TUNE_TYPES = [
   'March', 'Strathspey', 'Barndance', 'Mazurka', 'Air', 'Other',
 ] as const
 
+export function getDefaultTargetBpm(tuneType: string): number {
+  switch (tuneType) {
+    case 'Reel':
+    case 'Jig':
+    case 'SlipJig':
+    case 'Waltz':
+    case 'Mazurka':
+    case 'Other':
+    default:
+      return 110
+    case 'Hornpipe':
+    case 'March':
+      return 90
+    case 'Polka':
+      return 115
+    case 'Slide':
+      return 120
+    case 'Strathspey':
+      return 80
+    case 'Barndance':
+      return 95
+    case 'Air':
+      return 60
+  }
+}
+
 // --- Endpoints ---
 
 export interface PagedResult<T> {
@@ -363,24 +389,6 @@ export const saveEarTrainingProgress = (
 
 export const removeFromRepertoire = (userTuneId: string) =>
   apiFetch<void>(`/repertoire/items/${userTuneId}`, { method: 'DELETE' })
-
-// Throwaway: one-time MSAL identity migration. Remove this along with its
-// button in Dashboard.tsx and the MigrateLegacyData endpoint once used.
-export interface MigrateLegacyDataResponse {
-  migrated: boolean
-  legacyEmail: string | null
-  userTunesMigrated: number
-  setsMigrated: number
-  groupMembershipsMigrated: number
-  sessionRsvpsMigrated: number
-  tuneSettingVotesMigrated: number
-  groupUpdatesMigrated: number
-  groupTunesMigrated: number
-  groupSessionsMigrated: number
-}
-
-export const migrateLegacyData = () =>
-  apiFetch<MigrateLegacyDataResponse>('/users/migrate-legacy-data', { method: 'POST' })
 
 export interface PracticeDay {
   date: string

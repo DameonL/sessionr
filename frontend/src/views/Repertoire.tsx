@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
@@ -33,11 +34,12 @@ export function Repertoire() {
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   const search = useSignal(repertoireSearch)
+  const searchParams = useSearchParams()
 
   const [theSessionQuery, setTheSessionQuery] = useState<string | null>(null)
-  const [filterType, setFilterType] = useState('')
+  const [filterType, setFilterType] = useState(() => searchParams.get('type') ?? '')
   const [filterKey, setFilterKey] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [filterStatus, setFilterStatus] = useState(() => searchParams.get('status') ?? '')
   const [sortField, setSortField] = useState<'title' | 'tuneType' | 'key'>('title')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 

@@ -231,7 +231,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
 
                 {isPracticing && (
                   <div className="setting-sheet-preview">
-                    <TunePlayer abc={s.abcText} />
+                    <TunePlayer abc={s.abcText} tuneId={s.tuneSettingId} tuneType={details.tuneType} />
                   </div>
                 )}
               </div>

@@ -114,7 +114,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
 
       {editingAbc === null ? (
         <>
-          <TunePlayer abc={item.abc} />
+          <TunePlayer abc={item.abc} tuneId={item.userTuneId} targetBpm={item.targetBpm} tuneType={item.tuneType} />
           <div className="detail-controls">
             <button onClick={() => setEditingAbc(item.abc)}>✎ Edit setting</button>
             <button className="secondary" onClick={() => setShowSettingsModal(true)}>⚙ Alternate Settings & Names</button>

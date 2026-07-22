@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
@@ -8,31 +7,11 @@ import {
   getPracticeQueue,
   getRepertoireStats,
   getSets,
-  migrateLegacyData,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 
 export function Dashboard() {
   const userId = useSignal(currentUserId)
-  const [migrationStatus, setMigrationStatus] = useState<string | null>(null)
-  const [migrating, setMigrating] = useState(false)
-
-  const handleMigrateLegacyData = async () => {
-    setMigrating(true)
-    setMigrationStatus(null)
-    try {
-      const result = await migrateLegacyData()
-      setMigrationStatus(
-        result.migrated
-          ? `Migrated data from ${result.legacyEmail}: ${result.userTunesMigrated} tunes, ${result.setsMigrated} sets, ${result.groupMembershipsMigrated} group memberships, ${result.sessionRsvpsMigrated} RSVPs, ${result.tuneSettingVotesMigrated} votes.`
-          : 'No legacy account found for this email — nothing to migrate.',
-      )
-    } catch (err) {
-      setMigrationStatus(err instanceof Error ? err.message : 'Migration failed.')
-    } finally {
-      setMigrating(false)
-    }
-  }
 
   const stats = useQuery({
     queryKey: ['repertoire-stats', userId],
@@ -52,41 +31,31 @@ export function Dashboard() {
     <section>
       <h1>Dashboard</h1>
 
-      {/* Throwaway: one-time MSAL identity migration. Remove this block, the
-          migrateLegacyData call in services/api.ts, and the MigrateLegacyData
-          endpoint once the migration has been run. */}
-      <div className="card">
-        <button type="button" onClick={handleMigrateLegacyData} disabled={migrating}>
-          {migrating ? 'Migrating…' : 'Migrate legacy account data'}
-        </button>
-        {migrationStatus && <p className="tune-meta">{migrationStatus}</p>}
-      </div>
-
       {stats.isError && (
         <p className="error">Could not reach the API (is the Functions host running?).</p>
       )}
 
       <div className="stat-grid">
-        <div className="card stat">
+        <Link className="card stat quiet-link" href="/repertoire">
           <strong>{stats.data?.totalCount ?? 0}</strong>
           <span>tunes</span>
-        </div>
-        <div className="card stat">
+        </Link>
+        <Link className="card stat quiet-link" href="/repertoire?status=Active">
           <strong>{byStatus['Active'] ?? 0}</strong>
           <span>active</span>
-        </div>
-        <div className="card stat">
+        </Link>
+        <Link className="card stat quiet-link" href="/repertoire?status=Learning">
           <strong>{byStatus['Learning'] ?? 0}</strong>
           <span>learning</span>
-        </div>
-        <div className="card stat">
+        </Link>
+        <Link className="card stat quiet-link" href="/repertoire?status=Active">
           <strong className={rustyCount > 0 ? 'rusty' : ''}>{rustyCount}</strong>
           <span>going rusty</span>
-        </div>
-        <div className="card stat">
+        </Link>
+        <Link className="card stat quiet-link" href="/sets">
           <strong>{(sets.data ?? []).length}</strong>
           <span>sets</span>
-        </div>
+        </Link>
       </div>
 
       {Object.keys(byType).length > 0 && (
@@ -95,11 +64,15 @@ export function Dashboard() {
           <p className="tune-meta">
             {Object.entries(byType)
               .sort((a, b) => b[1] - a[1])
-              .map(
-                ([type, count]) =>
-                  `${count} ${formatTuneType(type).toLowerCase()}${count > 1 ? 's' : ''}`,
-              )
-              .join(' · ')}
+              .map(([type, count], index) => (
+                <span key={type}>
+                  {index > 0 && ' · '}
+                  <Link href={`/repertoire?type=${type}`}>
+                    {count} {formatTuneType(type).toLowerCase()}
+                    {count > 1 ? 's' : ''}
+                  </Link>
+                </span>
+              ))}
           </p>
         </>
       )}

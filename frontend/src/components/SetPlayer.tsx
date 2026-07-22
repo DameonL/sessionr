@@ -4,6 +4,9 @@ import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, synthInstrumentOptions } from "./instruments";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
 import { fixAbcRepeats } from "../services/abcTools";
+import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
+import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
+import { getDefaultTargetBpm } from "../services/api";
 import {
   MetronomeControls,
   StaffLine,
@@ -22,6 +25,8 @@ export interface SetPlayerItem {
   title: string;
   abc: string;
   repetitions: number;
+  /** Used to fall back to a sensible genre-based default tempo when no explicit target BPM is set. */
+  tuneType?: string;
 }
 
 type PlayerStatus = "stopped" | "playing" | "paused";
@@ -56,6 +61,7 @@ export interface SetPlayerProps {
  * for single tunes while offering speed training and section looping.
  */
 export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlayerProps) {
+  const tuneKey = items.map((i) => i.userTuneId).join(",");
   const sheetRefs = useRef<(HTMLDivElement | null)[]>([]);
   const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([]);
   const durationsRef = useRef<number[]>([]);
@@ -65,8 +71,9 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const isDraggingRef = useRef(false);
   const noteTimingsRef = useRef<abcjs.NoteTimingEvent[][]>([]);
   const tuneLinesRef = useRef<StaffLine[][]>([]);
-  const repeatRef = useRef(false);
-  const repeatLimitRef = useRef<number | null>(null);
+  const [initialPrefs] = useState(loadPlayerPrefs);
+  const repeatRef = useRef(initialPrefs.repeat);
+  const repeatLimitRef = useRef<number | null>(initialPrefs.repeatLimit);
   const setPassRef = useRef(1);
   const keyRootRef = useRef<number>(72);
   const loopRef = useRef<Loop | null>(null);
@@ -76,10 +83,10 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const metronome = useMetronomePrefs();
   const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome;
   const [status, setStatus] = useState<PlayerStatus>("stopped");
-  const [tempoPercent, setTempoPercent] = useState(100);
-  const [swingPercent, setSwingPercent] = useState(0);
-  const [repeat, setRepeat] = useState(false);
-  const [repeatLimit, setRepeatLimit] = useState<number | null>(null);
+  const [tempoPercent, setTempoPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).tempoPercent);
+  const [swingPercent, setSwingPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).swingPercent);
+  const [repeat, setRepeat] = useState(initialPrefs.repeat);
+  const [repeatLimit, setRepeatLimit] = useState<number | null>(initialPrefs.repeatLimit);
   const [instruments, setInstruments] = useState(loadInstruments);
   const [positionSec, setPositionSec] = useState(0);
   const [currentTotalSec, setCurrentTotalSec] = useState(0);
@@ -87,17 +94,13 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const [activePass, setActivePass] = useState(1);
   const [loop, setLoop] = useState<Loop | null>(null);
   const [markA, setMarkA] = useState<number | null>(null);
-  const [trainer, setTrainer] = useState<Trainer>({
-    armed: false,
-    startPct: 60,
-    stepPct: 5,
-    targetPct: 100,
-  });
+  const [trainer, setTrainer] = useState<Trainer>(initialPrefs.trainer);
   const [passCount, setPassCount] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isFullscreenRef = useRef(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const isSingle = isSingleTune || items.length === 1;
 
@@ -110,6 +113,19 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     document.addEventListener("fullscreenchange", handleFsChange);
     return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
+
+  useEffect(() => {
+    savePlayerPrefs({ repeat, repeatLimit, trainer });
+  }, [repeat, repeatLimit, trainer]);
+
+  useEffect(() => {
+    saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent });
+    // tuneKey deliberately excluded: this must only fire on an actual tempo/swing change by the
+    // user, not on every tune switch (which would re-save the just-loaded tune's own values, or
+    // worse, briefly save the previous tune's values under the new tuneKey before the load effect
+    // below has a chance to apply the new tune's tempo/swing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tempoPercent, swingPercent]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -124,6 +140,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   useEffect(() => {
     noteTimingsRef.current = [];
     tuneLinesRef.current = [];
+    const savedTempo = loadTunePlaybackPrefs(tuneKey);
+    const hasSavedTempo = savedTempo.tempoPercent !== 100 || savedTempo.swingPercent !== 0;
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index];
       if (!host) return null;
@@ -133,11 +151,22 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       const timings = visualObj.setTiming(visualObj.getBpm());
       noteTimingsRef.current[index] = timings;
       tuneLinesRef.current[index] = extractLinesFromTimings(timings);
-      if (targetBpm && index === 0) {
+      if (index === 0) {
         const naturalBpm = visualObj.getBpm();
-        if (naturalBpm > 0) {
-          const pct = Math.min(150, Math.max(50, Math.round((targetBpm / naturalBpm) * 100)));
-          setTrainer((t) => ({ ...t, targetPct: pct }));
+        const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null);
+        const targetPct =
+          effectiveTargetBpm && naturalBpm > 0
+            ? Math.min(150, Math.max(50, Math.round((effectiveTargetBpm / naturalBpm) * 100)))
+            : null;
+        if (targetPct !== null) {
+          setTrainer((t) => ({ ...t, targetPct }));
+        }
+        if (hasSavedTempo) {
+          setTempoPercent(savedTempo.tempoPercent);
+          setSwingPercent(savedTempo.swingPercent);
+        } else {
+          setSwingPercent(0);
+          setTempoPercent(targetPct !== null ? targetPct : 100);
         }
       }
       return visualObj;
@@ -533,8 +562,12 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   }
 
   function onTempoInput(e: ChangeEvent<HTMLInputElement>) {
-    const percent = Number((e.target as HTMLInputElement).value);
-    setTempoPercent(percent);
+    const raw = Number((e.target as HTMLInputElement).value);
+    if (naturalBpm > 0) {
+      setTempoPercent(Math.min(150, Math.max(50, Math.round((raw / naturalBpm) * 100))));
+    } else {
+      setTempoPercent(raw);
+    }
   }
 
   function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
@@ -585,126 +618,141 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0}>
           ■ Stop
         </button>
-        <button
-          className={repeat ? "toggled" : ""}
-          aria-pressed={repeat}
-          onClick={() => {
-            const next = !repeat;
-            setRepeat(next);
-            repeatRef.current = next;
-          }}
-        >
-          {isSingle ? "🔁 Repeat" : "🔁 Repeat set"}
-        </button>
-        {repeat && (
-          <label>
-            Times
-            <input
-              type="number"
-              min="1"
-              placeholder="∞"
-              value={repeatLimit || ""}
-              onChange={(e) => {
-                const val = (e.target as HTMLInputElement).value;
-                const num = val ? parseInt(val, 10) : null;
-                setRepeatLimit(num && num > 0 ? num : null);
-                repeatLimitRef.current = num && num > 0 ? num : null;
-              }}
-              className="reps-input"
-              title="Number of times to repeat (leave empty for infinite)"
-            />
-          </label>
-        )}
-        <MetronomeControls {...metronome} />
         <button onClick={toggleFullscreen}>⛶ Fullscreen</button>
         <button
-          className={loop || markA !== null ? "toggled" : ""}
-          disabled={status === "stopped"}
-          onClick={markLoopPoint}
-          title="Mark loop start, then loop end, at the current position"
+          className={showAdvanced ? "toggled" : ""}
+          aria-pressed={showAdvanced}
+          onClick={() => setShowAdvanced((v) => !v)}
         >
-          {markA !== null ? "Set loop end" : loop ? "New loop" : "Set loop start"}
+          {showAdvanced ? "▾" : "▸"} Advanced Controls
         </button>
-        {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
-        <label>
-          Tempo {effectiveBpm > 0 ? `${effectiveBpm} BPM (${tempoPercent}%)` : `${tempoPercent}%`}
-          <input
-            ref={tempoInputRef}
-            type="range"
-            min="50"
-            max="150"
-            step="5"
-            value={tempoPercent}
-            onChange={onTempoInput}
-          />
-        </label>
-        <label>
-          Swing {swingPercent}%
-          <input
-            ref={swingInputRef}
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value={swingPercent}
-            onChange={onSwingInput}
-          />
-        </label>
       </div>
 
-      <div className="player-controls">
-        <button
-          className={trainer.armed ? "toggled" : ""}
-          aria-pressed={trainer.armed}
-          onClick={() => updateTrainer({ armed: !trainer.armed })}
-        >
-          🎯 Speed trainer
-        </button>
-        {trainer.armed && (
-          <>
-            <label>
-              Start %
-              <input
-                className="trainer-input"
-                type="number"
-                min="50"
-                max="150"
-                step="5"
-                value={trainer.startPct}
-                onChange={(e) => updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })}
-              />
-            </label>
-            <label>
-              Step %
-              <input
-                className="trainer-input"
-                type="number"
-                min="1"
-                max="20"
-                value={trainer.stepPct}
-                onChange={(e) => updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })}
-              />
-            </label>
-            <label>
-              Target %
-              <input
-                className="trainer-input"
-                type="number"
-                min="50"
-                max="150"
-                step="5"
-                value={trainer.targetPct}
-                onChange={(e) => updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })}
-              />
-            </label>
-            {status !== "stopped" && (
-              <span className="tune-meta">
-                Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
-              </span>
+      {showAdvanced && (
+        <>
+          <div className="player-controls">
+            <button
+              className={repeat ? "toggled" : ""}
+              aria-pressed={repeat}
+              onClick={() => {
+                const next = !repeat;
+                setRepeat(next);
+                repeatRef.current = next;
+              }}
+            >
+              {isSingle ? "🔁 Repeat" : "🔁 Repeat set"}
+            </button>
+            {repeat && (
+              <label>
+                Times
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="∞"
+                  value={repeatLimit || ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    const num = val ? parseInt(val, 10) : null;
+                    const clamped = num === null ? null : Math.max(1, num);
+                    setRepeatLimit(clamped);
+                    repeatLimitRef.current = clamped;
+                  }}
+                  className="reps-input"
+                  title="Number of times to repeat (leave empty for infinite)"
+                />
+              </label>
             )}
-          </>
-        )}
-      </div>
+            <MetronomeControls {...metronome} />
+            <button
+              className={loop || markA !== null ? "toggled" : ""}
+              disabled={status === "stopped"}
+              onClick={markLoopPoint}
+              title="Mark loop start, then loop end, at the current position"
+            >
+              {markA !== null ? "Set loop end" : loop ? "New loop" : "Set loop start"}
+            </button>
+            {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
+            <label>
+              Tempo {effectiveBpm > 0 ? `${effectiveBpm} BPM (${tempoPercent}%)` : `${tempoPercent}%`}
+              <input
+                ref={tempoInputRef}
+                type="range"
+                min={naturalBpm > 0 ? Math.round(naturalBpm * 0.5) : 50}
+                max={naturalBpm > 0 ? Math.round(naturalBpm * 1.5) : 150}
+                step="1"
+                value={naturalBpm > 0 ? effectiveBpm : tempoPercent}
+                onChange={onTempoInput}
+              />
+            </label>
+            <label>
+              Swing {swingPercent}%
+              <input
+                ref={swingInputRef}
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={swingPercent}
+                onChange={onSwingInput}
+              />
+            </label>
+          </div>
+
+          <div className="player-controls">
+            <button
+              className={trainer.armed ? "toggled" : ""}
+              aria-pressed={trainer.armed}
+              onClick={() => updateTrainer({ armed: !trainer.armed })}
+            >
+              🎯 Speed trainer
+            </button>
+            {trainer.armed && (
+              <>
+                <label>
+                  Start %
+                  <input
+                    className="trainer-input"
+                    type="number"
+                    min="50"
+                    max="150"
+                    step="5"
+                    value={trainer.startPct}
+                    onChange={(e) => updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })}
+                  />
+                </label>
+                <label>
+                  Step %
+                  <input
+                    className="trainer-input"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={trainer.stepPct}
+                    onChange={(e) => updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })}
+                  />
+                </label>
+                <label>
+                  Target %
+                  <input
+                    className="trainer-input"
+                    type="number"
+                    min="50"
+                    max="150"
+                    step="5"
+                    value={trainer.targetPct}
+                    onChange={(e) => updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })}
+                  />
+                </label>
+                {status !== "stopped" && (
+                  <span className="tune-meta">
+                    Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="player-seek">
         <span className="time-label">{formatTime(positionSec)}</span>
@@ -748,20 +796,22 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         <span className="time-label">{formatTime(currentTotalSec)}</span>
       </div>
 
-      <div className="player-controls">
-        {(["melody", "chords", "bass"] as const).map((part) => (
-          <label key={part}>
-            {part[0].toUpperCase() + part.slice(1)}
-            <select value={instruments[part]} onChange={onInstrumentChange(part)}>
-              {INSTRUMENTS.map((inst) => (
-                <option key={inst.value} value={inst.value}>
-                  {inst.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </div>
+      {showAdvanced && (
+        <div className="player-controls">
+          {(["melody", "chords", "bass"] as const).map((part) => (
+            <label key={part}>
+              {part[0].toUpperCase() + part.slice(1)}
+              <select value={instruments[part]} onChange={onInstrumentChange(part)}>
+                {INSTRUMENTS.map((inst) => (
+                  <option key={inst.value} value={inst.value}>
+                    {inst.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
 
       <div className={isSingle ? "sheet-music" : "set-player-tunes-list"}>

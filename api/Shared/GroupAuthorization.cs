@@ -29,8 +29,7 @@ public static class GroupAuthorization
             .ToListAsync();
 
         // The oid is the durable IdP identity anchor (stable across email changes), so prefer
-        // it deterministically over an email match when the two point at different rows —
-        // that divergence means a legacy pre-migration row still needs /users/migrate-legacy-data.
+        // it deterministically over an email match when the two point at different rows.
         var byOid = candidates.FirstOrDefault(u => u.UserId == userId);
         var byEmail = normalizedEmail != null ? candidates.FirstOrDefault(u => u.Email == normalizedEmail) : null;
 

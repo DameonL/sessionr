@@ -57,7 +57,7 @@ export default function DailyQueuePage() {
             </span>
           </div>
           <p className="badge badge-queue">{current.reason}</p>
-          <TunePlayer abc={current.abc} />
+          <TunePlayer abc={current.abc} tuneId={current.userTuneId} targetBpm={current.targetBpm} tuneType={current.tuneType} />
           <button
             disabled={practiceMutation.isPending}
             onClick={() => practiceMutation.mutate(current.userTuneId)}

@@ -6,6 +6,7 @@ import {
   TUNE_TYPES,
   addToRepertoire,
   createTune,
+  getDefaultTargetBpm,
   getFullRepertoire,
   searchTunes,
   updateUserTune,
@@ -42,32 +43,6 @@ function csvEscape(val: string | number | null | undefined): string {
     return `"${str.replace(/"/g, '""')}"`
   }
   return str
-}
-
-export function getDefaultTargetBpm(tuneType: string): number {
-  switch (tuneType) {
-    case 'Reel':
-    case 'Jig':
-    case 'SlipJig':
-    case 'Waltz':
-    case 'Mazurka':
-    case 'Other':
-    default:
-      return 110
-    case 'Hornpipe':
-    case 'March':
-      return 90
-    case 'Polka':
-      return 115
-    case 'Slide':
-      return 120
-    case 'Strathspey':
-      return 80
-    case 'Barndance':
-      return 95
-    case 'Air':
-      return 60
-  }
 }
 
 export function exportToCSV(items: RepertoireItem[]): string {
