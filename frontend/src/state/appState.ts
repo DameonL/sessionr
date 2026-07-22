@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { UserProfile } from '../services/api';
 
 export class Signal<T> {
   private listeners = new Set<(val: T) => void>();
@@ -24,7 +25,7 @@ export class Signal<T> {
 }
 
 export const currentUserId = new Signal('');
-export const currentUserProfile = new Signal<{ displayName: string; email: string } | null>(null);
+export const currentUserProfile = new Signal<UserProfile | null>(null);
 export const repertoireSearch = new Signal('');
 
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous';

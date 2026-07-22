@@ -13,7 +13,7 @@ namespace SessionApp.Api.Functions;
 
 public class UserFunctions(AppDbContext db)
 {
-    public record UserLoginResponse(Guid UserId, string DisplayName, string Email);
+    public record UserLoginResponse(Guid UserId, string DisplayName, string Email, string? Bio, string? Location, string? Instruments);
 
     /// <summary>GET /api/users/me — resolves (and lazily provisions) the caller's own user record.</summary>
     [Function("GetCurrentUser")]
@@ -27,6 +27,69 @@ public class UserFunctions(AppDbContext db)
         }
 
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email));
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments));
+    }
+
+    /// <summary>PATCH /api/users/me — updates the caller's own profile fields. Null = leave unchanged.</summary>
+    [Function("UpdateCurrentUser")]
+    public async Task<IActionResult> UpdateCurrentUser(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "users/me")] HttpRequest req)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var body = await req.ReadFromJsonAsync<UpdateUserProfileRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("Request payload is required.");
+        }
+
+        var user = await db.Users.SingleAsync(u => u.UserId == callerUserId.Value);
+
+        if (body.DisplayName is not null)
+        {
+            var trimmed = body.DisplayName.Trim();
+            if (trimmed.Length == 0 || trimmed.Length > 100)
+            {
+                return new BadRequestObjectResult("DisplayName must be 1-100 characters.");
+            }
+            user.DisplayName = trimmed;
+        }
+
+        if (body.Bio is not null)
+        {
+            var trimmed = body.Bio.Trim();
+            if (trimmed.Length > 2000)
+            {
+                return new BadRequestObjectResult("Bio must be 2000 characters or fewer.");
+            }
+            user.Bio = trimmed.Length == 0 ? null : trimmed;
+        }
+
+        if (body.Location is not null)
+        {
+            var trimmed = body.Location.Trim();
+            if (trimmed.Length > 200)
+            {
+                return new BadRequestObjectResult("Location must be 200 characters or fewer.");
+            }
+            user.Location = trimmed.Length == 0 ? null : trimmed;
+        }
+
+        if (body.Instruments is not null)
+        {
+            var trimmed = body.Instruments.Trim();
+            if (trimmed.Length > 400)
+            {
+                return new BadRequestObjectResult("Instruments must be 400 characters or fewer.");
+            }
+            user.Instruments = trimmed.Length == 0 ? null : trimmed;
+        }
+
+        await db.SaveChangesAsync();
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments));
     }
 }

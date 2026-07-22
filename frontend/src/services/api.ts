@@ -996,6 +996,23 @@ export interface UserProfile {
   userId: string
   displayName: string
   email: string
+  bio: string | null
+  location: string | null
+  instruments: string | null
 }
 
 export const getCurrentUser = () => apiFetch<UserProfile>('/users/me')
+
+export const updateCurrentUser = (patch: { displayName?: string; bio?: string; location?: string; instruments?: string }) =>
+  apiFetch<UserProfile>('/users/me', { method: 'PATCH', body: JSON.stringify(patch) })
+
+export interface PublicUserProfile {
+  userId: string
+  displayName: string
+  bio: string | null
+  location: string | null
+  instruments: string | null
+}
+
+export const getPublicUserProfile = (userId: string) =>
+  apiFetchPublic<PublicUserProfile>(`/users/${userId}/profile`)

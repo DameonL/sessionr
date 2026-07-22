@@ -51,11 +51,9 @@ public static class GroupAuthorization
                 changed = true;
             }
 
-            if (trimmedDisplayName != null && byOid.DisplayName != trimmedDisplayName)
-            {
-                byOid.DisplayName = trimmedDisplayName;
-                changed = true;
-            }
+            // DisplayName is seeded from the JWT only once, at row creation below — after
+            // that it's user-owned (editable via the profile page) and never re-synced from
+            // the identity provider, even if the account's real name changes later.
 
             if (changed)
             {
@@ -66,11 +64,6 @@ public static class GroupAuthorization
 
         if (byEmail != null)
         {
-            if (trimmedDisplayName != null && byEmail.DisplayName != trimmedDisplayName)
-            {
-                byEmail.DisplayName = trimmedDisplayName;
-                await db.SaveChangesAsync();
-            }
             return byEmail.UserId;
         }
 

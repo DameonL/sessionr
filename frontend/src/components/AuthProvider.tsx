@@ -220,7 +220,7 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
       getCurrentUser()
         .then((profile) => {
           currentUserId.value = profile.userId
-          currentUserProfile.value = { email: profile.email, displayName: profile.displayName }
+          currentUserProfile.value = profile
           authStatus.value = 'authenticated'
         })
         .catch((err) => {

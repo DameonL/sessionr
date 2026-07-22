@@ -19,7 +19,14 @@ public static class DbInitializer
             return;
         }
 
-        var user = new User { DisplayName = "Dev Musician", Email = "dev@example.com" };
+        var user = new User
+        {
+            DisplayName = "Dev Musician",
+            Email = "dev@example.com",
+            Bio = "Session fiddler and tune collector.",
+            Location = "Portland, OR",
+            Instruments = "Fiddle, Tenor Banjo"
+        };
         db.Users.Add(user);
 
         var tunes = SeedTunes();

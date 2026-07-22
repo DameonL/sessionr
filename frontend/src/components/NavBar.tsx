@@ -34,7 +34,7 @@ export function NavBar() {
     <header className="app-header">
       <div className="nav-container">
         <Link href="/" className="nav-brand" prefetch={false}>
-          <span className="brand-icon">🎻</span>
+          <span className="brand-icon"><img src="logo-transparent-bordered.png" /></span>
           <span className="brand-text">sessionr</span>
         </Link>
 
@@ -123,8 +123,10 @@ function MsalAuthWidget() {
 
   return (
     <div className="user-profile-badge">
-      <div className="user-avatar">{initial}</div>
-      <span className="user-name">{profile?.displayName ?? 'Signed in'}</span>
+      <Link href="/profile" prefetch={false} className="user-profile-link">
+        <div className="user-avatar">{initial}</div>
+        <span className="user-name">{profile?.displayName ?? 'Signed in'}</span>
+      </Link>
       <button
         className="secondary btn-sm"
         onClick={() => instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))}

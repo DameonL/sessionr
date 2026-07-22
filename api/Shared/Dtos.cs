@@ -25,6 +25,10 @@ public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 
 public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null);
 
+public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments);
+
+public record PublicUserProfileDto(Guid UserId, string DisplayName, string? Bio, string? Location, string? Instruments);
+
 public record SaveSetItem(Guid UserTuneId, int Repetitions);
 
 public record SaveSetRequest(string Title, List<SaveSetItem> Items);
