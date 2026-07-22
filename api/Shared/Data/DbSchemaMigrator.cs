@@ -98,7 +98,7 @@ public static class DbSchemaMigrator
                         GroupId UNIQUEIDENTIFIER NOT NULL,
                         UserId UNIQUEIDENTIFIER NOT NULL,
                         EventType NVARCHAR(20) NOT NULL,
-                        Payload NVARCHAR(MAX) NOT NULL DEFAULT '{}',
+                        Payload NVARCHAR(MAX) NOT NULL DEFAULT '{{}}',
                         CreatedAt DATETIME2 NOT NULL,
                         CONSTRAINT FK_GroupFeedEvents_Groups_GroupId FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE,
                         CONSTRAINT FK_GroupFeedEvents_Users_UserId FOREIGN KEY (UserId) REFERENCES Users (UserId) ON DELETE NO ACTION
@@ -168,7 +168,7 @@ public static class DbSchemaMigrator
                     GroupId TEXT NOT NULL,
                     UserId TEXT NOT NULL,
                     EventType TEXT NOT NULL,
-                    Payload TEXT NOT NULL DEFAULT '{}',
+                    Payload TEXT NOT NULL DEFAULT '{{}}',
                     CreatedAt TEXT NOT NULL,
                     FOREIGN KEY (GroupId) REFERENCES Groups (GroupId) ON DELETE CASCADE,
                     FOREIGN KEY (UserId) REFERENCES Users (UserId) ON DELETE RESTRICT
