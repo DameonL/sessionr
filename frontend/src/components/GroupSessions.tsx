@@ -202,8 +202,8 @@ export function GroupSessions({
       )}
 
       <div style={{ marginTop: '1.5rem' }}>
-        {sessions.isLoading && <p>Loading…</p>}
-        {upcoming.length === 0 && !sessions.isLoading && (
+        {sessions.isPending && <p>Loading…</p>}
+        {upcoming.length === 0 && !sessions.isPending && (
           <p className="tune-meta italic">No upcoming sessions scheduled.</p>
         )}
         {upcoming.map((s) => (

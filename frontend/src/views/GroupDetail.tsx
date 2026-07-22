@@ -205,7 +205,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     onSuccess: invalidate,
   })
 
-  if (groupQuery.isLoading) {
+  if (groupQuery.isPending) {
     return <section><p>Loading group details…</p></section>
   }
 

@@ -105,7 +105,7 @@ export function SetBuilder() {
       <h1>Set Builder</h1>
       <button onClick={() => setDraft({ setId: null, title: '', items: [] })}>+ New set</button>
 
-      {sets.isLoading && <p>Loading…</p>}
+      {sets.isPending && <p>Loading…</p>}
       {(sets.data ?? []).map((set) => (
         <div key={set.setId} className="card set-card">
           <div className="set-header">
@@ -144,7 +144,7 @@ export function SetBuilder() {
           </div>
         </div>
       ))}
-      {!sets.isLoading && (sets.data ?? []).length === 0 && (
+      {!sets.isPending && (sets.data ?? []).length === 0 && (
         <p>No sets yet — build your first medley.</p>
       )}
     </section>

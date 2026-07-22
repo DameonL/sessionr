@@ -29,6 +29,11 @@ export function Dashboard() {
   const byType = stats.data?.byType ?? {}
   const rustyCount = stats.data?.rustyCount ?? 0
 
+  // Queries are gated behind auth resolving (enabled: !!userId), so `isLoading` (which is
+  // false while a query is disabled-and-not-yet-fetching) isn't enough to catch that window —
+  // `isPending` is true any time there's no data yet, whether disabled or actively fetching.
+  const statValue = (value: number | undefined, isPending: boolean) => (isPending ? '–' : value ?? 0)
+
   return (
     <section>
       <h1>Dashboard</h1>
@@ -39,23 +44,23 @@ export function Dashboard() {
 
       <div className="stat-grid">
         <Link className="card stat quiet-link" href="/repertoire">
-          <strong>{stats.data?.totalCount ?? 0}</strong>
+          <strong>{statValue(stats.data?.totalCount, stats.isPending)}</strong>
           <span>tunes</span>
         </Link>
         <Link className="card stat quiet-link" href="/repertoire?status=Active">
-          <strong>{byStatus['Active'] ?? 0}</strong>
+          <strong>{statValue(byStatus['Active'], stats.isPending)}</strong>
           <span>active</span>
         </Link>
         <Link className="card stat quiet-link" href="/repertoire?status=Learning">
-          <strong>{byStatus['Learning'] ?? 0}</strong>
+          <strong>{statValue(byStatus['Learning'], stats.isPending)}</strong>
           <span>learning</span>
         </Link>
         <Link className="card stat quiet-link" href="/repertoire?status=Active">
-          <strong className={rustyCount > 0 ? 'rusty' : ''}>{rustyCount}</strong>
+          <strong className={rustyCount > 0 ? 'rusty' : ''}>{statValue(rustyCount, stats.isPending)}</strong>
           <span>going rusty</span>
         </Link>
         <Link className="card stat quiet-link" href="/sets">
-          <strong>{(sets.data ?? []).length}</strong>
+          <strong>{statValue(sets.data?.length, sets.isPending)}</strong>
           <span>sets</span>
         </Link>
       </div>
@@ -80,6 +85,7 @@ export function Dashboard() {
       )}
 
       <h2>Today's practice queue</h2>
+      {queue.isPending && <p>Loading…</p>}
       {(queue.data ?? []).slice(0, 3).map((item) => (
         <div key={item.userTuneId} className="card">
           <Link className="tune-row" href={`/tune/${item.userTuneId}`}>

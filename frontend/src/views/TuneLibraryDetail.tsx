@@ -37,7 +37,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const [aliasError, setAliasError] = useState<string | null>(null)
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
 
-  const { data: details, isLoading, isError, refetch } = useQuery({
+  const { data: details, isPending, isError, refetch } = useQuery({
     queryKey: ['tune-details', id, userId],
     queryFn: () => getTuneDetails(id, userId),
     enabled: authStatus !== 'pending',
@@ -105,7 +105,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     addAliasMutation.mutate(newAliasName.trim())
   }
 
-  if (isLoading) {
+  if (isPending) {
     return <p>Loading…</p>
   }
   if (isError || !details) {

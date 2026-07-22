@@ -167,7 +167,7 @@ export function Repertoire() {
         </label>
       </div>
 
-      {repertoireQuery.isLoading && <p>Loading…</p>}
+      {repertoireQuery.isPending && <p>Loading…</p>}
       {repertoireQuery.isError && <p className="error">Could not load repertoire.</p>}
 
       <ul className="tune-list">
@@ -188,7 +188,7 @@ export function Repertoire() {
         isLoadingMore={repertoireQuery.isFetchingNextPage}
         onLoadMore={() => repertoireQuery.fetchNextPage()}
       />
-      {!repertoireQuery.isLoading && filteredItems.length === 0 && <p>No tunes match.</p>}
+      {!repertoireQuery.isPending && filteredItems.length === 0 && <p>No tunes match.</p>}
 
       {libraryMatches.length > 0 && (
         <>

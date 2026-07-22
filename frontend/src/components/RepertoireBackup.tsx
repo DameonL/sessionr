@@ -396,10 +396,10 @@ export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) 
       </p>
       
       <div className="detail-controls">
-        <button onClick={handleExportCsv} disabled={repertoireQuery.isLoading}>⬆ Export CSV</button>
-        <button onClick={handleExportJson} disabled={repertoireQuery.isLoading}>⬆ Export JSON</button>
+        <button onClick={handleExportCsv} disabled={repertoireQuery.isPending}>⬆ Export CSV</button>
+        <button onClick={handleExportJson} disabled={repertoireQuery.isPending}>⬆ Export JSON</button>
 
-        <button onClick={() => fileInputRef.current?.click()} disabled={importing || repertoireQuery.isLoading}>
+        <button onClick={() => fileInputRef.current?.click()} disabled={importing || repertoireQuery.isPending}>
           {importing ? 'Importing…' : '⬇ Import File'}
         </button>
         <input

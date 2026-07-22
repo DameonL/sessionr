@@ -114,7 +114,7 @@ export function GroupSetBuilder({
         <button onClick={() => setDraft({ groupSetId: null, title: '', items: [] })}>+ New Set</button>
       )}
 
-      {sets.isLoading && <p>Loading…</p>}
+      {sets.isPending && <p>Loading…</p>}
       {(sets.data ?? []).map((set) => (
         <div key={set.groupSetId} className="card set-card" style={{ marginTop: '1rem' }}>
           <div className="set-header">
@@ -157,7 +157,7 @@ export function GroupSetBuilder({
           </div>
         </div>
       ))}
-      {!sets.isLoading && (sets.data ?? []).length === 0 && (
+      {!sets.isPending && (sets.data ?? []).length === 0 && (
         <p className="tune-meta italic">No set lists yet.{isAdmin ? ' Build one from the master tune list above.' : ''}</p>
       )}
     </div>

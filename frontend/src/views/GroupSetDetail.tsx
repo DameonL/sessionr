@@ -21,7 +21,7 @@ export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
     enabled: authStatus !== 'pending',
   })
 
-  if (set.isLoading) {
+  if (set.isPending) {
     return <p>Loading…</p>
   }
   if (set.isError || !set.data) {

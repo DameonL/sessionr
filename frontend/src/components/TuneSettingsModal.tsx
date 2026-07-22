@@ -56,7 +56,7 @@ export function TuneSettingsModal({
   const [aliasError, setAliasError] = useState<string | null>(null)
 
   // Fetch full details of the tune
-  const { data: details, isLoading, isError, refetch } = useQuery({
+  const { data: details, isPending, isError, refetch } = useQuery({
     queryKey: ['tune-details', tuneId, userId],
     queryFn: () => getTuneDetails(tuneId, userId),
     enabled: authStatus !== 'pending',
@@ -143,7 +143,7 @@ export function TuneSettingsModal({
     addAliasMutation.mutate(newAliasName.trim())
   }
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div className="modal-backdrop" onClick={onClose}>
         <div className="modal-content card" onClick={(e) => e.stopPropagation()}>

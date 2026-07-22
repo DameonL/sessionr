@@ -91,7 +91,7 @@ export function Groups() {
     createMutation.mutate()
   }
 
-  if (groupsQuery.isLoading) {
+  if (groupsQuery.isPending) {
     return <section><p>Loading groups…</p></section>
   }
 
