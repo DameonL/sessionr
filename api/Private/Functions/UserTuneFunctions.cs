@@ -17,6 +17,9 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
     /// <summary>Tunes unplayed for this long count as rusty.</summary>
     private static readonly TimeSpan RustThreshold = TimeSpan.FromDays(30);
 
+    /// <summary>Tunes practiced within this time frame are hidden from the practice queue.</summary>
+    private static readonly TimeSpan PracticeCooldown = TimeSpan.FromHours(12);
+
     private const int PracticeQueueSize = 8;
 
     /// <summary>GET /api/repertoire — the user's tunes with effective ABC.</summary>
@@ -489,10 +492,13 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return Unauthorized("Authentication credentials are required.");
         }
 
+        var cooldownCutoff = DateTime.UtcNow - PracticeCooldown;
+
         var candidates = await db.UserTunes
             .AsNoTracking()
             .Where(ut => ut.UserId == callerUserId.Value
-                && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active || ut.Status == TuneStatus.Rusty))
+                && (ut.Status == TuneStatus.Learning || ut.Status == TuneStatus.Active || ut.Status == TuneStatus.Rusty)
+                && (ut.LastPracticed == null || ut.LastPracticed < cooldownCutoff))
             .Include(ut => ut.Tune)
             .Include(ut => ut.TuneSetting)
             .ToListAsync();

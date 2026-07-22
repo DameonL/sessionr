@@ -27,8 +27,10 @@ export default function DailyQueuePage() {
   const practiceMutation = useMutation({
     mutationFn: logPractice,
     onSuccess: () => {
+      setSelectedId(null)
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
+      queryClient.invalidateQueries({ queryKey: ['practice-stats', userId] })
     },
   })
 
