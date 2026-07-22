@@ -387,7 +387,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupUpdates.Remove(update);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/schedule — admins/owner update recurring schedule.</summary>
@@ -512,7 +512,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupMeetingSchedules.Remove(schedule);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/info — admins/owner update group general details.</summary>
@@ -605,7 +605,7 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>
@@ -709,7 +709,7 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>
@@ -762,7 +762,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupMemberships.Remove(target);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/members/{targetUserId}/promote — owner grants administrator access.</summary>
@@ -797,7 +797,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         target.Role = GroupRole.Administrator;
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/members/{targetUserId}/demote — owner revokes administrator access.</summary>
@@ -832,7 +832,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         target.Role = GroupRole.Member;
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>
@@ -877,7 +877,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         newOwner.Role = GroupRole.Owner;
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>PATCH /api/groups/{groupId}/privacy — admins toggle whether the group is private.</summary>
@@ -913,7 +913,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         group.IsPrivate = body.IsPrivate;
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/invite-code — admins regenerate the group's invite code.</summary>
@@ -974,7 +974,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         target.JoinedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/members/{targetUserId}/reject — admins reject a pending join request.</summary>
@@ -1004,7 +1004,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupMemberships.Remove(target);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     /// <summary>POST /api/groups/{groupId}/tunes — add a tune to the group's master tune list.</summary>
@@ -1133,7 +1133,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupTunes.Remove(groupTune);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 
     private async Task<GroupTuneDto?> GetGroupTuneAsync(Guid groupTuneId) =>
@@ -1178,6 +1178,6 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.Groups.Remove(group);
         await db.SaveChangesAsync();
 
-        return new OkResult();
+        return new NoContentResult();
     }
 }

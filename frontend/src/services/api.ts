@@ -44,7 +44,11 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   if (res.status === 204) {
     return undefined as T
   }
-  return res.json() as Promise<T>
+  const text = await res.text()
+  if (!text || !text.trim()) {
+    return undefined as T
+  }
+  return JSON.parse(text) as T
 }
 
 /** Calls the Private API (personal data, mutations). */
