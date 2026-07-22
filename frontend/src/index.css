@@ -451,6 +451,26 @@ a.tune-row,
   padding: 0;
 }
 
+.seek-track {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.seek-track input[type='range'] {
+  width: 100%;
+}
+
+.loop-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
 .time-label {
   color: var(--muted);
   font-size: 0.8rem;
@@ -726,7 +746,8 @@ button.toggled {
   position: relative;
 }
 
-.player-container:fullscreen {
+.player-container:fullscreen,
+.player-container.is-fullscreen {
   background-color: var(--bg);
   color: var(--text);
   padding: 1.5rem;
@@ -739,12 +760,14 @@ button.toggled {
 }
 
 /* Hide regular controls/sections in fullscreen */
-.player-container:fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls) {
+.player-container:fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls),
+.player-container.is-fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls) {
   display: none !important;
 }
 
 /* Make sheet music scrollable */
-.player-container:fullscreen > .sheet-music {
+.player-container:fullscreen > .sheet-music,
+.player-container.is-fullscreen > .sheet-music {
   overflow-y: auto !important;
   flex: 1;
   padding-right: 0.5rem;
@@ -752,7 +775,8 @@ button.toggled {
 }
 
 /* Make set medley tunes list scrollable */
-.player-container:fullscreen > .set-player-tunes-list {
+.player-container:fullscreen > .set-player-tunes-list,
+.player-container.is-fullscreen > .set-player-tunes-list {
   overflow-y: auto !important;
   flex: 1;
   padding-right: 0.5rem;

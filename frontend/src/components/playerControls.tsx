@@ -156,3 +156,88 @@ export function MetronomeControls({ useMetronome, metronomeSound, toggleMetronom
     </>
   )
 }
+
+export interface StaffLine {
+  top: number
+  height: number
+  bottom: number
+}
+
+/**
+ * Extracts distinct staff lines from abcjs NoteTimingEvent list by grouping events with similar Y coordinates.
+ */
+export function extractLinesFromTimings(timings: Array<{ top?: number; height?: number }>): StaffLine[] {
+  if (!timings || timings.length === 0) return []
+  const lines: StaffLine[] = []
+  for (const ev of timings) {
+    if (typeof ev.top !== 'number' || typeof ev.height !== 'number') continue
+    const top = ev.top
+    const height = ev.height
+    const existing = lines.find((l) => Math.abs(l.top - top) < 15)
+    if (!existing) {
+      lines.push({ top, height, bottom: top + height })
+    } else {
+      existing.height = Math.max(existing.height, height)
+      existing.bottom = existing.top + existing.height
+    }
+  }
+  lines.sort((a, b) => a.top - b.top)
+  return lines
+}
+
+/**
+ * Scrolls `scrollContainer` in fullscreen mode to keep both `currentLine` and `nextLine` visible.
+ */
+export function scrollToKeepLinesVisible(
+  scrollContainer: HTMLElement | null,
+  svg: SVGSVGElement | null,
+  currentLine: StaffLine,
+  nextLine: StaffLine | null,
+  nextSvg?: SVGSVGElement | null,
+) {
+  if (!scrollContainer || !svg) return
+
+  const containerRect = scrollContainer.getBoundingClientRect()
+  const svgRect = svg.getBoundingClientRect()
+
+  const viewBox = svg.viewBox.baseVal
+  const viewBoxY = viewBox && viewBox.height > 0 ? viewBox.y : 0
+  const viewBoxHeight = viewBox && viewBox.height > 0 ? viewBox.height : (svg.getBBox ? svg.getBBox().height || 1 : 1)
+  const scaleY = svgRect.height / viewBoxHeight
+
+  const svgTopInContainerContent = svgRect.top - containerRect.top + scrollContainer.scrollTop
+  const currentLineTopContent = svgTopInContainerContent + (currentLine.top - viewBoxY) * scaleY
+
+  let nextLineBottomContent: number
+  if (nextLine && !nextSvg) {
+    nextLineBottomContent = svgTopInContainerContent + (nextLine.bottom - viewBoxY) * scaleY
+  } else if (nextLine && nextSvg) {
+    const nextSvgRect = nextSvg.getBoundingClientRect()
+    const nextViewBox = nextSvg.viewBox.baseVal
+    const nextViewBoxY = nextViewBox && nextViewBox.height > 0 ? nextViewBox.y : 0
+    const nextViewBoxHeight = nextViewBox && nextViewBox.height > 0 ? nextViewBox.height : (nextSvg.getBBox ? nextSvg.getBBox().height || 1 : 1)
+    const nextScaleY = nextSvgRect.height / nextViewBoxHeight
+    const nextSvgTopInContainerContent = nextSvgRect.top - containerRect.top + scrollContainer.scrollTop
+    nextLineBottomContent = nextSvgTopInContainerContent + (nextLine.bottom - nextViewBoxY) * nextScaleY
+  } else {
+    nextLineBottomContent = svgTopInContainerContent + (currentLine.bottom - viewBoxY) * scaleY + 20
+  }
+
+  const viewportTop = scrollContainer.scrollTop
+  const viewportBottom = scrollContainer.scrollTop + scrollContainer.clientHeight
+
+  const margin = 24
+  const isCurrentTopVisible = currentLineTopContent >= viewportTop && currentLineTopContent <= viewportBottom - 40
+  const isNextBottomVisible = nextLineBottomContent <= viewportBottom && nextLineBottomContent >= viewportTop
+
+  if (!isCurrentTopVisible || !isNextBottomVisible) {
+    const targetScrollTop = Math.max(0, currentLineTopContent - margin)
+    if (Math.abs(scrollContainer.scrollTop - targetScrollTop) > 5) {
+      scrollContainer.scrollTo({
+        top: targetScrollTop,
+        behavior: 'smooth',
+      })
+    }
+  }
+}
+

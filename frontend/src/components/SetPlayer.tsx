@@ -11,8 +11,11 @@ import { getAbcKeyRoot, playMetronomeClick } from '../services/metronome'
 import { fixAbcRepeats } from '../services/abcTools'
 import {
   MetronomeControls,
+  StaffLine,
+  extractLinesFromTimings,
   formatTime,
   getOrCreateCursor,
+  scrollToKeepLinesVisible,
   toAbcjsSwing,
   updateCursorPosition,
   useCommitOnChange,
@@ -32,19 +35,37 @@ interface ExtendedTuneObject extends abcjs.TuneObject {
   setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
 }
 
+interface Loop {
+  a: number
+  b: number
+}
+
+interface Trainer {
+  armed: boolean
+  startPct: number
+  stepPct: number
+  targetPct: number
+}
+
+export interface SetPlayerProps {
+  items: SetPlayerItem[]
+  targetBpm?: number | null
+  isSingleTune?: boolean
+  /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
+  linkHref?: (item: SetPlayerItem) => string | null
+}
+
 /**
- * Renders every tune in a set and plays the whole medley: each tune its
- * configured number of times, then straight into the next, with the current
- * note highlighted and the active tune scrolled into view.
+ * Consolidated player component: renders and plays sheet music for a single tune
+ * or a set medley of multiple tunes. Automatically hides set-specific headers
+ * for single tunes while offering speed training and section looping.
  */
 export function SetPlayer({
   items,
+  targetBpm,
+  isSingleTune,
   linkHref,
-}: {
-  items: SetPlayerItem[]
-  /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
-  linkHref?: (item: SetPlayerItem) => string | null
-}) {
+}: SetPlayerProps) {
   const sheetRefs = useRef<(HTMLDivElement | null)[]>([])
   const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([])
   const durationsRef = useRef<number[]>([])
@@ -53,10 +74,14 @@ export function SetPlayer({
   const highlightedRef = useRef<Element[]>([])
   const isDraggingRef = useRef(false)
   const noteTimingsRef = useRef<abcjs.NoteTimingEvent[][]>([])
+  const tuneLinesRef = useRef<StaffLine[][]>([])
   const repeatRef = useRef(false)
   const repeatLimitRef = useRef<number | null>(null)
   const setPassRef = useRef(1)
   const keyRootRef = useRef<number>(72)
+  const loopRef = useRef<Loop | null>(null)
+  const trainerRef = useRef<Trainer | null>(null)
+  const passRef = useRef(1)
 
   const metronome = useMetronomePrefs()
   const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome
@@ -70,9 +95,20 @@ export function SetPlayer({
   const [currentTotalSec, setCurrentTotalSec] = useState(0)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const [activePass, setActivePass] = useState(1)
+  const [loop, setLoop] = useState<Loop | null>(null)
+  const [markA, setMarkA] = useState<number | null>(null)
+  const [trainer, setTrainer] = useState<Trainer>({
+    armed: false,
+    startPct: 60,
+    stepPct: 5,
+    targetPct: 100,
+  })
+  const [passCount, setPassCount] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const isSingle = isSingleTune || items.length === 1
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -94,16 +130,58 @@ export function SetPlayer({
 
   useEffect(() => {
     noteTimingsRef.current = []
+    tuneLinesRef.current = []
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index]
       if (!host) return null
       const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), { responsive: 'resize' })[0] as ExtendedTuneObject
       const timings = visualObj.setTiming(visualObj.getBpm())
       noteTimingsRef.current[index] = timings
+      tuneLinesRef.current[index] = extractLinesFromTimings(timings)
+      if (targetBpm && index === 0) {
+        const naturalBpm = visualObj.getBpm()
+        if (naturalBpm > 0) {
+          const pct = Math.min(150, Math.max(50, Math.round((targetBpm / naturalBpm) * 100)))
+          setTrainer((t) => ({ ...t, targetPct: pct }))
+        }
+      }
       return visualObj
     })
     return () => stop(false)
-  }, [itemsKey])
+  }, [itemsKey, targetBpm])
+
+  function checkAutoScroll(tuneIndex: number, ev: { top?: number }) {
+    if (!isFullscreen || typeof ev.top !== 'number') return
+    const lines = tuneLinesRef.current[tuneIndex] || []
+    if (lines.length === 0) return
+
+    const host = sheetRefs.current[tuneIndex]
+    const svg = host?.querySelector('svg') as SVGSVGElement | null
+    if (!svg) return
+
+    const top = ev.top
+    const lineIndex = lines.findIndex((l) => Math.abs(l.top - top) < 15)
+    if (lineIndex === -1) return
+
+    const currentLine = lines[lineIndex]
+    let nextLine: StaffLine | null = null
+    let nextSvg: SVGSVGElement | null = null
+
+    if (lineIndex + 1 < lines.length) {
+      nextLine = lines[lineIndex + 1]
+    } else if (tuneIndex + 1 < items.length) {
+      const nextTuneLines = tuneLinesRef.current[tuneIndex + 1] || []
+      if (nextTuneLines.length > 0) {
+        nextLine = nextTuneLines[0]
+        const nextHost = sheetRefs.current[tuneIndex + 1]
+        nextSvg = (nextHost?.querySelector('svg') as SVGSVGElement | null) ?? null
+      }
+    }
+
+    const scrollContainer =
+      (containerRef.current?.querySelector('.set-player-tunes-list') as HTMLElement | null) ?? containerRef.current
+    scrollToKeepLinesVisible(scrollContainer, svg, currentLine, nextLine, nextSvg)
+  }
 
   useEffect(() => {
     if (visualObjsRef.current.length === items.length) {
@@ -151,6 +229,8 @@ export function SetPlayer({
     }
     setStatus('stopped')
     setPassRef.current = 1
+    passRef.current = 1
+    setPassCount(1)
   }
 
   function pause() {
@@ -165,6 +245,39 @@ export function SetPlayer({
     synthsRef.current[activeIndex]?.resume()
     timerRef.current?.start()
     setStatus('playing')
+  }
+
+  function markLoopPoint() {
+    if (!currentTotalSec) return
+    const fraction = Math.min(Math.max(positionSec / currentTotalSec, 0), 1)
+    if (markA === null) {
+      setMarkA(fraction)
+      loopRef.current = null
+      setLoop(null)
+    } else {
+      const a = Math.min(markA, fraction)
+      const b = Math.max(markA, fraction)
+      if (b - a > 0.01) {
+        const newLoop = { a, b }
+        loopRef.current = newLoop
+        setLoop(newLoop)
+      }
+      setMarkA(null)
+    }
+  }
+
+  function clearLoop() {
+    loopRef.current = null
+    setLoop(null)
+    setMarkA(null)
+  }
+
+  function updateTrainer(patch: Partial<Trainer>) {
+    setTrainer((t) => {
+      const next = { ...t, ...patch }
+      trainerRef.current = next
+      return next
+    })
   }
 
   function seek(seconds: number) {
@@ -275,7 +388,14 @@ export function SetPlayer({
       }
 
       setStatus('playing')
-      startTune(targetIndex, percent, targetPass, targetFraction)
+      if (trainer.armed && wasStopped) {
+        passRef.current = 1
+        setPassCount(1)
+        setTempoPercent(trainer.startPct)
+        startTune(targetIndex, trainer.startPct, targetPass, loop?.a ?? targetFraction)
+      } else {
+        startTune(targetIndex, percent, targetPass, loop?.a ?? targetFraction)
+      }
     } catch {
       setError('Audio unavailable (soundfont could not be loaded).')
     }
@@ -324,6 +444,13 @@ export function SetPlayer({
             playMetronomeClick(sound, pitch)
           }
         }
+        const activeLoop = loopRef.current
+        const totalMsAtTempo = currentTotalSec * 1000
+        const ms = timer.currentMillisecond()
+        if (activeLoop && totalMsAtTempo > 0 && ms >= activeLoop.b * totalMsAtTempo) {
+          synth.seek(activeLoop.a)
+          timer.setProgress(activeLoop.a)
+        }
       },
       eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
         clearHighlights()
@@ -347,6 +474,7 @@ export function SetPlayer({
           const svg = host?.querySelector('svg') as SVGSVGElement | null
           if (typeof ev.left === 'number' && typeof ev.top === 'number' && typeof ev.height === 'number' && svg) {
             updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height)
+            checkAutoScroll(index, ev)
           }
           return undefined
         }
@@ -360,6 +488,16 @@ export function SetPlayer({
           cursor.setAttribute('y1', '0')
           cursor.setAttribute('y2', '0')
         }
+
+        const activeTrainer = trainerRef.current
+        if (activeTrainer?.armed) {
+          passRef.current++
+          setPassCount(passRef.current)
+          const nextPct = Math.min(percent + activeTrainer.stepPct, activeTrainer.targetPct)
+          play(nextPct)
+          return undefined
+        }
+
         if (pass < items[index].repetitions) {
           pass++
           setActivePass(pass)
@@ -413,11 +551,6 @@ export function SetPlayer({
     setSwingPercent(percent)
   }
 
-  // Tempo and swing are both baked into the synth buffer, so committing a
-  // change to either (mouse/touch release OR keyboard, via the inputs' native
-  // 'change' event) restarts playback so the new value is actually audible,
-  // without rebuilding on every drag tick — play() itself reads the current
-  // positionSec, so it resumes from wherever playback was.
   function restartAtCurrentPosition() {
     if (status !== 'stopped') {
       play(tempoPercent)
@@ -466,7 +599,7 @@ export function SetPlayer({
             status === 'playing' ? pause() : status === 'paused' ? resume() : play()
           }
         >
-          {status === 'playing' ? '⏸ Pause' : '▶ Play set'}
+          {status === 'playing' ? '⏸ Pause' : isSingle ? '▶ Play' : '▶ Play set'}
         </button>
         <button onClick={() => stop(false)} disabled={status === 'stopped' && positionSec === 0}>
           ■ Stop
@@ -480,7 +613,7 @@ export function SetPlayer({
             repeatRef.current = next
           }}
         >
-          🔁 Repeat set
+          {isSingle ? '🔁 Repeat' : '🔁 Repeat set'}
         </button>
         <MetronomeControls {...metronome} />
         {repeat && (
@@ -498,20 +631,29 @@ export function SetPlayer({
                 repeatLimitRef.current = num && num > 0 ? num : null
               }}
               className="reps-input"
-              title="Number of times to repeat the set (leave empty for infinite)"
+              title="Number of times to repeat (leave empty for infinite)"
             />
           </label>
         )}
         <button onClick={toggleFullscreen}>
           ⛶ Fullscreen
         </button>
+        <button
+          className={loop || markA !== null ? 'toggled' : ''}
+          disabled={status === 'stopped'}
+          onClick={markLoopPoint}
+          title="Mark loop start, then loop end, at the current position"
+        >
+          {markA !== null ? 'Set loop end' : loop ? 'New loop' : 'Set loop start'}
+        </button>
+        {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
         <label>
           Tempo {effectiveBpm > 0 ? `${effectiveBpm} BPM (${tempoPercent}%)` : `${tempoPercent}%`}
           <input
             ref={tempoInputRef}
             type="range"
             min="50"
-            max="130"
+            max="150"
             step="5"
             value={tempoPercent}
             onChange={onTempoInput}
@@ -530,38 +672,111 @@ export function SetPlayer({
           />
         </label>
       </div>
+
+      <div className="player-controls">
+        <button
+          className={trainer.armed ? 'toggled' : ''}
+          aria-pressed={trainer.armed}
+          onClick={() => updateTrainer({ armed: !trainer.armed })}
+        >
+          🎯 Speed trainer
+        </button>
+        {trainer.armed && (
+          <>
+            <label>
+              Start %
+              <input
+                className="trainer-input"
+                type="number"
+                min="50"
+                max="150"
+                step="5"
+                value={trainer.startPct}
+                onChange={(e) =>
+                  updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })
+                }
+              />
+            </label>
+            <label>
+              Step %
+              <input
+                className="trainer-input"
+                type="number"
+                min="1"
+                max="20"
+                value={trainer.stepPct}
+                onChange={(e) =>
+                  updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })
+                }
+              />
+            </label>
+            <label>
+              Target %
+              <input
+                className="trainer-input"
+                type="number"
+                min="50"
+                max="150"
+                step="5"
+                value={trainer.targetPct}
+                onChange={(e) =>
+                  updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })
+                }
+              />
+            </label>
+            {status !== 'stopped' && (
+              <span className="tune-meta">
+                Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
+              </span>
+            )}
+          </>
+        )}
+      </div>
+
       <div className="player-seek">
         <span className="time-label">{formatTime(positionSec)}</span>
-        <input
-          type="range"
-          min="0"
-          max={currentTotalSec || 1}
-          step="0.1"
-          value={positionSec}
-          disabled={currentTotalSec <= 0}
-          aria-label="Position in tune"
-          onMouseDown={() => {
-            isDraggingRef.current = true
-          }}
-          onTouchStart={() => {
-            isDraggingRef.current = true
-          }}
-          onChange={(e) => {
-            const val = Number((e.target as HTMLInputElement).value)
-            setPositionSec(val)
-            updateVisualsForTime(val)
-          }}
-          onMouseUp={(e) => {
-            isDraggingRef.current = false
-            seek(Number((e.currentTarget as HTMLInputElement).value))
-          }}
-          onTouchEnd={(e) => {
-            isDraggingRef.current = false
-            seek(Number((e.currentTarget as HTMLInputElement).value))
-          }}
-        />
+        <div className="seek-track">
+          <input
+            type="range"
+            min="0"
+            max={currentTotalSec || 1}
+            step="0.1"
+            value={positionSec}
+            disabled={currentTotalSec <= 0}
+            aria-label="Position in tune"
+            onMouseDown={() => {
+              isDraggingRef.current = true
+            }}
+            onTouchStart={() => {
+              isDraggingRef.current = true
+            }}
+            onChange={(e) => {
+              const val = Number((e.target as HTMLInputElement).value)
+              setPositionSec(val)
+              updateVisualsForTime(val)
+            }}
+            onMouseUp={(e) => {
+              isDraggingRef.current = false
+              seek(Number((e.currentTarget as HTMLInputElement).value))
+            }}
+            onTouchEnd={(e) => {
+              isDraggingRef.current = false
+              seek(Number((e.currentTarget as HTMLInputElement).value))
+            }}
+          />
+          {markA !== null && (
+            <span className="loop-marker" style={{ left: `${markA * 100}%` }} title="Loop start" />
+          )}
+          {loop && (
+            <>
+              <span className="loop-marker" style={{ left: `${loop.a * 100}%` }} title="Loop A" />
+              <span className="loop-marker" style={{ left: `${loop.b * 100}%` }} title="Loop B" />
+            </>
+          )}
+        </div>
         <span className="time-label">{formatTime(currentTotalSec)}</span>
       </div>
+
       <div className="player-controls">
         {(['melody', 'chords', 'bass'] as const).map((part) => (
           <label key={part}>
@@ -578,37 +793,40 @@ export function SetPlayer({
       </div>
       {error && <p className="error">{error}</p>}
 
-      <div className="set-player-tunes-list">
+      <div className={isSingle ? 'sheet-music' : 'set-player-tunes-list'}>
         {items.map((item, index) => {
           const href = linkHref ? linkHref(item) : `/tune/${item.userTuneId}`
+          const showHeader = !isSingle && Boolean(item.title)
           return (
-          <div
-            key={item.userTuneId}
-            className={`set-player-tune ${activeIndex === index ? 'active' : ''}`}
-          >
-            <div className="set-header">
-              <h2>
-                {href ? (
-                  <Link className="quiet-link" href={href}>
-                    {index + 1}. {item.title}
-                  </Link>
-                ) : (
-                  <span>{index + 1}. {item.title}</span>
-                )}
-              </h2>
-              <span className="tune-meta">
-                {activeIndex === index
-                  ? `pass ${activePass} of ${item.repetitions}`
-                  : `× ${item.repetitions}`}
-              </span>
-            </div>
             <div
-              className="sheet-music"
-              ref={(el) => {
-                sheetRefs.current[index] = el
-              }}
-            />
-          </div>
+              key={item.userTuneId}
+              className={isSingle ? '' : `set-player-tune ${activeIndex === index ? 'active' : ''}`}
+            >
+              {showHeader && (
+                <div className="set-header">
+                  <h2>
+                    {href ? (
+                      <Link className="quiet-link" href={href}>
+                        {index + 1}. {item.title}
+                      </Link>
+                    ) : (
+                      <span>{index + 1}. {item.title}</span>
+                    )}
+                  </h2>
+                  <span className="tune-meta">
+                    {activeIndex === index
+                      ? `pass ${activePass} of ${item.repetitions}`
+                      : `× ${item.repetitions}`}
+                  </span>
+                </div>
+              )}
+              <div
+                className="sheet-music"
+                ref={(el) => {
+                  sheetRefs.current[index] = el
+                }}
+              />
+            </div>
           )
         })}
       </div>
@@ -675,6 +893,7 @@ export function SetPlayer({
 
       if (svg) {
         updateCursorPosition(svg, bestEvent.left - 2, bestEvent.top, bestEvent.top + bestEvent.height)
+        checkAutoScroll(targetIndex, bestEvent)
       }
     } else {
       const cursor = svg?.querySelector('.abcjs-cursor')
