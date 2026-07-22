@@ -5,7 +5,7 @@
  * the backstop for a 5xx/network error that isn't accompanied by an actual
  * connectivity transition, since 'online' won't fire again in that case.
  */
-import { Signal, getBearerToken, showToast } from '../state/appState'
+import { Signal, authStatus, getBearerToken, showToast } from '../state/appState'
 import { queryClient } from './queryClient'
 import {
   deletePendingMutation,
@@ -35,7 +35,23 @@ export function initSyncManager(): void {
     if (navigator.onLine) void runSync()
   }, PERIODIC_INTERVAL_MS)
 
-  if (navigator.onLine) void runSync()
+  // Don't attempt the first sync until AuthProvider's own MSAL bootstrap has
+  // settled. Firing getBearerToken concurrently with the app's own initial
+  // acquireTokenSilent call (which happens on every cold load) makes MSAL
+  // throw block_iframe_reload — it only allows one hidden-iframe silent
+  // renewal in flight at a time.
+  const attemptInitialSync = () => {
+    if (navigator.onLine) void runSync()
+  }
+  if (authStatus.value !== 'pending') {
+    attemptInitialSync()
+  } else {
+    const unsubscribe = authStatus.subscribe((status) => {
+      if (status === 'pending') return
+      unsubscribe()
+      attemptInitialSync()
+    })
+  }
 }
 
 export async function triggerSync(): Promise<void> {
@@ -56,7 +72,12 @@ async function runSync(): Promise<void> {
       return
     }
 
-    const token = await getBearerToken(true)
+    // Non-forcing: the shared helper already checks the cached token's
+    // expiry and only falls through to a live acquireTokenSilent call (with
+    // its own internal forceRefresh escalation) when actually needed —
+    // forcing unconditionally here is what caused the concurrent-iframe
+    // collision above.
+    const token = await getBearerToken(false)
     if (!token) {
       authRequired.value = true
       showToast(
