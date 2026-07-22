@@ -1,14 +1,9 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import Link from 'next/link'
-import abcjs from 'abcjs'
-import {
-  INSTRUMENTS,
-  loadInstruments,
-  saveInstruments,
-  synthInstrumentOptions,
-} from './instruments'
-import { getAbcKeyRoot, playMetronomeClick } from '../services/metronome'
-import { fixAbcRepeats } from '../services/abcTools'
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import Link from "next/link";
+import abcjs from "abcjs";
+import { INSTRUMENTS, loadInstruments, saveInstruments, synthInstrumentOptions } from "./instruments";
+import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
+import { fixAbcRepeats } from "../services/abcTools";
 import {
   MetronomeControls,
   StaffLine,
@@ -20,39 +15,39 @@ import {
   updateCursorPosition,
   useCommitOnChange,
   useMetronomePrefs,
-} from './playerControls'
+} from "./playerControls";
 
 export interface SetPlayerItem {
-  userTuneId: string
-  title: string
-  abc: string
-  repetitions: number
+  userTuneId: string;
+  title: string;
+  abc: string;
+  repetitions: number;
 }
 
-type PlayerStatus = 'stopped' | 'playing' | 'paused'
+type PlayerStatus = "stopped" | "playing" | "paused";
 
 interface ExtendedTuneObject extends abcjs.TuneObject {
   setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
 }
 
 interface Loop {
-  a: number
-  b: number
+  a: number;
+  b: number;
 }
 
 interface Trainer {
-  armed: boolean
-  startPct: number
-  stepPct: number
-  targetPct: number
+  armed: boolean;
+  startPct: number;
+  stepPct: number;
+  targetPct: number;
 }
 
 export interface SetPlayerProps {
-  items: SetPlayerItem[]
-  targetBpm?: number | null
-  isSingleTune?: boolean
+  items: SetPlayerItem[];
+  targetBpm?: number | null;
+  isSingleTune?: boolean;
   /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
-  linkHref?: (item: SetPlayerItem) => string | null
+  linkHref?: (item: SetPlayerItem) => string | null;
 }
 
 /**
@@ -60,303 +55,297 @@ export interface SetPlayerProps {
  * or a set medley of multiple tunes. Automatically hides set-specific headers
  * for single tunes while offering speed training and section looping.
  */
-export function SetPlayer({
-  items,
-  targetBpm,
-  isSingleTune,
-  linkHref,
-}: SetPlayerProps) {
-  const sheetRefs = useRef<(HTMLDivElement | null)[]>([])
-  const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([])
-  const durationsRef = useRef<number[]>([])
-  const synthsRef = useRef<(abcjs.MidiBuffer | null)[]>([])
-  const timerRef = useRef<abcjs.TimingCallbacks | null>(null)
-  const highlightedRef = useRef<Element[]>([])
-  const isDraggingRef = useRef(false)
-  const noteTimingsRef = useRef<abcjs.NoteTimingEvent[][]>([])
-  const tuneLinesRef = useRef<StaffLine[][]>([])
-  const repeatRef = useRef(false)
-  const repeatLimitRef = useRef<number | null>(null)
-  const setPassRef = useRef(1)
-  const keyRootRef = useRef<number>(72)
-  const loopRef = useRef<Loop | null>(null)
-  const trainerRef = useRef<Trainer | null>(null)
-  const passRef = useRef(1)
+export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlayerProps) {
+  const sheetRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([]);
+  const durationsRef = useRef<number[]>([]);
+  const synthsRef = useRef<(abcjs.MidiBuffer | null)[]>([]);
+  const timerRef = useRef<abcjs.TimingCallbacks | null>(null);
+  const highlightedRef = useRef<Element[]>([]);
+  const isDraggingRef = useRef(false);
+  const noteTimingsRef = useRef<abcjs.NoteTimingEvent[][]>([]);
+  const tuneLinesRef = useRef<StaffLine[][]>([]);
+  const repeatRef = useRef(false);
+  const repeatLimitRef = useRef<number | null>(null);
+  const setPassRef = useRef(1);
+  const keyRootRef = useRef<number>(72);
+  const loopRef = useRef<Loop | null>(null);
+  const trainerRef = useRef<Trainer | null>(null);
+  const passRef = useRef(1);
 
-  const metronome = useMetronomePrefs()
-  const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome
-  const [status, setStatus] = useState<PlayerStatus>('stopped')
-  const [tempoPercent, setTempoPercent] = useState(100)
-  const [swingPercent, setSwingPercent] = useState(0)
-  const [repeat, setRepeat] = useState(false)
-  const [repeatLimit, setRepeatLimit] = useState<number | null>(null)
-  const [instruments, setInstruments] = useState(loadInstruments)
-  const [positionSec, setPositionSec] = useState(0)
-  const [currentTotalSec, setCurrentTotalSec] = useState(0)
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const [activePass, setActivePass] = useState(1)
-  const [loop, setLoop] = useState<Loop | null>(null)
-  const [markA, setMarkA] = useState<number | null>(null)
+  const metronome = useMetronomePrefs();
+  const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome;
+  const [status, setStatus] = useState<PlayerStatus>("stopped");
+  const [tempoPercent, setTempoPercent] = useState(100);
+  const [swingPercent, setSwingPercent] = useState(0);
+  const [repeat, setRepeat] = useState(false);
+  const [repeatLimit, setRepeatLimit] = useState<number | null>(null);
+  const [instruments, setInstruments] = useState(loadInstruments);
+  const [positionSec, setPositionSec] = useState(0);
+  const [currentTotalSec, setCurrentTotalSec] = useState(0);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activePass, setActivePass] = useState(1);
+  const [loop, setLoop] = useState<Loop | null>(null);
+  const [markA, setMarkA] = useState<number | null>(null);
   const [trainer, setTrainer] = useState<Trainer>({
     armed: false,
     startPct: 60,
     stepPct: 5,
     targetPct: 100,
-  })
-  const [passCount, setPassCount] = useState(1)
-  const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const isFullscreenRef = useRef(false)
+  });
+  const [passCount, setPassCount] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isFullscreenRef = useRef(false);
 
-  const isSingle = isSingleTune || items.length === 1
+  const isSingle = isSingleTune || items.length === 1;
 
   useEffect(() => {
     const handleFsChange = () => {
-      const next = document.fullscreenElement === containerRef.current
-      isFullscreenRef.current = next
-      setIsFullscreen(next)
-    }
-    document.addEventListener('fullscreenchange', handleFsChange)
-    return () => document.removeEventListener('fullscreenchange', handleFsChange)
-  }, [])
+      const next = document.fullscreenElement === containerRef.current;
+      isFullscreenRef.current = next;
+      setIsFullscreen(next);
+    };
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().catch(() => {})
+      containerRef.current?.requestFullscreen().catch(() => {});
     } else {
-      document.exitFullscreen().catch(() => {})
+      document.exitFullscreen().catch(() => {});
     }
-  }
+  };
 
-  const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}:${i.abc}`).join(',')
+  const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}:${i.abc}`).join(",");
 
   useEffect(() => {
-    noteTimingsRef.current = []
-    tuneLinesRef.current = []
+    noteTimingsRef.current = [];
+    tuneLinesRef.current = [];
     visualObjsRef.current = items.map((item, index) => {
-      const host = sheetRefs.current[index]
-      if (!host) return null
-      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), { responsive: 'resize' })[0] as ExtendedTuneObject
-      const timings = visualObj.setTiming(visualObj.getBpm())
-      noteTimingsRef.current[index] = timings
-      tuneLinesRef.current[index] = extractLinesFromTimings(timings)
+      const host = sheetRefs.current[index];
+      if (!host) return null;
+      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), {
+        responsive: "resize",
+      })[0] as ExtendedTuneObject;
+      const timings = visualObj.setTiming(visualObj.getBpm());
+      noteTimingsRef.current[index] = timings;
+      tuneLinesRef.current[index] = extractLinesFromTimings(timings);
       if (targetBpm && index === 0) {
-        const naturalBpm = visualObj.getBpm()
+        const naturalBpm = visualObj.getBpm();
         if (naturalBpm > 0) {
-          const pct = Math.min(150, Math.max(50, Math.round((targetBpm / naturalBpm) * 100)))
-          setTrainer((t) => ({ ...t, targetPct: pct }))
+          const pct = Math.min(150, Math.max(50, Math.round((targetBpm / naturalBpm) * 100)));
+          setTrainer((t) => ({ ...t, targetPct: pct }));
         }
       }
-      return visualObj
-    })
-    return () => stop(false)
-  }, [itemsKey, targetBpm])
+      return visualObj;
+    });
+    return () => stop(false);
+  }, [itemsKey, targetBpm]);
 
   function checkAutoScroll(tuneIndex: number, ev: { top?: number }) {
-    if (!isFullscreenRef.current || typeof ev.top !== 'number') return
-    const lines = tuneLinesRef.current[tuneIndex] || []
-    if (lines.length === 0) return
+    if (!isFullscreenRef.current || typeof ev.top !== "number") return;
+    const lines = tuneLinesRef.current[tuneIndex] || [];
+    if (lines.length === 0) return;
 
-    const host = sheetRefs.current[tuneIndex]
-    const svg = host?.querySelector('svg') as SVGSVGElement | null
-    if (!svg) return
+    const host = sheetRefs.current[tuneIndex];
+    const svg = host?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return;
 
-    const top = ev.top
-    const lineIndex = lines.findIndex((l) => Math.abs(l.top - top) < 15)
-    if (lineIndex === -1) return
+    const top = ev.top;
+    const lineIndex = lines.findIndex((l) => Math.abs(l.top - top) < 15);
+    if (lineIndex === -1) return;
 
-    const currentLine = lines[lineIndex]
-    let nextLine: StaffLine | null = null
-    let nextSvg: SVGSVGElement | null = null
+    const currentLine = lines[lineIndex];
+    let nextLine: StaffLine | null = null;
+    let nextSvg: SVGSVGElement | null = null;
 
     if (lineIndex + 1 < lines.length) {
-      nextLine = lines[lineIndex + 1]
+      nextLine = lines[lineIndex + 1];
     } else if (tuneIndex + 1 < items.length) {
-      const nextTuneLines = tuneLinesRef.current[tuneIndex + 1] || []
+      const nextTuneLines = tuneLinesRef.current[tuneIndex + 1] || [];
       if (nextTuneLines.length > 0) {
-        nextLine = nextTuneLines[0]
-        const nextHost = sheetRefs.current[tuneIndex + 1]
-        nextSvg = (nextHost?.querySelector('svg') as SVGSVGElement | null) ?? null
+        nextLine = nextTuneLines[0];
+        const nextHost = sheetRefs.current[tuneIndex + 1];
+        nextSvg = (nextHost?.querySelector("svg") as SVGSVGElement | null) ?? null;
       }
     }
 
     const scrollContainer =
-      (containerRef.current?.querySelector('.set-player-tunes-list, .sheet-music') as HTMLElement | null) ??
-      containerRef.current
-    scrollToKeepLinesVisible(scrollContainer, svg, currentLine, nextLine, nextSvg)
+      (containerRef.current?.querySelector(".set-player-tunes-list, .sheet-music") as HTMLElement | null) ??
+      containerRef.current;
+    scrollToKeepLinesVisible(scrollContainer, svg, currentLine, nextLine, nextSvg);
   }
 
   useEffect(() => {
     if (visualObjsRef.current.length === items.length) {
       const newDurations = items.map((_, index) => {
-        const visualObj = visualObjsRef.current[index]
-        const naturalTotalSec = visualObj?.getTotalTime() ?? 0
-        return naturalTotalSec * (100 / tempoPercent)
-      })
-      durationsRef.current = newDurations
-      setCurrentTotalSec(
-        newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0)
-      )
+        const visualObj = visualObjsRef.current[index];
+        const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
+        return naturalTotalSec * (100 / tempoPercent);
+      });
+      durationsRef.current = newDurations;
+      setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
     }
-  }, [itemsKey, tempoPercent])
+  }, [itemsKey, tempoPercent]);
 
   function clearHighlights() {
     for (const el of highlightedRef.current) {
-      el.classList.remove('highlight')
+      el.classList.remove("highlight");
     }
-    highlightedRef.current = []
+    highlightedRef.current = [];
     for (const host of sheetRefs.current) {
-      const svg = host?.querySelector('svg')
-      const cursor = svg?.querySelector('.abcjs-cursor')
+      const svg = host?.querySelector("svg");
+      const cursor = svg?.querySelector(".abcjs-cursor");
       if (cursor) {
-        cursor.setAttribute('y1', '0')
-        cursor.setAttribute('y2', '0')
+        cursor.setAttribute("y1", "0");
+        cursor.setAttribute("y2", "0");
       }
     }
   }
 
   function stop(keepPosition = false) {
     for (const synth of synthsRef.current) {
-      synth?.stop()
+      synth?.stop();
     }
-    synthsRef.current = []
+    synthsRef.current = [];
     if (timerRef.current) {
-      timerRef.current.stop()
-      timerRef.current = null
+      timerRef.current.stop();
+      timerRef.current = null;
     }
-    clearHighlights()
-    setActiveIndex(null)
-    setActivePass(1)
+    clearHighlights();
+    setActiveIndex(null);
+    setActivePass(1);
     if (!keepPosition) {
-      setPositionSec(0)
+      setPositionSec(0);
     }
-    setStatus('stopped')
-    setPassRef.current = 1
-    passRef.current = 1
-    setPassCount(1)
+    setStatus("stopped");
+    setPassRef.current = 1;
+    passRef.current = 1;
+    setPassCount(1);
   }
 
   function pause() {
-    if (activeIndex === null) return
-    synthsRef.current[activeIndex]?.pause()
-    timerRef.current?.pause()
-    setStatus('paused')
+    if (activeIndex === null) return;
+    synthsRef.current[activeIndex]?.pause();
+    timerRef.current?.pause();
+    setStatus("paused");
   }
 
   function resume() {
-    if (activeIndex === null) return
-    synthsRef.current[activeIndex]?.resume()
-    timerRef.current?.start()
-    setStatus('playing')
+    if (activeIndex === null) return;
+    synthsRef.current[activeIndex]?.resume();
+    timerRef.current?.start();
+    setStatus("playing");
   }
 
   function markLoopPoint() {
-    if (!currentTotalSec) return
-    const fraction = Math.min(Math.max(positionSec / currentTotalSec, 0), 1)
+    if (!currentTotalSec) return;
+    const fraction = Math.min(Math.max(positionSec / currentTotalSec, 0), 1);
     if (markA === null) {
-      setMarkA(fraction)
-      loopRef.current = null
-      setLoop(null)
+      setMarkA(fraction);
+      loopRef.current = null;
+      setLoop(null);
     } else {
-      const a = Math.min(markA, fraction)
-      const b = Math.max(markA, fraction)
+      const a = Math.min(markA, fraction);
+      const b = Math.max(markA, fraction);
       if (b - a > 0.01) {
-        const newLoop = { a, b }
-        loopRef.current = newLoop
-        setLoop(newLoop)
+        const newLoop = { a, b };
+        loopRef.current = newLoop;
+        setLoop(newLoop);
       }
-      setMarkA(null)
+      setMarkA(null);
     }
   }
 
   function clearLoop() {
-    loopRef.current = null
-    setLoop(null)
-    setMarkA(null)
+    loopRef.current = null;
+    setLoop(null);
+    setMarkA(null);
   }
 
   function updateTrainer(patch: Partial<Trainer>) {
     setTrainer((t) => {
-      const next = { ...t, ...patch }
-      trainerRef.current = next
-      return next
-    })
+      const next = { ...t, ...patch };
+      trainerRef.current = next;
+      return next;
+    });
   }
 
   function seek(seconds: number) {
     if (currentTotalSec <= 0 || durationsRef.current.length !== items.length) {
-      return
+      return;
     }
 
-    const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec)
-    let remaining = clampedSeconds
-    let targetIndex = 0
-    let targetPass = 1
+    const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec);
+    let remaining = clampedSeconds;
+    let targetIndex = 0;
+    let targetPass = 1;
 
     for (let i = 0; i < items.length; i++) {
-      const tuneDuration = durationsRef.current[i]
-      const totalTuneDuration = tuneDuration * items[i].repetitions
+      const tuneDuration = durationsRef.current[i];
+      const totalTuneDuration = tuneDuration * items[i].repetitions;
       if (remaining < totalTuneDuration) {
-        targetIndex = i
-        targetPass = Math.floor(remaining / tuneDuration) + 1
-        remaining = remaining - tuneDuration * (targetPass - 1)
-        break
+        targetIndex = i;
+        targetPass = Math.floor(remaining / tuneDuration) + 1;
+        remaining = remaining - tuneDuration * (targetPass - 1);
+        break;
       }
-      remaining -= totalTuneDuration
+      remaining -= totalTuneDuration;
     }
 
-    const startFraction = durationsRef.current[targetIndex] > 0 ? remaining / durationsRef.current[targetIndex] : 0
+    const startFraction = durationsRef.current[targetIndex] > 0 ? remaining / durationsRef.current[targetIndex] : 0;
 
-    if (status === 'stopped') {
-      setPositionSec(clampedSeconds)
-      setActiveIndex(targetIndex)
-      setActivePass(targetPass)
-      updateVisualsForTime(clampedSeconds)
-      return
+    if (status === "stopped") {
+      setPositionSec(clampedSeconds);
+      setActiveIndex(targetIndex);
+      setActivePass(targetPass);
+      updateVisualsForTime(clampedSeconds);
+      return;
     }
 
     if (timerRef.current) {
-      timerRef.current.stop()
-      timerRef.current = null
+      timerRef.current.stop();
+      timerRef.current = null;
     }
     if (activeIndex !== null) {
-      synthsRef.current[activeIndex]?.stop()
+      synthsRef.current[activeIndex]?.stop();
     }
 
-    clearHighlights()
-    setPositionSec(clampedSeconds)
-    setActiveIndex(targetIndex)
-    setActivePass(targetPass)
+    clearHighlights();
+    setPositionSec(clampedSeconds);
+    setActiveIndex(targetIndex);
+    setActivePass(targetPass);
 
-    startTune(targetIndex, tempoPercent, targetPass, startFraction, false)
+    startTune(targetIndex, tempoPercent, targetPass, startFraction, false);
   }
 
   async function play(percent = tempoPercent) {
-    const keepPosition = positionSec > 0
-    const wasStopped = status === 'stopped'
-    stop(keepPosition)
+    const keepPosition = positionSec > 0;
+    const wasStopped = status === "stopped";
+    stop(keepPosition);
     if (wasStopped) {
-      setPassRef.current = 1
+      setPassRef.current = 1;
     }
-    setError(null)
+    setError(null);
     try {
+      const oldDurations = durationsRef.current;
       const newDurations = items.map((_, index) => {
-        const visualObj = visualObjsRef.current[index]
-        const naturalTotalSec = visualObj?.getTotalTime() ?? 0
-        return naturalTotalSec * (100 / percent)
-      })
-      durationsRef.current = newDurations
-      setCurrentTotalSec(
-        newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0)
-      )
+        const visualObj = visualObjsRef.current[index];
+        const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
+        return naturalTotalSec * (100 / percent);
+      });
+      durationsRef.current = newDurations;
+      setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
 
       const synths = await Promise.all(
         items.map(async (_, index) => {
-          const visualObj = visualObjsRef.current[index]
-          if (!visualObj) throw new Error('Visual object not initialized')
-          const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100))
-          const synth = new abcjs.synth.CreateSynth()
+          const visualObj = visualObjsRef.current[index];
+          if (!visualObj) throw new Error("Visual object not initialized");
+          const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100));
+          const synth = new abcjs.synth.CreateSynth();
           await synth.init({
             visualObj,
             millisecondsPerMeasure: visualObj.millisecondsPerMeasure(effectiveBpm),
@@ -364,262 +353,249 @@ export function SetPlayer({
               ...synthInstrumentOptions(instruments),
               swing: toAbcjsSwing(swingPercent),
             },
-          })
-          await synth.prime()
-          return synth
+          });
+          await synth.prime();
+          return synth;
         }),
-      )
-      synthsRef.current = synths
+      );
+      synthsRef.current = synths;
 
-      let targetIndex = 0
-      let targetPass = 1
-      let targetFraction = 0
+      let targetIndex = 0;
+      let targetPass = 1;
+      let targetFraction = 0;
 
       if (keepPosition) {
-        let remaining = positionSec
+        // positionSec accumulated under the tempo in effect before this call, so it must be
+        // resolved against oldDurations — the tempo may have just changed (e.g. speed trainer
+        // stepping up between passes), and the resulting fraction is tempo-independent.
+        let remaining = positionSec;
         for (let i = 0; i < items.length; i++) {
-          const tuneDuration = durationsRef.current[i]
-          const totalTuneDuration = tuneDuration * items[i].repetitions
+          const tuneDuration = oldDurations[i] ?? 0;
+          const totalTuneDuration = tuneDuration * items[i].repetitions;
           if (remaining < totalTuneDuration) {
-            targetIndex = i
-            targetPass = Math.floor(remaining / tuneDuration) + 1
-            remaining = remaining - tuneDuration * (targetPass - 1)
-            break
+            targetIndex = i;
+            targetPass = Math.floor(remaining / tuneDuration) + 1;
+            remaining = remaining - tuneDuration * (targetPass - 1);
+            break;
           }
-          remaining -= totalTuneDuration
+          remaining -= totalTuneDuration;
         }
-        targetFraction = durationsRef.current[targetIndex] > 0 ? remaining / durationsRef.current[targetIndex] : 0
+        const oldTuneDuration = oldDurations[targetIndex] ?? 0;
+        targetFraction = oldTuneDuration > 0 ? remaining / oldTuneDuration : 0;
       }
 
-      setStatus('playing')
+      setStatus("playing");
       if (trainer.armed && wasStopped) {
-        passRef.current = 1
-        setPassCount(1)
-        setTempoPercent(trainer.startPct)
-        startTune(targetIndex, trainer.startPct, targetPass, loop?.a ?? targetFraction)
+        passRef.current = 1;
+        setPassCount(1);
+        setTempoPercent(trainer.startPct);
+        startTune(targetIndex, trainer.startPct, targetPass, loop?.a ?? targetFraction);
       } else {
-        startTune(targetIndex, percent, targetPass, loop?.a ?? targetFraction)
+        startTune(targetIndex, percent, targetPass, loop?.a ?? targetFraction);
       }
     } catch {
-      setError('Audio unavailable (soundfont could not be loaded).')
+      setError("Audio unavailable (soundfont could not be loaded).");
     }
   }
 
-  function startTune(
-    index: number,
-    percent: number,
-    startPass = 1,
-    startFraction = 0,
-    shouldScroll = true,
-  ) {
-    const visualObj = visualObjsRef.current[index]
-    const synth = synthsRef.current[index]
-    if (!visualObj || !synth) return
-    const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100))
-    let pass = startPass
+  function startTune(index: number, percent: number, startPass = 1, startFraction = 0, shouldScroll = true) {
+    const visualObj = visualObjsRef.current[index];
+    const synth = synthsRef.current[index];
+    if (!visualObj || !synth) return;
+    const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100));
+    let pass = startPass;
 
-    setActiveIndex(index)
-    setActivePass(startPass)
+    setActiveIndex(index);
+    setActivePass(startPass);
     if (shouldScroll) {
-      sheetRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      sheetRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
     const elapsedBeforeTune = durationsRef.current
       .slice(0, index)
-      .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0)
-    const tuneDuration = durationsRef.current[index] ?? 0
-    
+      .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0);
+    const tuneDuration = durationsRef.current[index] ?? 0;
+
     if (!isDraggingRef.current) {
-      setPositionSec(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction)
+      setPositionSec(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction);
     }
 
-    keyRootRef.current = getAbcKeyRoot(items[index].abc)
+    keyRootRef.current = getAbcKeyRoot(items[index].abc);
 
     const timer = new abcjs.TimingCallbacks(visualObj, {
       qpm: effectiveBpm,
       beatCallback: (beatNumber: number) => {
         if (useMetronomeRef.current) {
-          const sound = metronomeSoundRef.current
+          const sound = metronomeSoundRef.current;
           if (beatNumber === 1) {
-            const pitch = sound.instrument === 128 ? 36 : keyRootRef.current
-            playMetronomeClick(sound, pitch)
+            const pitch = sound.instrument === 128 ? 36 : keyRootRef.current;
+            playMetronomeClick(sound, pitch);
           } else {
-            const pitch = sound.instrument === 128 ? undefined : keyRootRef.current - 12
-            playMetronomeClick(sound, pitch)
+            const pitch = sound.instrument === 128 ? undefined : keyRootRef.current - 12;
+            playMetronomeClick(sound, pitch);
           }
         }
-        const activeLoop = loopRef.current
-        const totalMsAtTempo = currentTotalSec * 1000
-        const ms = timer.currentMillisecond()
+        const activeLoop = loopRef.current;
+        const totalMsAtTempo = currentTotalSec * 1000;
+        const ms = timer.currentMillisecond();
         if (activeLoop && totalMsAtTempo > 0 && ms >= activeLoop.b * totalMsAtTempo) {
-          synth.seek(activeLoop.a)
-          timer.setProgress(activeLoop.a)
+          synth.seek(activeLoop.a);
+          timer.setProgress(activeLoop.a);
         }
       },
       eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
-        clearHighlights()
+        clearHighlights();
         if (ev) {
-          const ms = timer.currentMillisecond()
+          const ms = timer.currentMillisecond();
           const elapsedBeforeTune = durationsRef.current
             .slice(0, index)
-            .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0)
-          
+            .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0);
+
           if (!isDraggingRef.current) {
-            setPositionSec(elapsedBeforeTune + tuneDuration * (pass - 1) + ms / 1000)
+            setPositionSec(elapsedBeforeTune + tuneDuration * (pass - 1) + ms / 1000);
           }
-          
+
           for (const group of ev.elements ?? []) {
             for (const el of group) {
-              el.classList.add('highlight')
-              highlightedRef.current.push(el)
+              el.classList.add("highlight");
+              highlightedRef.current.push(el);
             }
           }
-          const host = sheetRefs.current[index]
-          const svg = host?.querySelector('svg') as SVGSVGElement | null
-          if (typeof ev.left === 'number' && typeof ev.top === 'number' && typeof ev.height === 'number' && svg) {
-            updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height)
-            checkAutoScroll(index, ev)
+          const host = sheetRefs.current[index];
+          const svg = host?.querySelector("svg") as SVGSVGElement | null;
+          if (typeof ev.left === "number" && typeof ev.top === "number" && typeof ev.height === "number" && svg) {
+            updateCursorPosition(svg, ev.left - 2, ev.top, ev.top + ev.height);
+            checkAutoScroll(index, ev);
           }
-          return undefined
+          return undefined;
         }
         // End of one pass through the tune.
-        synth.stop()
-        timer.stop()
-        const host = sheetRefs.current[index]
-        const svg = host?.querySelector('svg')
-        const cursor = svg?.querySelector('.abcjs-cursor')
+        synth.stop();
+        timer.stop();
+        const host = sheetRefs.current[index];
+        const svg = host?.querySelector("svg");
+        const cursor = svg?.querySelector(".abcjs-cursor");
         if (cursor) {
-          cursor.setAttribute('y1', '0')
-          cursor.setAttribute('y2', '0')
+          cursor.setAttribute("y1", "0");
+          cursor.setAttribute("y2", "0");
         }
 
-        const activeTrainer = trainerRef.current
+        const activeTrainer = trainerRef.current;
         if (activeTrainer?.armed) {
-          passRef.current++
-          setPassCount(passRef.current)
-          const nextPct = Math.min(percent + activeTrainer.stepPct, activeTrainer.targetPct)
-          play(nextPct)
-          return undefined
+          passRef.current++;
+          setPassCount(passRef.current);
+          const nextPct = Math.min(percent + activeTrainer.stepPct, activeTrainer.targetPct);
+          play(nextPct);
+          return undefined;
         }
 
         if (pass < items[index].repetitions) {
-          pass++
-          setActivePass(pass)
-          synth.seek(0)
-          synth.start()
-          timer.setProgress(0)
-          timer.start(0)
-          return 'continue'
+          pass++;
+          setActivePass(pass);
+          synth.seek(0);
+          synth.start();
+          timer.setProgress(0);
+          timer.start(0);
+          return "continue";
         } else if (index + 1 < items.length) {
-          startTune(index + 1, percent)
+          startTune(index + 1, percent);
         } else if (repeatRef.current) {
           if (repeatLimitRef.current === null || setPassRef.current < repeatLimitRef.current) {
-            setPassRef.current++
-            startTune(0, percent)
+            setPassRef.current++;
+            startTune(0, percent);
           } else {
-            stop()
+            stop();
           }
         } else {
-          stop()
+          stop();
         }
-        return undefined
+        return undefined;
       },
-    })
-    timerRef.current = timer
+    });
+    timerRef.current = timer;
 
-    const isPlayerPaused = status === 'paused'
+    const isPlayerPaused = status === "paused";
     if (isPlayerPaused) {
-      synth.seek(startFraction)
-      timer.start(startFraction)
-      timer.setProgress(startFraction)
-      timer.pause()
+      synth.seek(startFraction);
+      timer.start(startFraction);
+      timer.setProgress(startFraction);
+      timer.pause();
     } else {
       if (startFraction > 0) {
-        synth.seek(startFraction)
+        synth.seek(startFraction);
       }
-      synth.start()
-      timer.start(startFraction)
+      synth.start();
+      timer.start(startFraction);
       if (startFraction > 0) {
-        timer.setProgress(startFraction)
+        timer.setProgress(startFraction);
       }
     }
   }
 
   function onTempoInput(e: ChangeEvent<HTMLInputElement>) {
-    const percent = Number((e.target as HTMLInputElement).value)
-    setTempoPercent(percent)
+    const percent = Number((e.target as HTMLInputElement).value);
+    setTempoPercent(percent);
   }
 
   function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
-    const percent = Number((e.target as HTMLInputElement).value)
-    setSwingPercent(percent)
+    const percent = Number((e.target as HTMLInputElement).value);
+    setSwingPercent(percent);
   }
 
   function restartAtCurrentPosition() {
-    if (status !== 'stopped') {
-      play(tempoPercent)
+    if (status !== "stopped") {
+      play(tempoPercent);
     }
   }
-  const tempoInputRef = useCommitOnChange(restartAtCurrentPosition)
-  const swingInputRef = useCommitOnChange(restartAtCurrentPosition)
+  const tempoInputRef = useCommitOnChange(restartAtCurrentPosition);
+  const swingInputRef = useCommitOnChange(restartAtCurrentPosition);
 
   function onInstrumentChange(part: keyof typeof instruments) {
     return (e: ChangeEvent<HTMLSelectElement>) => {
-      const next = { ...instruments, [part]: Number((e.target as HTMLSelectElement).value) }
-      setInstruments(next)
-      saveInstruments(next)
-      if (status !== 'stopped') {
-        play(tempoPercent)
+      const next = { ...instruments, [part]: Number((e.target as HTMLSelectElement).value) };
+      setInstruments(next);
+      saveInstruments(next);
+      if (status !== "stopped") {
+        play(tempoPercent);
       }
-    }
+    };
   }
 
-  const activeVisualObj = visualObjsRef.current[activeIndex ?? 0] ?? null
-  const naturalBpm = activeVisualObj?.getBpm() ?? 0
-  const effectiveBpm = naturalBpm > 0 ? Math.round(naturalBpm * (tempoPercent / 100)) : 0
+  const activeVisualObj = visualObjsRef.current[activeIndex ?? 0] ?? null;
+  const naturalBpm = activeVisualObj?.getBpm() ?? 0;
+  const effectiveBpm = naturalBpm > 0 ? Math.round(naturalBpm * (tempoPercent / 100)) : 0;
 
   return (
-    <div ref={containerRef} className={`player-container ${isFullscreen ? 'is-fullscreen' : ''}`}>
+    <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
       {isFullscreen && (
         <div className="fullscreen-controls">
-          <button
-            onClick={() =>
-              status === 'playing' ? pause() : status === 'paused' ? resume() : play()
-            }
-          >
-            {status === 'playing' ? '⏸' : '▶'}
+          <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
+            {status === "playing" ? "⏸" : "▶"}
           </button>
-          <button onClick={() => stop(false)} disabled={status === 'stopped' && positionSec === 0}>
+          <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0}>
             ■
           </button>
-          <button onClick={toggleFullscreen}>
-            ✕
-          </button>
+          <button onClick={toggleFullscreen}>✕</button>
         </div>
       )}
       <div className="player-controls">
-        <button
-          onClick={() =>
-            status === 'playing' ? pause() : status === 'paused' ? resume() : play()
-          }
-        >
-          {status === 'playing' ? '⏸ Pause' : isSingle ? '▶ Play' : '▶ Play set'}
+        <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
+          {status === "playing" ? "⏸ Pause" : isSingle ? "▶ Play" : "▶ Play set"}
         </button>
-        <button onClick={() => stop(false)} disabled={status === 'stopped' && positionSec === 0}>
+        <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0}>
           ■ Stop
         </button>
         <button
-          className={repeat ? 'toggled' : ''}
+          className={repeat ? "toggled" : ""}
           aria-pressed={repeat}
           onClick={() => {
-            const next = !repeat
-            setRepeat(next)
-            repeatRef.current = next
+            const next = !repeat;
+            setRepeat(next);
+            repeatRef.current = next;
           }}
         >
-          {isSingle ? '🔁 Repeat' : '🔁 Repeat set'}
+          {isSingle ? "🔁 Repeat" : "🔁 Repeat set"}
         </button>
-        <MetronomeControls {...metronome} />
         {repeat && (
           <label>
             Times
@@ -627,28 +603,27 @@ export function SetPlayer({
               type="number"
               min="1"
               placeholder="∞"
-              value={repeatLimit || ''}
+              value={repeatLimit || ""}
               onChange={(e) => {
-                const val = (e.target as HTMLInputElement).value
-                const num = val ? parseInt(val, 10) : null
-                setRepeatLimit(num && num > 0 ? num : null)
-                repeatLimitRef.current = num && num > 0 ? num : null
+                const val = (e.target as HTMLInputElement).value;
+                const num = val ? parseInt(val, 10) : null;
+                setRepeatLimit(num && num > 0 ? num : null);
+                repeatLimitRef.current = num && num > 0 ? num : null;
               }}
               className="reps-input"
               title="Number of times to repeat (leave empty for infinite)"
             />
           </label>
         )}
-        <button onClick={toggleFullscreen}>
-          ⛶ Fullscreen
-        </button>
+        <MetronomeControls {...metronome} />
+        <button onClick={toggleFullscreen}>⛶ Fullscreen</button>
         <button
-          className={loop || markA !== null ? 'toggled' : ''}
-          disabled={status === 'stopped'}
+          className={loop || markA !== null ? "toggled" : ""}
+          disabled={status === "stopped"}
           onClick={markLoopPoint}
           title="Mark loop start, then loop end, at the current position"
         >
-          {markA !== null ? 'Set loop end' : loop ? 'New loop' : 'Set loop start'}
+          {markA !== null ? "Set loop end" : loop ? "New loop" : "Set loop start"}
         </button>
         {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
         <label>
@@ -679,7 +654,7 @@ export function SetPlayer({
 
       <div className="player-controls">
         <button
-          className={trainer.armed ? 'toggled' : ''}
+          className={trainer.armed ? "toggled" : ""}
           aria-pressed={trainer.armed}
           onClick={() => updateTrainer({ armed: !trainer.armed })}
         >
@@ -696,9 +671,7 @@ export function SetPlayer({
                 max="150"
                 step="5"
                 value={trainer.startPct}
-                onChange={(e) =>
-                  updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })
-                }
+                onChange={(e) => updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })}
               />
             </label>
             <label>
@@ -709,9 +682,7 @@ export function SetPlayer({
                 min="1"
                 max="20"
                 value={trainer.stepPct}
-                onChange={(e) =>
-                  updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })
-                }
+                onChange={(e) => updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })}
               />
             </label>
             <label>
@@ -723,12 +694,10 @@ export function SetPlayer({
                 max="150"
                 step="5"
                 value={trainer.targetPct}
-                onChange={(e) =>
-                  updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })
-                }
+                onChange={(e) => updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })}
               />
             </label>
-            {status !== 'stopped' && (
+            {status !== "stopped" && (
               <span className="tune-meta">
                 Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
               </span>
@@ -749,28 +718,26 @@ export function SetPlayer({
             disabled={currentTotalSec <= 0}
             aria-label="Position in tune"
             onMouseDown={() => {
-              isDraggingRef.current = true
+              isDraggingRef.current = true;
             }}
             onTouchStart={() => {
-              isDraggingRef.current = true
+              isDraggingRef.current = true;
             }}
             onChange={(e) => {
-              const val = Number((e.target as HTMLInputElement).value)
-              setPositionSec(val)
-              updateVisualsForTime(val)
+              const val = Number((e.target as HTMLInputElement).value);
+              setPositionSec(val);
+              updateVisualsForTime(val);
             }}
             onMouseUp={(e) => {
-              isDraggingRef.current = false
-              seek(Number((e.currentTarget as HTMLInputElement).value))
+              isDraggingRef.current = false;
+              seek(Number((e.currentTarget as HTMLInputElement).value));
             }}
             onTouchEnd={(e) => {
-              isDraggingRef.current = false
-              seek(Number((e.currentTarget as HTMLInputElement).value))
+              isDraggingRef.current = false;
+              seek(Number((e.currentTarget as HTMLInputElement).value));
             }}
           />
-          {markA !== null && (
-            <span className="loop-marker" style={{ left: `${markA * 100}%` }} title="Loop start" />
-          )}
+          {markA !== null && <span className="loop-marker" style={{ left: `${markA * 100}%` }} title="Loop start" />}
           {loop && (
             <>
               <span className="loop-marker" style={{ left: `${loop.a * 100}%` }} title="Loop A" />
@@ -782,7 +749,7 @@ export function SetPlayer({
       </div>
 
       <div className="player-controls">
-        {(['melody', 'chords', 'bass'] as const).map((part) => (
+        {(["melody", "chords", "bass"] as const).map((part) => (
           <label key={part}>
             {part[0].toUpperCase() + part.slice(1)}
             <select value={instruments[part]} onChange={onInstrumentChange(part)}>
@@ -797,14 +764,14 @@ export function SetPlayer({
       </div>
       {error && <p className="error">{error}</p>}
 
-      <div className={isSingle ? 'sheet-music' : 'set-player-tunes-list'}>
+      <div className={isSingle ? "sheet-music" : "set-player-tunes-list"}>
         {items.map((item, index) => {
-          const href = linkHref ? linkHref(item) : `/tune/${item.userTuneId}`
-          const showHeader = !isSingle && Boolean(item.title)
+          const href = linkHref ? linkHref(item) : `/tune/${item.userTuneId}`;
+          const showHeader = !isSingle && Boolean(item.title);
           return (
             <div
               key={item.userTuneId}
-              className={isSingle ? '' : `set-player-tune ${activeIndex === index ? 'active' : ''}`}
+              className={isSingle ? "" : `set-player-tune ${activeIndex === index ? "active" : ""}`}
             >
               {showHeader && (
                 <div className="set-header">
@@ -814,99 +781,102 @@ export function SetPlayer({
                         {index + 1}. {item.title}
                       </Link>
                     ) : (
-                      <span>{index + 1}. {item.title}</span>
+                      <span>
+                        {index + 1}. {item.title}
+                      </span>
                     )}
                   </h2>
                   <span className="tune-meta">
-                    {activeIndex === index
-                      ? `pass ${activePass} of ${item.repetitions}`
-                      : `× ${item.repetitions}`}
+                    {activeIndex === index ? `pass ${activePass} of ${item.repetitions}` : `× ${item.repetitions}`}
                   </span>
                 </div>
               )}
               <div
                 className="sheet-music"
                 ref={(el) => {
-                  sheetRefs.current[index] = el
+                  sheetRefs.current[index] = el;
                 }}
               />
             </div>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 
   function updateVisualsForTime(seconds: number) {
-    if (durationsRef.current.length !== items.length || noteTimingsRef.current.length !== items.length) return
+    if (durationsRef.current.length !== items.length || noteTimingsRef.current.length !== items.length) return;
 
-    const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec)
-    let remaining = clampedSeconds
-    let targetIndex = 0
+    const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec);
+    let remaining = clampedSeconds;
+    let targetIndex = 0;
 
     for (let i = 0; i < items.length; i++) {
-      const tuneDuration = durationsRef.current[i]
-      const totalTuneDuration = tuneDuration * items[i].repetitions
+      const tuneDuration = durationsRef.current[i];
+      const totalTuneDuration = tuneDuration * items[i].repetitions;
       if (remaining < totalTuneDuration) {
-        targetIndex = i
-        remaining = remaining % tuneDuration
-        break
+        targetIndex = i;
+        remaining = remaining % tuneDuration;
+        break;
       }
-      remaining -= totalTuneDuration
+      remaining -= totalTuneDuration;
     }
 
-    const naturalMs = remaining * tempoPercent * 10
-    const timings = noteTimingsRef.current[targetIndex]
-    if (!timings || timings.length === 0) return
+    const naturalMs = remaining * tempoPercent * 10;
+    const timings = noteTimingsRef.current[targetIndex];
+    if (!timings || timings.length === 0) return;
 
-    let bestEvent = null
+    let bestEvent = null;
     for (const ev of timings) {
-      if (ev.type === 'event') {
+      if (ev.type === "event") {
         if (ev.milliseconds <= naturalMs) {
-          bestEvent = ev
+          bestEvent = ev;
         } else {
-          break
+          break;
         }
       }
     }
 
-    clearHighlights()
+    clearHighlights();
 
     items.forEach((_, i) => {
       if (i !== targetIndex) {
-        const otherHost = sheetRefs.current[i]
-        const otherSvg = otherHost?.querySelector('svg')
-        const otherCursor = otherSvg?.querySelector('.abcjs-cursor')
+        const otherHost = sheetRefs.current[i];
+        const otherSvg = otherHost?.querySelector("svg");
+        const otherCursor = otherSvg?.querySelector(".abcjs-cursor");
         if (otherCursor) {
-          otherCursor.setAttribute('y1', '0')
-          otherCursor.setAttribute('y2', '0')
+          otherCursor.setAttribute("y1", "0");
+          otherCursor.setAttribute("y2", "0");
         }
       }
-    })
+    });
 
-    const host = sheetRefs.current[targetIndex]
-    const svg = host?.querySelector('svg') as SVGSVGElement | null
+    const host = sheetRefs.current[targetIndex];
+    const svg = host?.querySelector("svg") as SVGSVGElement | null;
 
-    if (bestEvent && typeof bestEvent.left === 'number' && typeof bestEvent.top === 'number' && typeof bestEvent.height === 'number') {
+    if (
+      bestEvent &&
+      typeof bestEvent.left === "number" &&
+      typeof bestEvent.top === "number" &&
+      typeof bestEvent.height === "number"
+    ) {
       for (const group of bestEvent.elements ?? []) {
         for (const el of group) {
-          el.classList.add('highlight')
-          highlightedRef.current.push(el)
+          el.classList.add("highlight");
+          highlightedRef.current.push(el);
         }
       }
 
       if (svg) {
-        updateCursorPosition(svg, bestEvent.left - 2, bestEvent.top, bestEvent.top + bestEvent.height)
-        checkAutoScroll(targetIndex, bestEvent)
+        updateCursorPosition(svg, bestEvent.left - 2, bestEvent.top, bestEvent.top + bestEvent.height);
+        checkAutoScroll(targetIndex, bestEvent);
       }
     } else {
-      const cursor = svg?.querySelector('.abcjs-cursor')
+      const cursor = svg?.querySelector(".abcjs-cursor");
       if (cursor) {
-        cursor.setAttribute('y1', '0')
-        cursor.setAttribute('y2', '0')
+        cursor.setAttribute("y1", "0");
+        cursor.setAttribute("y2", "0");
       }
     }
   }
 }
-
-
