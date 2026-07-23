@@ -47,6 +47,9 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
           <Link href="/practice/ear" className={pathname === '/practice/ear' ? 'toggled' : ''} prefetch={false}>
             👂 Ear Training
           </Link>
+          <Link href="/practice/session" className={pathname === '/practice/session' ? 'toggled' : ''} prefetch={false}>
+            🎻 Virtual Session
+          </Link>
         </div>
 
         {children}

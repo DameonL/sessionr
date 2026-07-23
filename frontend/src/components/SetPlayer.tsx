@@ -360,11 +360,13 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     }
     setError(null);
     try {
+      const startingTrainer = trainer.armed && wasStopped;
+      const effectivePercent = startingTrainer ? trainer.startPct : percent;
       const oldDurations = durationsRef.current;
       const newDurations = items.map((_, index) => {
         const visualObj = visualObjsRef.current[index];
         const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-        return naturalTotalSec * (100 / percent);
+        return naturalTotalSec * (100 / effectivePercent);
       });
       durationsRef.current = newDurations;
       setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
@@ -373,7 +375,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         items.map(async (_, index) => {
           const visualObj = visualObjsRef.current[index];
           if (!visualObj) throw new Error("Visual object not initialized");
-          const effectiveBpm = Math.round(visualObj.getBpm() * (percent / 100));
+          const effectiveBpm = Math.round(visualObj.getBpm() * (effectivePercent / 100));
           const synth = new abcjs.synth.CreateSynth();
           await synth.init({
             visualObj,
@@ -414,7 +416,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       }
 
       setStatus("playing");
-      if (trainer.armed && wasStopped) {
+      if (startingTrainer) {
         passRef.current = 1;
         setPassCount(1);
         setTempoPercent(trainer.startPct);
