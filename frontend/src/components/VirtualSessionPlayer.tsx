@@ -24,7 +24,7 @@ const BAND_VOICES: BandVoice[] = [
 
 /** Backers start a bit after the leader, like independent live musicians settling in. */
 const MIN_BACKER_OFFSET_MS = 60;
-const MAX_BACKER_OFFSET_MS = 80;
+const MAX_BACKER_OFFSET_MS = 280;
 /**
  * On a tune's first pass, each backer joins in one at a time rather than all
  * at once — the Nth backer enters after N measures (plus the usual humanized
@@ -148,12 +148,17 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
       synths[0].start();
       synths.slice(1).forEach((synth, backerIndex) => {
         const humanizedOffset = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
-        // First pass: each backer enters one at a time, N measures in, so the band audibly builds.
+        // First pass: each backer enters one at a time, N measures in, so the band audibly
+        // builds — seek the backer's own synth forward to that point in the tune before
+        // starting it, rather than just delaying when it starts (which would otherwise play
+        // the opening notes late instead of joining in where the tune actually is).
         const entranceMeasures = isFirstPass ? BACKER_ENTRANCE_MEASURES[backerIndex] ?? 0 : 0;
-        const offset = entranceMeasures * msPerMeasure + humanizedOffset;
+        const entranceSeconds = (entranceMeasures * msPerMeasure) / 1000;
         const id = window.setTimeout(() => {
-          if (synthsRef.current.includes(synth)) synth.start();
-        }, offset);
+          if (!synthsRef.current.includes(synth)) return;
+          if (entranceSeconds > 0) synth.seek(entranceSeconds, "seconds");
+          synth.start();
+        }, humanizedOffset);
         pendingTimeoutsRef.current.push(id);
       });
       timer.start();
