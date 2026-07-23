@@ -26,6 +26,7 @@ import {
   type GroupTuneListItem,
 } from '../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
+import { normalizeTitleForSorting } from '../services/abcTools'
 
 import { Dialog } from '../components/Dialog'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
@@ -545,7 +546,16 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             <p className="tune-meta italic">No shared repertoire found. Add tunes to your repertoires to see them here.</p>
           ) : (
             <ul className="tune-list">
-              {details.commonTunes.map((t) => {
+              {[...details.commonTunes]
+                .sort((a, b) => {
+                  if (b.memberCount !== a.memberCount) {
+                    return b.memberCount - a.memberCount
+                  }
+                  const keyA = normalizeTitleForSorting(a.title)
+                  const keyB = normalizeTitleForSorting(b.title)
+                  return keyA.localeCompare(keyB)
+                })
+                .map((t) => {
                 const alreadyHas = userTuneIds.has(t.tuneId)
                 const isOnMaster = masterTuneIds.has(t.tuneId)
                 const percent = Math.round((t.memberCount / t.totalMembersInGroup) * 100)

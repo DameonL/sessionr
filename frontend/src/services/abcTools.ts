@@ -592,3 +592,14 @@ export function validateAbc(abcText: string): { isValid: boolean; error?: string
 
   return { isValid: true, trimmedAbc }
 }
+
+/**
+ * Normalizes a tune title for alphabetical sorting by stripping leading articles ("The ", "A ", "An ").
+ */
+export function normalizeTitleForSorting(title: string): string {
+  const lower = (title || '').trim().toLowerCase()
+  if (lower.startsWith('the ')) return lower.slice(4).trim()
+  if (lower.startsWith('a ')) return lower.slice(2).trim()
+  if (lower.startsWith('an ')) return lower.slice(3).trim()
+  return lower
+}
