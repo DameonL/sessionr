@@ -11,6 +11,11 @@ public class Tune
     public TuneType TuneType { get; set; }
     public string Key { get; set; } = string.Empty;
     public string MasterAbcText { get; set; } = string.Empty;
+    public bool IsReviewed { get; set; } = false;
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
 
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<TuneAlias> Aliases { get; set; } = new List<TuneAlias>();

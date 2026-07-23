@@ -7,7 +7,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
-using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
 
 namespace SessionApp.Api.Functions;
 

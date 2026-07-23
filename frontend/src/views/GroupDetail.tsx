@@ -25,7 +25,8 @@ import {
   type GroupMember,
   type GroupTuneListItem,
 } from '../services/api'
-import { currentUserId, useAuthStatus, useSignal, showToast } from '../state/appState'
+import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
+
 import { Dialog } from '../components/Dialog'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { TransferOwnershipModal } from '../components/TransferOwnershipModal'
@@ -218,12 +219,14 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     )
   }
 
+  const profile = useSignal(currentUserProfile)
+  const isModerator = !!profile?.isModerator
   const details = groupQuery.data
   const showSignedInUi = authStatus !== 'anonymous'
   const isMember = details.viewerStatus === 'Active'
   const isPending = details.viewerStatus === 'Pending'
   const viewer = details.members.find((m) => m.userId === userId)
-  const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner'
+  const isAdmin = viewer?.role === 'Administrator' || viewer?.role === 'Owner' || isModerator
   const isOwner = viewer?.role === 'Owner'
   const userTuneIds = new Set(repertoireQuery.data?.map((t) => t.tuneId) ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
@@ -236,8 +239,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     return false
   }
 
-  // Private groups hide all content from non-approved viewers; show a join gate instead.
-  if (details.isPrivate && !isMember) {
+  // Private groups hide all content from non-approved viewers; show a join gate instead unless caller is a Moderator.
+  if (details.isPrivate && !isMember && !isModerator) {
+
     return (
       <section>
         <div style={{ marginBottom: '1rem' }}>
@@ -303,7 +307,28 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         <Link href="/groups" prefetch={false}>← Back to groups</Link>
       </div>
 
+      {isModerator && details.isPrivate && !isMember && (
+        <div
+          className="card"
+          style={{
+            padding: '0.75rem 1.25rem',
+            marginBottom: '1rem',
+            background: 'rgba(239, 100, 97, 0.15)',
+            border: '1px solid #ef6461',
+            borderRadius: '8px',
+            color: '#fca5a5',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <span>🛡️ Moderator Inspection Mode — Viewing Private Group</span>
+        </div>
+      )}
+
       <div className="set-header">
+
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0 }}>{details.isPrivate ? '🔒 ' : ''}{details.name}</h1>

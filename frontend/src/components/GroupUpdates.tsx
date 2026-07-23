@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createGroupUpdate, deleteGroupUpdate, type GroupUpdateData, parseServerDate } from '../services/api'
-import { showToast } from '../state/appState'
+import { currentUserProfile, useSignal, showToast } from '../state/appState'
 
 interface GroupUpdatesProps {
   groupId: string
@@ -13,7 +13,11 @@ interface GroupUpdatesProps {
 }
 
 export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdatesProps) {
+  const profile = useSignal(currentUserProfile)
+  const isModerator = !!profile?.isModerator
+  const canDelete = isAdmin || isModerator
   const queryClient = useQueryClient()
+
   const [showPostForm, setShowPostForm] = useState(false)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -107,7 +111,7 @@ export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdates
                     Posted by <strong>{up.createdByDisplayName}</strong> on {parseServerDate(up.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </span>
                 </div>
-                {isAdmin && (
+                {canDelete && (
                   <button
                     className="secondary danger-hover"
                     style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem' }}
@@ -121,6 +125,7 @@ export function GroupUpdates({ groupId, userId, isAdmin, updates }: GroupUpdates
                     Delete
                   </button>
                 )}
+
               </div>
               <p style={{ marginTop: '0.75rem', marginBottom: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
                 {up.content}

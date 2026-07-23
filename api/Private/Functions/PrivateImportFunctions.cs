@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using SessionApp.Api.Services;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
@@ -26,8 +28,9 @@ public class PrivateImportFunctions(AppDbContext db, TheSessionImportService imp
         var callerUserId = await req.GetCallerUserIdAsync(db);
         if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return GroupAuthorization.Unauthorized("Authentication credentials are required.");
+            return Unauthorized("Authentication credentials are required.");
         }
+
 
         const int maxTunes = 200;
 

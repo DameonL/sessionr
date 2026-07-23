@@ -9,6 +9,11 @@ public class Group
     public string? City { get; set; }
     public bool IsPrivate { get; set; }
     public string? InviteCode { get; set; }
+    public bool IsReviewed { get; set; } = false;
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
 
     public ICollection<GroupMembership> Memberships { get; set; } = new List<GroupMembership>();
     public ICollection<GroupTune> GroupTunes { get; set; } = new List<GroupTune>();

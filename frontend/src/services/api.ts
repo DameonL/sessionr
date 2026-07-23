@@ -1014,6 +1014,7 @@ export interface UserProfile {
   bio: string | null
   location: string | null
   instruments: string | null
+  isModerator: boolean
 }
 
 export const getCurrentUser = () => apiFetch<UserProfile>('/users/me')
@@ -1041,3 +1042,76 @@ export interface PublicActiveTune {
 
 export const getPublicActiveTunes = (userId: string) =>
   apiFetchPublic<PublicActiveTune[]>(`/users/${userId}/active-tunes`)
+
+// Moderator Interfaces and API Methods
+export interface ModeratorTuneData {
+  tuneId: string
+  title: string
+  tuneType: string
+  key: string
+  masterAbcText: string
+  isReviewed: boolean
+  reviewedAt: string | null
+  reviewedBy: string | null
+  createdAt: string
+}
+
+export interface ModeratorGroupData {
+  groupId: string
+  name: string
+  description: string
+  city: string | null
+  isPrivate: boolean
+  inviteCode: string | null
+  isReviewed: boolean
+  reviewedAt: string | null
+  reviewedBy: string | null
+  createdAt: string
+  memberCount: number
+}
+
+export interface ModeratorUserDetails {
+  userId: string
+  displayName: string
+  email: string
+  bio: string | null
+  location: string | null
+  instruments: string | null
+  isModerator: boolean
+  groupCount: number
+  tuneCount: number
+}
+
+export const getUnreviewedTunes = () =>
+  apiFetch<ModeratorTuneData[]>('/moderator/unreviewed-tunes')
+
+export const getUnreviewedGroups = () =>
+  apiFetch<ModeratorGroupData[]>('/moderator/unreviewed-groups')
+
+export const approveTune = (tuneId: string) =>
+  apiFetch<ModeratorTuneData>(`/moderator/tunes/${tuneId}/approve`, { method: 'POST' })
+
+export const approveGroup = (groupId: string) =>
+  apiFetch<ModeratorGroupData>(`/moderator/groups/${groupId}/approve`, { method: 'POST' })
+
+export const moderatorUpdateTune = (tuneId: string, payload: { title: string; tuneType: string; key: string; masterAbcText: string }) =>
+  apiFetch<ModeratorTuneData>(`/moderator/tunes/${tuneId}`, { method: 'PUT', body: JSON.stringify(payload) })
+
+export const moderatorDeleteTune = (tuneId: string) =>
+  apiFetch<void>(`/moderator/tunes/${tuneId}`, { method: 'DELETE' })
+
+export const moderatorDeleteTuneSetting = (settingId: string) =>
+  apiFetch<void>(`/moderator/tunes/settings/${settingId}`, { method: 'DELETE' })
+
+export const moderatorDeleteTuneAlias = (aliasId: string) =>
+  apiFetch<void>(`/moderator/tunes/aliases/${aliasId}`, { method: 'DELETE' })
+
+export const getModeratorGroups = () =>
+  apiFetch<ModeratorGroupData[]>('/moderator/groups')
+
+export const getModeratorUserDetails = (userId: string) =>
+  apiFetch<ModeratorUserDetails>(`/moderator/users/${userId}`)
+
+export const sanitizeUserProfile = (userId: string, payload: { displayName?: string; bio?: string; location?: string; instruments?: string }) =>
+  apiFetch<{ success: boolean; userId: string; displayName: string }>(`/moderator/users/${userId}/sanitize`, { method: 'POST', body: JSON.stringify(payload) })
+

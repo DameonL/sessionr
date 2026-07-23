@@ -43,6 +43,23 @@ public static class DbSchemaMigrator
                         CONSTRAINT FK_UserBadges_Users FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
                         CONSTRAINT UQ_UserBadges_User_BadgeKey UNIQUE (UserId, BadgeKey)
                     );
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'IsReviewed')
+                    ALTER TABLE Tunes ADD IsReviewed BIT NOT NULL DEFAULT 1;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'ReviewedAt')
+                    ALTER TABLE Tunes ADD ReviewedAt DATETIME2 NULL;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'ReviewedBy')
+                    ALTER TABLE Tunes ADD ReviewedBy NVARCHAR(256) NULL;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'CreatedAt')
+                    ALTER TABLE Tunes ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'IsReviewed')
+                    ALTER TABLE Groups ADD IsReviewed BIT NOT NULL DEFAULT 1;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'ReviewedAt')
+                    ALTER TABLE Groups ADD ReviewedAt DATETIME2 NULL;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'ReviewedBy')
+                    ALTER TABLE Groups ADD ReviewedBy NVARCHAR(256) NULL;
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'CreatedAt')
+                    ALTER TABLE Groups ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
             """);
         }
         else
@@ -50,6 +67,17 @@ public static class DbSchemaMigrator
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Bio TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Location TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Instruments TEXT NULL;");
+
+            ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN IsReviewed INTEGER NOT NULL DEFAULT 1;");
+            ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN ReviewedAt TEXT NULL;");
+            ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN ReviewedBy TEXT NULL;");
+            ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';");
+
+            ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN IsReviewed INTEGER NOT NULL DEFAULT 1;");
+            ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedAt TEXT NULL;");
+            ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedBy TEXT NULL;");
+            ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';");
+
 
             ExecuteSqlSafe(db, """
                 CREATE TABLE IF NOT EXISTS PointsTransactions (

@@ -1,22 +1,29 @@
 using System;
+using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Functions;
 
-/// <summary>Shared group-role lookup and permission helpers for the group-scoped Functions files.</summary>
-public static class GroupAuthorization
+/// <summary>
+/// Authorization and identity resolution helpers for Azure Entra ID / EasyAuth Directory Groups and Claims.
+/// 
+/// Note: Azure Directory Groups (such as the Moderator group claim 83bbddaa-d861-4904-a932-371f5d33dfe8)
+/// are used strictly for identity provider role authorization. They are completely distinct from in-app
+/// SessionApp music bands and session groups (see SessionGroupAuthorization.cs).
+/// </summary>
+public static class AzureDirectoryAuthorization
 {
-    // Excludes visually ambiguous characters (0/O, 1/I).
-    private const string InviteCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private const string DefaultModeratorGroupId = "83bbddaa-d861-4904-a932-371f5d33dfe8";
+
+    /// <summary>Raw caller identity parsed from EasyAuth headers or a JWT Bearer token — no database access.</summary>
+    public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
 
     /// <summary>Ensures a user record exists in db.Users for the given authenticated identity.</summary>
     public static async Task<Guid> EnsureUserExistsAsync(AppDbContext db, Guid userId, string? email = null, string? displayName = null)
@@ -28,8 +35,6 @@ public static class GroupAuthorization
             .Where(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail))
             .ToListAsync();
 
-        // The oid is the durable IdP identity anchor (stable across email changes), so prefer
-        // it deterministically over an email match when the two point at different rows.
         var byOid = candidates.FirstOrDefault(u => u.UserId == userId);
         var byEmail = normalizedEmail != null ? candidates.FirstOrDefault(u => u.Email == normalizedEmail) : null;
 
@@ -45,15 +50,9 @@ public static class GroupAuthorization
             }
             else if (normalizedEmail != null && byOid.Email != normalizedEmail)
             {
-                // No other row owns this email, so it's safe to heal a stale/placeholder
-                // email (e.g. from a login that once resolved via an oid-only source).
                 byOid.Email = normalizedEmail;
                 changed = true;
             }
-
-            // DisplayName is seeded from the JWT only once, at row creation below — after
-            // that it's user-owned (editable via the profile page) and never re-synced from
-            // the identity provider, even if the account's real name changes later.
 
             if (changed)
             {
@@ -82,23 +81,14 @@ public static class GroupAuthorization
         }
         catch
         {
-            // Fallback for concurrency: reload
             var reload = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail));
             if (reload != null) return reload.UserId;
             throw;
         }
     }
 
-    /// <summary>Raw caller identity parsed from EasyAuth headers or a JWT Bearer token — no database access.</summary>
-    public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
-
     /// <summary>
-    /// Extracts the authentic caller identity strictly from Azure EasyAuth headers and JWT Bearer
-    /// tokens. Tries the Authorization Bearer token first — the frontend always sends it, it's the
-    /// exact token EasyAuth itself already validated to let the request through, and it carries the
-    /// full claim set (email/name). EasyAuth's own injected headers are checked only as a fallback:
-    /// X-MS-CLIENT-PRINCIPAL-ID in particular carries the oid alone with no email or name, so trying
-    /// it first (as this used to) would silently starve every downstream call of real profile data.
+    /// Extracts the authentic caller identity strictly from Azure EasyAuth headers and JWT Bearer tokens.
     /// </summary>
     public static CallerIdentity GetCallerIdentity(this HttpRequest req)
     {
@@ -206,7 +196,7 @@ public static class GroupAuthorization
             catch { }
         }
 
-        // 3. Azure EasyAuth Direct Principal ID Header — oid only, no email/name. Last resort.
+        // 3. Azure EasyAuth Direct Principal ID Header
         if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL-ID", out var easyAuthIdValues) &&
             Guid.TryParse(easyAuthIdValues.ToString(), out var easyAuthGuid))
         {
@@ -236,6 +226,119 @@ public static class GroupAuthorization
         return null;
     }
 
+    /// <summary>
+    /// Checks whether the request carries an Azure Entra Directory Group claim matching the specified target group Object ID.
+    /// This parses claims from EasyAuth (X-MS-CLIENT-PRINCIPAL) or JWT Bearer tokens for authorization purposes.
+    /// </summary>
+    public static bool HasEntraGroupClaim(this HttpRequest req, string targetGroupId)
+    {
+        if (string.IsNullOrWhiteSpace(targetGroupId)) return false;
+
+        // 1. Authorization Header (JWT Bearer Token)
+        if (req.Headers.TryGetValue("Authorization", out var authHeaderValues))
+        {
+            var authHeader = authHeaderValues.ToString().Trim();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = authHeader.Substring(7).Trim();
+                var parts = token.Split('.');
+                if (parts.Length == 3)
+                {
+                    try
+                    {
+                        var payloadJson = Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
+                        using var doc = JsonDocument.Parse(payloadJson);
+                        var root = doc.RootElement;
+
+                        if (CheckGroupClaims(root, targetGroupId))
+                        {
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        // 2. Azure EasyAuth Encoded Principal Header (Base64-encoded Claims)
+        if (req.Headers.TryGetValue("X-MS-CLIENT-PRINCIPAL", out var principalHeaderValues))
+        {
+            try
+            {
+                var json = Encoding.UTF8.GetString(Convert.FromBase64String(principalHeaderValues.ToString()));
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("claims", out var claimsArr) && claimsArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var claim in claimsArr.EnumerateArray())
+                    {
+                        var typ = claim.GetProperty("typ").GetString();
+                        var val = claim.GetProperty("val").GetString();
+                        if (typ == "groups" || typ == "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" || typ == "wids" || typ == "roles")
+                        {
+                            if (string.Equals(val, targetGroupId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        return false;
+    }
+
+    /// <summary>Checks whether the caller belongs to the Azure Moderator directory group via EasyAuth or JWT Bearer claims.</summary>
+    public static bool IsCallerModerator(this HttpRequest req)
+    {
+        var targetGroupId = Environment.GetEnvironmentVariable("MODERATOR_GROUP_OBJECT_ID")?.Trim();
+        if (string.IsNullOrEmpty(targetGroupId))
+        {
+            targetGroupId = DefaultModeratorGroupId;
+        }
+
+        return req.HasEntraGroupClaim(targetGroupId);
+    }
+
+    private static bool CheckGroupClaims(JsonElement root, string targetGroupId)
+    {
+        string[] groupClaimKeys = [
+            "groups",
+            "wids",
+            "roles",
+            "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups"
+        ];
+
+        foreach (var key in groupClaimKeys)
+        {
+            if (root.TryGetProperty(key, out var prop))
+            {
+                if (prop.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var elem in prop.EnumerateArray())
+                    {
+                        if (elem.ValueKind == JsonValueKind.String &&
+                            string.Equals(elem.GetString(), targetGroupId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                else if (prop.ValueKind == JsonValueKind.String)
+                {
+                    if (string.Equals(prop.GetString(), targetGroupId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static byte[] Base64UrlDecode(string input)
     {
         var output = input.Replace('-', '+').Replace('_', '/');
@@ -245,37 +348,5 @@ public static class GroupAuthorization
             case 3: output += "="; break;
         }
         return Convert.FromBase64String(output);
-    }
-
-    /// <summary>The caller's role, or null if they aren't an active member (pending requests have no permissions).</summary>
-    public static async Task<GroupRole?> GetRoleAsync(this AppDbContext db, Guid groupId, Guid userId)
-    {
-        var membership = await db.GroupMemberships
-            .AsNoTracking()
-            .SingleOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == userId && gm.Status == GroupMembershipStatus.Active);
-        return membership?.Role;
-    }
-
-    public static Task<bool> IsActiveMemberAsync(this AppDbContext db, Guid groupId, Guid userId) =>
-        db.GroupMemberships.AsNoTracking()
-            .AnyAsync(gm => gm.GroupId == groupId && gm.UserId == userId && gm.Status == GroupMembershipStatus.Active);
-
-    public static bool IsAdminOrOwner(this GroupRole? role) => role is GroupRole.Administrator or GroupRole.Owner;
-
-    public static bool IsAdminOrOwner(this GroupRole role) => role is GroupRole.Administrator or GroupRole.Owner;
-
-    public static ObjectResult Forbidden(string message) => new(message) { StatusCode = 403 };
-
-    public static ObjectResult Unauthorized(string message) => new(message) { StatusCode = 401 };
-
-    public static string GenerateInviteCode()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(8);
-        Span<char> chars = stackalloc char[8];
-        for (var i = 0; i < chars.Length; i++)
-        {
-            chars[i] = InviteCodeAlphabet[bytes[i] % InviteCodeAlphabet.Length];
-        }
-        return new string(chars);
     }
 }

@@ -20,6 +20,12 @@ export function NavBar() {
   const [mounted, setMounted] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
+  const profile = useSignal(currentUserProfile)
+
+  const links = [...NAV_LINKS]
+  if (profile?.isModerator) {
+    links.push({ href: '/moderator', label: '🛡️ Moderator' })
+  }
 
   useEffect(() => {
     setMounted(true)
@@ -38,11 +44,9 @@ export function NavBar() {
           <span className="brand-text">sessionr</span>
         </Link>
 
-        {/* Desktop Navigation. prefetch={false}: these 6 links render on every single page
-            load app-wide, so their default viewport-based RSC prefetch adds 6 wasted requests
-            per page view — defer fetching until the user actually clicks one. */}
+        {/* Desktop Navigation */}
         <nav className="desktop-nav">
-          {NAV_LINKS.map((link) => {
+          {links.map((link) => {
             const active = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
             return (
               <Link key={link.href} href={link.href} className={`nav-pill ${active ? 'active' : ''}`} prefetch={false}>
@@ -81,7 +85,7 @@ export function NavBar() {
           <div className="mobile-backdrop" onClick={() => setMobileOpen(false)} />
           <div className="mobile-drawer">
             <nav className="mobile-nav-links">
-              {NAV_LINKS.map((link) => {
+              {links.map((link) => {
                 const active = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
                 return (
                   <Link
@@ -104,6 +108,7 @@ export function NavBar() {
     </header>
   )
 }
+
 
 function MsalAuthWidget() {
   const { instance } = useMsal()

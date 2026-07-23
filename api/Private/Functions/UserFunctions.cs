@@ -7,13 +7,15 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
-using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
 
 namespace SessionApp.Api.Functions;
 
 public class UserFunctions(AppDbContext db)
 {
-    public record UserLoginResponse(Guid UserId, string DisplayName, string Email, string? Bio, string? Location, string? Instruments);
+    public record UserLoginResponse(Guid UserId, string DisplayName, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator);
 
     /// <summary>GET /api/users/me — resolves (and lazily provisions) the caller's own user record.</summary>
     [Function("GetCurrentUser")]
@@ -26,9 +28,11 @@ public class UserFunctions(AppDbContext db)
             return Unauthorized("Authentication credentials are required.");
         }
 
+        var isModerator = req.IsCallerModerator();
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments));
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
     }
+
 
     /// <summary>PATCH /api/users/me — updates the caller's own profile fields. Null = leave unchanged.</summary>
     [Function("UpdateCurrentUser")]
@@ -90,8 +94,10 @@ public class UserFunctions(AppDbContext db)
         }
 
         await db.SaveChangesAsync();
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments));
+        var isModerator = req.IsCallerModerator();
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
     }
+
 
     /// <summary>GET /api/users/me/gamification — the caller's own points total and earned badges.</summary>
     [Function("GetMyGamificationSummary")]

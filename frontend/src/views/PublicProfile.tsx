@@ -1,18 +1,44 @@
 "use client";
 
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { formatTuneType, getPublicActiveTunes, getPublicGamificationSummary, getPublicUserProfile } from '../services/api'
+import {
+  formatTuneType,
+  getPublicActiveTunes,
+  getPublicGamificationSummary,
+  getPublicUserProfile,
+  getModeratorUserDetails,
+  sanitizeUserProfile,
+} from '../services/api'
 import { getBadgeInfo } from '../services/badges'
+import { currentUserProfile, useSignal, showToast } from '../state/appState'
 
 /** Bookmarkable public profile page: /profile/{userId} */
 export function PublicProfile({ userId }: { userId?: string }) {
   const id = userId ?? ''
+  const viewerProfile = useSignal(currentUserProfile)
+  const isViewerModerator = !!viewerProfile?.isModerator
+  const queryClient = useQueryClient()
+
+  const [showSanitizeModal, setShowSanitizeModal] = useState(false)
+  const [sanName, setSanName] = useState('')
+  const [sanBio, setSanBio] = useState('')
+  const [sanLoc, setSanLoc] = useState('')
+  const [sanInst, setSanInst] = useState('')
 
   const profile = useQuery({
     queryKey: ['public-profile', id],
     queryFn: () => getPublicUserProfile(id),
     retry: false,
+  })
+
+  const moderatorDetails = useQuery({
+    queryKey: ['moderator-user-details', id],
+    queryFn: () => getModeratorUserDetails(id),
+    retry: false,
+    enabled: isViewerModerator && !!id,
   })
 
   const gamification = useQuery({
@@ -27,6 +53,22 @@ export function PublicProfile({ userId }: { userId?: string }) {
     queryFn: () => getPublicActiveTunes(id),
     retry: false,
     enabled: !!profile.data,
+  })
+
+  const sanitizeMutation = useMutation({
+    mutationFn: () =>
+      sanitizeUserProfile(id, {
+        displayName: sanName,
+        bio: sanBio,
+        location: sanLoc,
+        instruments: sanInst,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['public-profile', id] })
+      setShowSanitizeModal(false)
+      showToast('Profile sanitized successfully.', 'success')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to sanitize profile.', 'error'),
   })
 
   if (profile.isLoading) {
@@ -45,14 +87,58 @@ export function PublicProfile({ userId }: { userId?: string }) {
   const { displayName, bio, location, instruments } = profile.data
   const isEmpty = !bio && !location && !instruments
 
+  const handleOpenSanitize = () => {
+    setSanName(displayName)
+    setSanBio(bio ?? '')
+    setSanLoc(location ?? '')
+    setSanInst(instruments ?? '')
+    setShowSanitizeModal(true)
+  }
+
   return (
     <section>
       <div className="card" style={{ padding: '1.5rem' }}>
-        <h1 style={{ marginTop: 0 }}>{displayName}</h1>
-        {location && <p className="tune-meta">📍 {location}</p>}
-        {instruments && <p className="tune-meta">🎻 {instruments}</p>}
-        {bio && <p style={{ whiteSpace: 'pre-wrap' }}>{bio}</p>}
-        {isEmpty && <p className="tune-meta">This musician hasn't added anything to their profile yet.</p>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h1 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span>{displayName}</span>
+            </h1>
+            {location && <p className="tune-meta">📍 {location}</p>}
+            {instruments && <p className="tune-meta">🎻 {instruments}</p>}
+          </div>
+
+          {isViewerModerator && (
+            <button className="secondary" onClick={handleOpenSanitize}>
+              🛡️ Sanitize Profile
+            </button>
+          )}
+        </div>
+
+        {isViewerModerator && moderatorDetails.data && (
+          <div
+            className="card"
+            style={{
+              padding: '1rem',
+              marginTop: '1rem',
+              background: 'rgba(51, 65, 85, 0.4)',
+              border: '1px solid rgba(77, 208, 165, 0.4)',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+            }}
+          >
+            <strong style={{ color: '#4dd0a5' }}>🛡️ Moderator Inspection Details:</strong>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <div>📧 <strong>Email:</strong> {moderatorDetails.data.email}</div>
+              <div>🔑 <strong>User ID:</strong> {moderatorDetails.data.userId}</div>
+              <div>👥 <strong>Group Memberships:</strong> {moderatorDetails.data.groupCount}</div>
+              <div>🎵 <strong>Repertoire Tunes:</strong> {moderatorDetails.data.tuneCount}</div>
+            </div>
+          </div>
+        )}
+
+        {bio && <p style={{ whiteSpace: 'pre-wrap', marginTop: '1rem' }}>{bio}</p>}
+        {isEmpty && <p className="tune-meta" style={{ marginTop: '1rem' }}>This musician hasn't added anything to their profile yet.</p>}
+
 
         {gamification.data && (
           <div style={{ marginTop: '1rem' }}>
@@ -95,6 +181,56 @@ export function PublicProfile({ userId }: { userId?: string }) {
           </ul>
         </div>
       )}
+
+      {showSanitizeModal && (
+
+        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-card" style={{ maxWidth: '550px', width: '100%', padding: '1.75rem' }}>
+            <h2 style={{ marginTop: 0 }}>🛡️ Sanitize User Profile: {displayName}</h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+              Clear or sanitize inappropriate text in this user's profile fields.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Display Name</label>
+                <input type="text" value={sanName} onChange={(e) => setSanName(e.target.value)} required />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Location</label>
+                <input type="text" value={sanLoc} onChange={(e) => setSanLoc(e.target.value)} placeholder="Clear or set location..." />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Instruments</label>
+                <input type="text" value={sanInst} onChange={(e) => setSanInst(e.target.value)} placeholder="Clear or set instruments..." />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Bio</label>
+                <textarea
+                  rows={4}
+                  value={sanBio}
+                  onChange={(e) => setSanBio(e.target.value)}
+                  placeholder="Clear or set bio text..."
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="secondary" onClick={() => setShowSanitizeModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => sanitizeMutation.mutate()}
+                  disabled={sanitizeMutation.isPending || !sanName.trim()}
+                >
+                  {sanitizeMutation.isPending ? 'Saving…' : 'Save & Sanitize'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
+

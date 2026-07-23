@@ -7,7 +7,9 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
-using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
 using static SessionApp.Api.Functions.GroupFeedSupport;
 
 namespace SessionApp.Api.Functions;
@@ -97,12 +99,13 @@ public class PrivateGroupFunctions(AppDbContext db)
 
         // Private groups reveal nothing but their name/privacy flag and the viewer's own
         // request status to non-members and members still awaiting approval.
-        if (group.IsPrivate && !viewerIsActive)
+        if (group.IsPrivate && !viewerIsActive && !req.IsCallerModerator())
         {
             return new OkObjectResult(new GroupDetailsDto(
                 group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
                 [], [], [], [], [], [], []));
         }
+
 
         var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
 
@@ -380,10 +383,11 @@ public class PrivateGroupFunctions(AppDbContext db)
         }
 
         var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
-        if (actorRole is not (GroupRole.Administrator or GroupRole.Owner))
+        if (!req.IsCallerModerator() && actorRole is not (GroupRole.Administrator or GroupRole.Owner))
         {
-            return Forbidden("Only group administrators can delete updates.");
+            return Forbidden("Only group administrators or moderators can delete updates.");
         }
+
 
         var update = await db.GroupUpdates.SingleOrDefaultAsync(u => u.GroupUpdateId == updateId && u.GroupId == groupId);
         if (update is null)
@@ -1277,10 +1281,11 @@ public class PrivateGroupFunctions(AppDbContext db)
         }
 
         var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
-        if (actorRole != GroupRole.Owner)
+        if (!req.IsCallerModerator() && actorRole != GroupRole.Owner)
         {
-            return Forbidden("Only the group owner can delete this group.");
+            return Forbidden("Only the group owner or a moderator can delete this group.");
         }
+
 
         var group = await db.Groups.FindAsync(groupId);
         if (group is null)

@@ -11,8 +11,14 @@ import {
   voteTuneSetting,
   addToRepertoire,
   formatTuneType,
+  moderatorDeleteTune,
+  moderatorUpdateTune,
+  moderatorDeleteTuneSetting,
+  moderatorDeleteTuneAlias,
 } from '../services/api'
-import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
+import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
+import { useRouter } from 'next/navigation'
+
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -37,11 +43,50 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const [aliasError, setAliasError] = useState<string | null>(null)
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
 
+  const profile = useSignal(currentUserProfile)
+  const isModerator = !!profile?.isModerator
+  const router = useRouter()
+
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editType, setEditType] = useState('')
+  const [editKey, setEditKey] = useState('')
+  const [editAbc, setEditAbc] = useState('')
+
   const { data: details, isPending, isError, refetch } = useQuery({
     queryKey: ['tune-details', id, userId],
     queryFn: () => getTuneDetails(id, userId),
     enabled: authStatus !== 'pending',
   })
+
+  const deleteTuneMutation = useMutation({
+    mutationFn: () => moderatorDeleteTune(id),
+    onSuccess: () => {
+      showToast('Tune deleted permanently.', 'info')
+      router.push('/tunes')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to delete tune.', 'error'),
+  })
+
+  const deleteSettingMutation = useMutation({
+    mutationFn: (settingId: string) => moderatorDeleteTuneSetting(settingId),
+    onSuccess: () => {
+      refetch()
+      showToast('Setting deleted.', 'info')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to delete setting.', 'error'),
+  })
+
+  const updateTuneMutation = useMutation({
+    mutationFn: () => moderatorUpdateTune(id, { title: editTitle.trim(), tuneType: editType.trim(), key: editKey.trim(), masterAbcText: editAbc }),
+    onSuccess: () => {
+      refetch()
+      setShowEditModal(false)
+      showToast('Master tune updated.', 'success')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to update tune.', 'error'),
+  })
+
 
   const voteMutation = useMutation({
     mutationFn: ({ settingId, value }: { settingId: string; value: number }) =>
@@ -123,12 +168,88 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
         <Link href="/tunes" prefetch={false}>← Tune Library</Link>
       </div>
 
-      <div className="set-header">
+      <div className="set-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>{details.title}</h1>
           <span className="tune-meta">{formatTuneType(details.tuneType)} · {details.key}</span>
         </div>
+
+        {isModerator && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              className="secondary"
+              onClick={() => {
+                setEditTitle(details.title)
+                setEditType(details.tuneType)
+                setEditKey(details.key)
+                setEditAbc(details.settings[0]?.abcText ?? '')
+                setShowEditModal(true)
+              }}
+            >
+              ✏️ Edit Master Tune
+            </button>
+            <button
+              className="secondary danger-hover"
+              onClick={() => {
+                if (confirm(`Are you sure you want to permanently delete "${details.title}"?`)) {
+                  deleteTuneMutation.mutate()
+                }
+              }}
+              disabled={deleteTuneMutation.isPending}
+            >
+              🗑️ Delete Tune
+            </button>
+          </div>
+        )}
       </div>
+
+      {showEditModal && (
+        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-card" style={{ maxWidth: '650px', width: '100%', padding: '1.75rem' }}>
+            <h2 style={{ marginTop: 0 }}>Edit Master Tune: {details.title}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Title</label>
+                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required />
+              </div>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Tune Type</label>
+                  <input type="text" value={editType} onChange={(e) => setEditType(e.target.value)} required />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Key</label>
+                  <input type="text" value={editKey} onChange={(e) => setEditKey(e.target.value)} required />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Master ABC Notation</label>
+                <textarea
+                  rows={8}
+                  value={editAbc}
+                  onChange={(e) => setEditAbc(e.target.value)}
+                  style={{ width: '100%', fontFamily: 'monospace', resize: 'vertical' }}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="secondary" onClick={() => setShowEditModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => updateTuneMutation.mutate()}
+                  disabled={updateTuneMutation.isPending || !editTitle.trim() || !editAbc.trim()}
+                >
+                  {updateTuneMutation.isPending ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Alternate Names */}
       <div className="modal-section alternate-names-section" style={{ marginTop: '1.5rem' }}>

@@ -7,7 +7,9 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
-using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
 
 namespace SessionApp.Api.Functions;
 
@@ -167,10 +169,11 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         }
 
         var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
-        if (!actorRole.IsAdminOrOwner())
+        if (!req.IsCallerModerator() && !actorRole.IsAdminOrOwner())
         {
-            return Forbidden("Only group administrators can delete sessions.");
+            return Forbidden("Only group administrators or moderators can delete sessions.");
         }
+
 
         var session = await db.GroupSessions.SingleOrDefaultAsync(gs => gs.GroupSessionId == sessionId && gs.GroupId == groupId);
         if (session is null)

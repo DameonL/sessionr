@@ -134,14 +134,18 @@ public static class DbInitializer
         }
     }
 
-    private static List<Tune> SeedTunes() =>
-    [
-        new()
+    private static List<Tune> SeedTunes()
+    {
+        var tunes = new List<Tune>
         {
-            Title = "The Kesh",
-            TuneType = TuneType.Jig,
-            Key = "G",
-            MasterAbcText = """
+            new()
+            {
+                Title = "The Kesh",
+                TuneType = TuneType.Jig,
+                Key = "G",
+                IsReviewed = true,
+                MasterAbcText = """
+
                 X:1
                 T:The Kesh
                 R:jig
@@ -310,6 +314,14 @@ public static class DbInitializer
                 |:Bee fee|aee fee|Bee fee|a2g fed|
                 Bee fee|aee fag|f2e d2B|BAB dBA:|
                 """,
-        },
-    ];
+            }
+        };
+        foreach (var t in tunes)
+        {
+            t.IsReviewed = true;
+        }
+        return tunes;
+    }
 }
+
+

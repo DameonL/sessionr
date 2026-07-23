@@ -4,9 +4,13 @@ using Microsoft.Extensions.Hosting;
 using SessionApp.Api.Data;
 using SessionApp.Api.Services;
 
+using SessionApp.Api.Functions;
+
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
+builder.UseMiddleware<ModeratorAuthorizationMiddleware>();
+
 
 var useSqlite = builder.Services.AddSessionAppDbContext();
 

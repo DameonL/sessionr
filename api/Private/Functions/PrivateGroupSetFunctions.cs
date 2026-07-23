@@ -8,7 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using SessionApp.Api.Services;
-using static SessionApp.Api.Functions.GroupAuthorization;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
 
 namespace SessionApp.Api.Functions;
 
@@ -164,10 +166,11 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         }
 
         var actorRole = await db.GetRoleAsync(groupSet.GroupId, callerUserId.Value);
-        if (!actorRole.IsAdminOrOwner())
+        if (!req.IsCallerModerator() && !actorRole.IsAdminOrOwner())
         {
-            return Forbidden("Only group administrators can delete set lists.");
+            return Forbidden("Only group administrators or moderators can delete set lists.");
         }
+
 
         db.GroupSets.Remove(groupSet);
         await db.SaveChangesAsync();
