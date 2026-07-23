@@ -12,7 +12,8 @@ import {
   updateUserTune,
   formatTuneType,
 } from '../services/api'
-import { useAuthStatus } from '../state/appState'
+import { useAuthStatus, currentUserProfile, useSignal } from '../state/appState'
+import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
 const SheetMusic = dynamic(() => import('./SheetMusic').then((m) => m.SheetMusic), { ssr: false })
@@ -40,6 +41,7 @@ export function TuneSettingsModal({
 }: TuneSettingsModalProps) {
   const queryClient = useQueryClient()
   const authStatus = useAuthStatus()
+  const profile = useSignal(currentUserProfile)
   // undefined = no explicit user choice yet (show the first/most-popular setting);
   // null = user explicitly collapsed everything; string = user explicitly expanded that setting.
   const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
@@ -126,14 +128,18 @@ export function TuneSettingsModal({
 
   const handleSettingSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newSettingKey.trim() || !newSettingAbc.trim()) {
-      setSettingError('Key and ABC notation text are required.')
+    const validation = validateAbc(newSettingAbc)
+    if (!validation.isValid) {
+      setSettingError(validation.error || 'Invalid ABC notation.')
       return
     }
+    const trimmedAbc = validation.trimmedAbc
+    const detectedKey = extractKeyFromAbc(trimmedAbc) || (details ? details.key : '') || 'C'
+    const submitterName = profile?.displayName?.trim() || 'Anonymous'
     addSettingMutation.mutate({
-      key: newSettingKey.trim(),
-      abc: newSettingAbc,
-      submitterName: newSettingSubmitter.trim() || 'Anonymous',
+      key: detectedKey,
+      abc: trimmedAbc,
+      submitterName,
     })
   }
 
@@ -281,26 +287,9 @@ export function TuneSettingsModal({
           ) : (
             <form onSubmit={handleSettingSubmit} className="new-setting-form">
               <h4>Submit alternate setting</h4>
-              <div className="form-row">
-                <label>
-                  Key
-                  <input
-                    type="text"
-                    placeholder="e.g. G"
-                    value={newSettingKey}
-                    onChange={(e) => setNewSettingKey(e.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  Submitter Name
-                  <input
-                    type="text"
-                    placeholder="e.g. Seamus"
-                    value={newSettingSubmitter}
-                    onChange={(e) => setNewSettingSubmitter(e.target.value)}
-                  />
-                </label>
+              <div className="tune-meta" style={{ marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                <span>Key: <strong>{extractKeyFromAbc(newSettingAbc) || (details ? details.key : 'Auto-detected from K:')}</strong></span>
+                <span>Submitter: <strong>{profile?.displayName || 'Anonymous'}</strong></span>
               </div>
               <label>
                 ABC Notation

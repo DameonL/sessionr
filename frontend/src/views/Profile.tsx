@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser } from '../services/api'
+import { getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser, type UserBadge } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
+import { BadgeModal } from '../components/BadgeModal'
 
 /** Edit-your-own-profile page: /profile */
 export function Profile() {
@@ -14,6 +15,8 @@ export function Profile() {
   const gamificationQuery = useQuery({ queryKey: ['my-gamification'], queryFn: getMyGamificationSummary })
   const practiceStatsQuery = useQuery({ queryKey: ['practice-stats', userId], queryFn: getPracticeStats })
 
+  const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [location, setLocation] = useState('')
@@ -23,14 +26,14 @@ export function Profile() {
   const seeded = useRef(false)
 
   useEffect(() => {
-    if (profileQuery.data && !seeded.current) {
+    if (profileQuery.data && (!seeded.current || !isEditing)) {
       seeded.current = true
       setDisplayName(profileQuery.data.displayName)
       setBio(profileQuery.data.bio ?? '')
       setLocation(profileQuery.data.location ?? '')
       setInstruments(profileQuery.data.instruments ?? '')
     }
-  }, [profileQuery.data])
+  }, [profileQuery.data, isEditing])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,6 +50,7 @@ export function Profile() {
       })
       currentUserProfile.value = updated
       showToast('Profile updated successfully!')
+      setIsEditing(false)
     } catch (err: any) {
       setError(err.message || 'Failed to update profile.')
     } finally {
@@ -67,7 +71,14 @@ export function Profile() {
 
   return (
     <section>
-      <h1>Your Profile</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h1 style={{ margin: 0 }}>Your Profile</h1>
+        {userId && (
+          <Link href={`/profile/${userId}`} prefetch={false} className="quiet-link">
+            View public profile ↗
+          </Link>
+        )}
+      </div>
 
       <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
         <h2 style={{ marginTop: 0 }}>Your Progress</h2>
@@ -90,9 +101,10 @@ export function Profile() {
               return (
                 <span
                   key={b.badgeKey}
-                  className="card"
-                  title={info.description}
-                  style={{ padding: '0.4rem 0.7rem', fontSize: '0.85rem' }}
+                  className="card badge-pill"
+                  onClick={() => setSelectedBadge(b)}
+                  title="Click to view explanation"
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer' }}
                 >
                   {info.emoji} {info.label}
                 </span>
@@ -106,70 +118,90 @@ export function Profile() {
         )}
       </div>
 
-      <form className="card" onSubmit={handleSubmit} style={{ padding: '1.5rem' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Display Name *</label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              required
-              style={{ width: '100%' }}
-              disabled={saving}
-            />
-          </div>
+      <BadgeModal badge={selectedBadge} onClose={() => setSelectedBadge(null)} />
 
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Bio</label>
-            <textarea
-              rows={4}
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Tell fellow musicians a bit about yourself…"
-              style={{ width: '100%', resize: 'vertical' }}
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Location</label>
-            <input
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. Portland, OR"
-              style={{ width: '100%' }}
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Instruments</label>
-            <input
-              type="text"
-              value={instruments}
-              onChange={(e) => setInstruments(e.target.value)}
-              placeholder="e.g. Fiddle, Tenor Banjo"
-              style={{ width: '100%' }}
-              disabled={saving}
-            />
-          </div>
-
-          {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-            {userId && (
-              <Link href={`/profile/${userId}`} prefetch={false} className="quiet-link">
-                View your public profile
-              </Link>
-            )}
-            <button type="submit" disabled={saving || !displayName.trim()}>
-              {saving ? 'Saving…' : 'Save Profile'}
+      {!isEditing ? (
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ margin: 0 }}>{displayName || profileQuery.data?.displayName}</h2>
+              {location && <p className="tune-meta" style={{ marginTop: '0.25rem' }}>📍 {location}</p>}
+              {instruments && <p className="tune-meta">🎻 {instruments}</p>}
+            </div>
+            <button className="secondary" onClick={() => setIsEditing(true)}>
+              ✏️ Edit Profile
             </button>
           </div>
+          {bio && <p style={{ whiteSpace: 'pre-wrap', marginTop: '1rem', marginBottom: 0 }}>{bio}</p>}
+          {!bio && !location && !instruments && (
+            <p className="tune-meta" style={{ marginTop: '1rem', marginBottom: 0 }}>No profile details added yet.</p>
+          )}
         </div>
-      </form>
+      ) : (
+        <form className="card" onSubmit={handleSubmit} style={{ padding: '1.5rem' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Edit Profile</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Display Name *</label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                required
+                style={{ width: '100%' }}
+                disabled={saving}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Bio</label>
+              <textarea
+                rows={4}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder="Tell fellow musicians a bit about yourself…"
+                style={{ width: '100%', resize: 'vertical' }}
+                disabled={saving}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Location</label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Portland, OR"
+                style={{ width: '100%' }}
+                disabled={saving}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Instruments</label>
+              <input
+                type="text"
+                value={instruments}
+                onChange={(e) => setInstruments(e.target.value)}
+                placeholder="e.g. Fiddle, Tenor Banjo"
+                style={{ width: '100%' }}
+                disabled={saving}
+              />
+            </div>
+
+            {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button type="button" className="secondary" onClick={() => setIsEditing(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" disabled={saving || !displayName.trim()}>
+                {saving ? 'Saving…' : 'Save Profile'}
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
     </section>
   )
 }

@@ -11,9 +11,11 @@ import {
   getPublicUserProfile,
   getModeratorUserDetails,
   sanitizeUserProfile,
+  type UserBadge,
 } from '../services/api'
 import { getBadgeInfo } from '../services/badges'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
+import { BadgeModal } from '../components/BadgeModal'
 
 /** Bookmarkable public profile page: /profile/{userId} */
 export function PublicProfile({ userId }: { userId?: string }) {
@@ -23,6 +25,7 @@ export function PublicProfile({ userId }: { userId?: string }) {
   const queryClient = useQueryClient()
 
   const [showSanitizeModal, setShowSanitizeModal] = useState(false)
+  const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
   const [sanName, setSanName] = useState('')
   const [sanBio, setSanBio] = useState('')
   const [sanLoc, setSanLoc] = useState('')
@@ -109,7 +112,7 @@ export function PublicProfile({ userId }: { userId?: string }) {
 
           {isViewerModerator && (
             <button className="secondary" onClick={handleOpenSanitize}>
-              🛡️ Sanitize Profile
+              🛡️ Edit Profile
             </button>
           )}
         </div>
@@ -152,9 +155,10 @@ export function PublicProfile({ userId }: { userId?: string }) {
                   return (
                     <span
                       key={b.badgeKey}
-                      className="card"
-                      title={info.description}
-                      style={{ padding: '0.4rem 0.7rem', fontSize: '0.85rem' }}
+                      className="card badge-pill"
+                      onClick={() => setSelectedBadge(b)}
+                      title="Click to view explanation"
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer' }}
                     >
                       {info.emoji} {info.label}
                     </span>
@@ -165,6 +169,8 @@ export function PublicProfile({ userId }: { userId?: string }) {
           </div>
         )}
       </div>
+
+      <BadgeModal badge={selectedBadge} onClose={() => setSelectedBadge(null)} />
 
       {activeTunes.data && activeTunes.data.length > 0 && (
         <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
@@ -186,7 +192,7 @@ export function PublicProfile({ userId }: { userId?: string }) {
 
         <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="modal-card" style={{ maxWidth: '550px', width: '100%', padding: '1.75rem' }}>
-            <h2 style={{ marginTop: 0 }}>🛡️ Sanitize User Profile: {displayName}</h2>
+            <h2 style={{ marginTop: 0 }}>🛡️ Edit User Profile: {displayName}</h2>
             <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
               Clear or sanitize inappropriate text in this user's profile fields.
             </p>

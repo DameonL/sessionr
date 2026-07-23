@@ -75,6 +75,7 @@ function RoleBadge({ role }: { role: GroupMember['role'] }) {
 export function GroupDetail({ groupId }: { groupId: string }) {
   const id = groupId
   const userId = useSignal(currentUserId)
+  const profile = useSignal(currentUserProfile)
   const authStatus = useAuthStatus()
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -219,7 +220,6 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     )
   }
 
-  const profile = useSignal(currentUserProfile)
   const isModerator = !!profile?.isModerator
   const details = groupQuery.data
   const showSignedInUi = authStatus !== 'anonymous'

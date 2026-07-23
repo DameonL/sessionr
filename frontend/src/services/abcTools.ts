@@ -526,3 +526,69 @@ export function fixAbcRepeats(abc: string): string {
   
   return [...headers, fixedMusicText].join('\n')
 }
+
+export function extractKeyFromAbc(abcText: string): string {
+  if (!abcText) return ''
+  const lines = abcText.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^K:/i.test(trimmed)) {
+      const rawKey = trimmed.slice(2).trim().split('%')[0].trim().split(/\s+/)[0]
+      if (rawKey) {
+        let k = rawKey
+        const lower = k.toLowerCase()
+        if (lower.endsWith('major')) k = k.slice(0, -5)
+        else if (lower.endsWith('minor')) k = k.slice(0, -5) + 'm'
+        else if (lower.endsWith('dorian')) k = k.slice(0, -6) + 'dor'
+        else if (lower.endsWith('mixolydian')) k = k.slice(0, -10) + 'mix'
+        else if (lower.endsWith('phrygian')) k = k.slice(0, -8) + 'phr'
+        else if (lower.endsWith('lydian')) k = k.slice(0, -6) + 'lyd'
+        return k
+      }
+    }
+  }
+  return ''
+}
+
+export function validateAbc(abcText: string): { isValid: boolean; error?: string; trimmedAbc: string } {
+  const trimmedAbc = (abcText || '').trim()
+  if (!trimmedAbc) {
+    return { isValid: false, error: 'ABC notation text cannot be empty.', trimmedAbc }
+  }
+
+  const lines = trimmedAbc.split('\n')
+  let hasKeyHeader = false
+  let hasNotesOrBars = false
+
+  for (const line of lines) {
+    const t = line.trim()
+    if (/^K:/i.test(t)) {
+      const keyVal = t.slice(2).trim().split('%')[0].trim()
+      if (keyVal.length > 0) {
+        hasKeyHeader = true
+      }
+    } else if (!/^[A-Z]:/.test(t) && !t.startsWith('%')) {
+      if (/[a-gA-G|]/.test(t)) {
+        hasNotesOrBars = true
+      }
+    }
+  }
+
+  if (!hasKeyHeader) {
+    return {
+      isValid: false,
+      error: 'ABC notation must include a Key header (e.g. K:G or K:Ddor).',
+      trimmedAbc,
+    }
+  }
+
+  if (!hasNotesOrBars) {
+    return {
+      isValid: false,
+      error: 'ABC notation does not contain any music notes or bar lines.',
+      trimmedAbc,
+    }
+  }
+
+  return { isValid: true, trimmedAbc }
+}

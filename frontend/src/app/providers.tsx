@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import AuthProvider from '../components/AuthProvider';
 import { ToastContainer } from '../components/Toast';
+import { NavigationProgress } from '../components/NavigationProgress';
 import { queryClient } from '../services/queryClient';
 import { initSyncManager } from '../services/syncManager';
 
@@ -23,6 +24,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <NavigationProgress />
         {children}
         <ToastContainer />
       </AuthProvider>

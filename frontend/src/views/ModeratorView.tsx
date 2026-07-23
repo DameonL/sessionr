@@ -16,6 +16,7 @@ import {
   type ModeratorGroupData,
 } from '../services/api'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
+import { validateAbc } from '../services/abcTools'
 
 export function ModeratorView() {
   const profile = useSignal(currentUserProfile)
@@ -78,11 +79,15 @@ export function ModeratorView() {
   const updateTuneMutation = useMutation({
     mutationFn: () => {
       if (!editingTune) throw new Error('No tune selected')
+      const validation = validateAbc(editAbc)
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Invalid ABC notation.')
+      }
       return moderatorUpdateTune(editingTune.tuneId, {
         title: editTitle.trim(),
         tuneType: editType.trim(),
         key: editKey.trim(),
-        masterAbcText: editAbc,
+        masterAbcText: validation.trimmedAbc,
       })
     },
     onSuccess: () => {
@@ -252,7 +257,7 @@ export function ModeratorView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
                       <h3 style={{ margin: '0 0 0.25rem 0' }}>
-                        <Link href={`/group?id=${group.groupId}`} prefetch={false} className="quiet-link">
+                        <Link href={`/group/${group.groupId}`} prefetch={false} className="quiet-link">
                           {group.isPrivate ? '🔒 ' : ''}{group.name}
                         </Link>
                       </h3>
@@ -269,7 +274,7 @@ export function ModeratorView() {
                       >
                         ✓ Mark Reviewed & Approved
                       </button>
-                      <Link href={`/group?id=${group.groupId}`} className="secondary" prefetch={false}>
+                      <Link href={`/group/${group.groupId}`} className="secondary" prefetch={false}>
                         🔍 Inspect Group
                       </Link>
                     </div>
@@ -301,7 +306,7 @@ export function ModeratorView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
                       <h3 style={{ margin: '0 0 0.25rem 0' }}>
-                        <Link href={`/group?id=${group.groupId}`} prefetch={false} className="quiet-link">
+                        <Link href={`/group/${group.groupId}`} prefetch={false} className="quiet-link">
                           {group.isPrivate ? '🔒 ' : ''}{group.name}
                         </Link>
                       </h3>
@@ -310,7 +315,7 @@ export function ModeratorView() {
                       </span>
                     </div>
 
-                    <Link href={`/group?id=${group.groupId}`} className="secondary" prefetch={false}>
+                    <Link href={`/group/${group.groupId}`} className="secondary" prefetch={false}>
                       Inspect Group
                     </Link>
                   </div>
