@@ -491,7 +491,7 @@ export const updateUserTune = (
   })
 
 export const logPractice = (userTuneId: string) =>
-  apiFetch<{ userTuneId: string; lastPracticed: string }>(
+  apiFetch<{ userTuneId: string; lastPracticed: string; newBadges: string[] }>(
     `/repertoire/items/${userTuneId}/practiced`,
     { method: 'POST' },
   )
@@ -524,12 +524,27 @@ export interface PracticeDay {
 }
 
 export interface PracticeStats {
-  streak: number
-  total30Days: number
+  currentStreakDays: number
+  totalLast30: number
   perDay: PracticeDay[]
 }
 
 export const getPracticeStats = () => apiFetch<PracticeStats>('/practice/stats')
+
+export interface UserBadge {
+  badgeKey: string
+  earnedAt: string
+}
+
+export interface GamificationSummary {
+  totalPoints: number
+  badges: UserBadge[]
+}
+
+export const getMyGamificationSummary = () => apiFetch<GamificationSummary>('/users/me/gamification')
+
+export const getPublicGamificationSummary = (userId: string) =>
+  apiFetchPublic<GamificationSummary>(`/users/${userId}/gamification`)
 
 export const getPracticeQueue = () =>
   apiFetch<PracticeQueueItem[]>('/practice/queue')

@@ -17,6 +17,7 @@ import {
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 import { foldAbcOctaves, transposeAbc } from '../services/abcTools'
+import { showBadgeToasts } from '../services/badges'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
@@ -71,7 +72,10 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   })
   const practiceMutation = useMutation({
     mutationFn: () => logPractice(id),
-    onSuccess: invalidate,
+    onSuccess: (data) => {
+      invalidate()
+      showBadgeToasts(data.newBadges)
+    },
   })
   const removeMutation = useMutation({
     mutationFn: () => removeFromRepertoire(id),

@@ -11,6 +11,7 @@ import {
 } from '../../../services/api'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
 import { parseSuggestionReason, suggestNextPracticeTunes, type NextTuneSuggestion } from '../../../services/suggestions'
+import { showBadgeToasts } from '../../../services/badges'
 
 interface SetDraftItem {
   userTuneId: string
@@ -153,13 +154,16 @@ export default function MedleySetsPage() {
 
   const logSetPractice = async () => {
     try {
+      const allNewBadges: string[] = []
       for (const item of setDraft) {
-        await logPractice(item.userTuneId)
+        const result = await logPractice(item.userTuneId)
+        allNewBadges.push(...result.newBadges)
       }
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       setSetDraft([])
       showToast('Logged practice for all tunes in the set!', 'success')
+      showBadgeToasts(allNewBadges)
     } catch (err) {
       showToast(`Failed logging practice: ${(err as Error).message}`, 'error')
     }

@@ -27,6 +27,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TuneSettingVote> TuneSettingVotes => Set<TuneSettingVote>();
     public DbSet<GroupFeedEvent> GroupFeedEvents => Set<GroupFeedEvent>();
     public DbSet<GroupScheduleException> GroupScheduleExceptions => Set<GroupScheduleException>();
+    public DbSet<PointsTransaction> PointsTransactions => Set<PointsTransaction>();
+    public DbSet<UserBadge> UserBadges => Set<UserBadge>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -312,6 +314,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(v => new { v.TuneSettingId, v.UserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<PointsTransaction>(entity =>
+        {
+            entity.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(t => t.Reason).HasConversion<string>().HasMaxLength(30);
+            entity.Property(t => t.SourceId).HasMaxLength(200);
+
+            // The idempotency guard: the same (user, reason, sourceId) is never awarded twice.
+            entity.HasIndex(t => new { t.UserId, t.Reason, t.SourceId }).IsUnique();
+        });
+
+        modelBuilder.Entity<UserBadge>(entity =>
+        {
+            entity.HasOne(b => b.User)
+                .WithMany()
+                .HasForeignKey(b => b.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(b => b.BadgeKey).HasMaxLength(50);
+
+            // A badge is earned by a user at most once.
+            entity.HasIndex(b => new { b.UserId, b.BadgeKey }).IsUnique();
         });
 
         // All primary keys are client-generated UUID v7 values (see each model's

@@ -50,3 +50,11 @@ public enum GroupFeedEventType
     TuneLearned,
     MemberJoined
 }
+
+/// <summary>What a gamification points award was for.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum PointsReason
+{
+    PracticeLogged,
+    StreakMilestone
+}

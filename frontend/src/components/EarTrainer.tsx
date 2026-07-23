@@ -11,6 +11,7 @@ import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earT
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
 import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments'
 import { currentUserId, useSignal } from '../state/appState'
+import { showBadgeToasts } from '../services/badges'
 
 const EAR_INSTRUMENT_KEY = 'sessionapp.ear-instrument'
 
@@ -96,9 +97,10 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   const practiceMutation = useMutation({
     mutationFn: () => logPractice(item.userTuneId),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
+      showBadgeToasts(data.newBadges)
     },
   })
 

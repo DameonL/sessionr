@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import { getFullRepertoire, logPractice } from '../../../services/api'
 import { generateVirtualSession, type SessionTune, type VirtualSession } from '../../../services/virtualSession'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
+import { showBadgeToasts } from '../../../services/badges'
 
 // Dynamically import VirtualSessionPlayer to prevent abcjs SSR errors
 const VirtualSessionPlayer = dynamic(
@@ -33,12 +34,18 @@ export default function VirtualSessionPage() {
 
   const logSessionMutation = useMutation({
     mutationFn: async (tuneIds: string[]) => {
-      for (const id of tuneIds) await logPractice(id)
+      const allNewBadges: string[] = []
+      for (const id of tuneIds) {
+        const result = await logPractice(id)
+        allNewBadges.push(...result.newBadges)
+      }
+      return allNewBadges
     },
-    onSuccess: () => {
+    onSuccess: (allNewBadges) => {
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       showToast(`Logged practice for ${playedTuneIds.size} tune(s)!`, 'success')
+      showBadgeToasts(allNewBadges)
       resetToIdle()
     },
     onError: (err: Error) => {

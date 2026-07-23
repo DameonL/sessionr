@@ -25,4 +25,19 @@ public class PublicUserFunctions(AppDbContext db)
 
         return new OkObjectResult(new PublicUserProfileDto(user.UserId, user.DisplayName, user.Bio, user.Location, user.Instruments));
     }
+
+    /// <summary>GET /api/users/{userId}/gamification — a user's public points total and earned badges.</summary>
+    [Function("GetPublicGamificationSummary")]
+    public async Task<IActionResult> GetPublicGamificationSummary(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId:guid}/gamification")] HttpRequest req,
+        Guid userId)
+    {
+        var exists = await db.Users.AsNoTracking().AnyAsync(u => u.UserId == userId);
+        if (!exists)
+        {
+            return new NotFoundResult();
+        }
+
+        return new OkObjectResult(await GamificationSupport.BuildSummaryAsync(db, userId));
+    }
 }

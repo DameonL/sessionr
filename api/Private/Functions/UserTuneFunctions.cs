@@ -10,11 +10,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.GroupAuthorization;
 
 namespace SessionApp.Api.Functions;
 
-public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logger)
+public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logger, GamificationService gamification)
 {
     /// <summary>Tunes unplayed for this long count as rusty.</summary>
     private static readonly TimeSpan RustThreshold = TimeSpan.FromDays(30);
@@ -339,6 +340,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         if (previousStatus != TuneStatus.Active && userTune.Status == TuneStatus.Active)
         {
             await RecordTuneLearnedFeedEventsAsync(callerUserId.Value, userTune.TuneId);
+            await gamification.CheckBadgesAsync(callerUserId.Value);
         }
 
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
@@ -429,8 +431,6 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         }
 
         var userTune = await db.UserTunes
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
         if (userTune is null)
@@ -449,20 +449,10 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         await db.SaveChangesAsync();
 
-        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
-        var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
+        var sourceId = $"{userTuneId}:{now:yyyy-MM-dd}";
+        var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId);
 
-        return new OkObjectResult(new RepertoireItemDto(
-            userTune.UserTuneId,
-            userTune.TuneId,
-            userTune.Tune.Title,
-            userTune.Tune.TuneType.ToString(),
-            effectiveKey,
-            userTune.Status.ToString(),
-            userTune.LastPracticed,
-            userTune.TargetBpm,
-            effectiveAbc,
-            userTune.CustomAbcText != null));
+        return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
     }
 
     /// <summary>DELETE /api/repertoire/items/{userTuneId} — remove a tune from the user's repertoire.</summary>
@@ -513,21 +503,12 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         var today = DateTime.UtcNow.Date;
         var windowStart = today.AddDays(-29);
 
-        var practiceDates = (await db.PracticeLog
-                .AsNoTracking()
-                .Where(p => p.UserTune.UserId == callerUserId.Value)
-                .Select(p => p.PracticedAt)
-                .ToListAsync())
-            .Select(d => d.Date)
-            .Distinct()
-            .ToHashSet();
-
-        var streakAnchor = practiceDates.Contains(today) ? today : today.AddDays(-1);
-        var streak = 0;
-        for (var day = streakAnchor; practiceDates.Contains(day); day = day.AddDays(-1))
-        {
-            streak++;
-        }
+        var practiceTimestamps = await db.PracticeLog
+            .AsNoTracking()
+            .Where(p => p.UserTune.UserId == callerUserId.Value)
+            .Select(p => p.PracticedAt)
+            .ToListAsync();
+        var streak = PracticeStreakCalculator.ComputeCurrentStreak(practiceTimestamps, DateTime.UtcNow);
 
         var countsInWindow = (await db.PracticeLog
                 .AsNoTracking()

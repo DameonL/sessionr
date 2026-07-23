@@ -10,6 +10,7 @@ import {
   logPractice,
 } from '../../../services/api'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
+import { showBadgeToasts } from '../../../services/badges'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../../../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -26,8 +27,9 @@ export default function DailyQueuePage() {
 
   const practiceMutation = useMutation({
     mutationFn: ({ userTuneId }: { userTuneId: string; title: string }) => logPractice(userTuneId),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       showToast(`Practice logged for "${variables.title}"`, 'success')
+      showBadgeToasts(data.newBadges)
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       queryClient.invalidateQueries({ queryKey: ['practice-stats', userId] })

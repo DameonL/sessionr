@@ -3,13 +3,16 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { getCurrentUser, updateCurrentUser } from '../services/api'
+import { getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
+import { getBadgeInfo } from '../services/badges'
 
 /** Edit-your-own-profile page: /profile */
 export function Profile() {
   const userId = useSignal(currentUserId)
   const profileQuery = useQuery({ queryKey: ['current-user'], queryFn: getCurrentUser })
+  const gamificationQuery = useQuery({ queryKey: ['my-gamification'], queryFn: getMyGamificationSummary })
+  const practiceStatsQuery = useQuery({ queryKey: ['practice-stats', userId], queryFn: getPracticeStats })
 
   const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
@@ -59,9 +62,50 @@ export function Profile() {
     return <p className="error">Could not load your profile: {(profileQuery.error as Error).message}</p>
   }
 
+  const gamification = gamificationQuery.data
+  const stats = practiceStatsQuery.data
+
   return (
     <section>
       <h1>Your Profile</h1>
+
+      <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+        <h2 style={{ marginTop: 0 }}>Your Progress</h2>
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{gamification?.totalPoints ?? 0}</div>
+            <div className="tune-meta">Points</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+              {stats ? `🔥 ${stats.currentStreakDays}` : '—'}
+            </div>
+            <div className="tune-meta">Day streak</div>
+          </div>
+        </div>
+        {gamification && gamification.badges.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {gamification.badges.map((b) => {
+              const info = getBadgeInfo(b.badgeKey)
+              return (
+                <span
+                  key={b.badgeKey}
+                  className="card"
+                  title={info.description}
+                  style={{ padding: '0.4rem 0.7rem', fontSize: '0.85rem' }}
+                >
+                  {info.emoji} {info.label}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="tune-meta" style={{ margin: 0 }}>
+            No badges earned yet — log a practice to get started!
+          </p>
+        )}
+      </div>
+
       <form className="card" onSubmit={handleSubmit} style={{ padding: '1.5rem' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>

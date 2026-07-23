@@ -92,4 +92,18 @@ public class UserFunctions(AppDbContext db)
         await db.SaveChangesAsync();
         return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments));
     }
+
+    /// <summary>GET /api/users/me/gamification — the caller's own points total and earned badges.</summary>
+    [Function("GetMyGamificationSummary")]
+    public async Task<IActionResult> GetMyGamificationSummary(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/me/gamification")] HttpRequest req)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        return new OkObjectResult(await GamificationSupport.BuildSummaryAsync(db, callerUserId.Value));
+    }
 }

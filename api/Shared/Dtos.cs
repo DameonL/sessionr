@@ -143,6 +143,12 @@ public record PracticeDayDto(string Date, int Count);
 
 public record PracticeStatsDto(int CurrentStreakDays, int TotalLast30, List<PracticeDayDto> PerDay);
 
+public record MarkPracticedResponseDto(Guid UserTuneId, DateTime? LastPracticed, List<string> NewBadges);
+
+public record UserBadgeDto(string BadgeKey, DateTime EarnedAt);
+
+public record GamificationSummaryDto(int TotalPoints, List<UserBadgeDto> Badges);
+
 public record EarTrainingProgressDto(
     Guid UserTuneId,
     int PhraseIndex,
