@@ -22,9 +22,14 @@ const BAND_VOICES: BandVoice[] = [
   { role: "backer", program: 21, pan: 0, volumeMultiplier: 1.0 }, // Accordion
 ];
 
-/** Backers start a bit after the leader, like independent live musicians settling in. */
-const MIN_BACKER_OFFSET_MS = 60;
-const MAX_BACKER_OFFSET_MS = 280;
+/**
+ * Backers start a touch after the leader, like independent live musicians —
+ * kept small since this offset persists for the whole pass (each synth runs
+ * on its own clock once started), so anything much bigger reads as flamming
+ * rather than a live feel.
+ */
+const MIN_BACKER_OFFSET_MS = 10;
+const MAX_BACKER_OFFSET_MS = 35;
 /**
  * On a tune's first pass, each backer joins in one at a time rather than all
  * at once — the Nth backer enters after N measures (plus the usual humanized
