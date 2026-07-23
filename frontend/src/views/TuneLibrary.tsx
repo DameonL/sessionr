@@ -14,8 +14,14 @@ import { Dialog } from '../components/Dialog'
 export function TuneLibrary() {
   const router = useRouter()
   const authStatus = useAuthStatus()
-  const [search, setSearch] = useState('')
-  const [filterType, setFilterType] = useState('')
+
+  // Input states for form
+  const [searchInput, setSearchInput] = useState('')
+  const [filterTypeInput, setFilterTypeInput] = useState('')
+
+  // Submitted search query states (used for API query to prevent live search API spam)
+  const [submittedSearch, setSubmittedSearch] = useState('')
+  const [submittedType, setSubmittedType] = useState('')
 
   // Add Tune Modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -25,15 +31,21 @@ export function TuneLibrary() {
   const [addKeyOverride, setAddKeyOverride] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
 
-  const hasSearchQuery = search.trim().length > 0 || filterType !== ''
+  const hasSearchQuery = submittedSearch.length > 0 || submittedType !== ''
 
   const libraryQuery = useInfiniteQuery({
-    queryKey: ['tune-library', search, filterType],
-    queryFn: ({ pageParam = 1 }) => searchTunes(search, filterType, pageParam, 20),
+    queryKey: ['tune-library', submittedSearch, submittedType],
+    queryFn: ({ pageParam = 1 }) => searchTunes(submittedSearch, submittedType, pageParam, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
     enabled: hasSearchQuery,
   })
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmittedSearch(searchInput.trim())
+    setSubmittedType(filterTypeInput)
+  }
 
   const createTuneMutation = useMutation({
     mutationFn: (newTune: { title: string; tuneType: string; key: string; abc: string }) => createTune(newTune),
@@ -99,17 +111,21 @@ export function TuneLibrary() {
         </button>
       </div>
 
-      <div className="detail-controls">
-        <input
-          className="search-box"
-          type="search"
-          placeholder="Search tunes by name or alternate name…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <label>
-          Filter by type
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+      <form onSubmit={handleSearchSubmit} className="detail-controls" style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '220px' }}>
+          <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Search by name</label>
+          <input
+            className="search-box"
+            type="search"
+            placeholder="Type tune name or alternate name…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Filter by type</label>
+          <select value={filterTypeInput} onChange={(e) => setFilterTypeInput(e.target.value)}>
             <option value="">All types</option>
             {TUNE_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -117,8 +133,11 @@ export function TuneLibrary() {
               </option>
             ))}
           </select>
-        </label>
-      </div>
+        </div>
+        <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap' }}>
+          🔍 Search
+        </button>
+      </form>
 
       {!hasSearchQuery && (
         <div className="card" style={{ padding: '2.5rem', textAlign: 'center', marginTop: '1.5rem', background: 'var(--surface-2)' }}>

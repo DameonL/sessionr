@@ -84,8 +84,8 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   const [shareUrl, setShareUrl] = useState('')
   const [inviteCodeInput, setInviteCodeInput] = useState(searchParams.get('code') ?? '')
 
-  // Master tune list: add-tune search and setting-selection modals
-  const [tuneSearch, setTuneSearch] = useState('')
+  const [tuneSearchInput, setTuneSearchInput] = useState('')
+  const [submittedTuneSearch, setSubmittedTuneSearch] = useState('')
   const [addTuneId, setAddTuneId] = useState<string | null>(null)
   const [settingChangeTarget, setSettingChangeTarget] = useState<GroupTuneListItem | null>(null)
   const [transferTarget, setTransferTarget] = useState<{ userId: string; displayName: string } | null>(null)
@@ -124,9 +124,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
   })
 
   const librarySearch = useQuery({
-    queryKey: ['tunes', tuneSearch],
-    queryFn: () => searchTunes(tuneSearch),
-    enabled: tuneSearch.length >= 2,
+    queryKey: ['tunes', submittedTuneSearch],
+    queryFn: () => searchTunes(submittedTuneSearch),
+    enabled: submittedTuneSearch.length >= 2,
   })
 
   // Join group mutation (invite code is only meaningful for private groups)
@@ -495,14 +495,27 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           {isAdmin && (
             <div style={{ marginTop: '2rem' }}>
               <h3>Add a Tune</h3>
-              <input
-                className="search-box"
-                type="search"
-                placeholder="Search tunes… (title, type, or key)"
-                value={tuneSearch}
-                onChange={(e) => setTuneSearch(e.target.value)}
-              />
-              {tuneSearch.length >= 2 && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  setSubmittedTuneSearch(tuneSearchInput.trim())
+                }}
+                style={{ display: 'flex', gap: '0.5rem' }}
+              >
+                <input
+                  className="search-box"
+                  type="search"
+                  placeholder="Search tunes to add… (title or alternate name)"
+                  value={tuneSearchInput}
+                  onChange={(e) => setTuneSearchInput(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button type="submit" style={{ padding: '0.45rem 1rem' }}>
+                  🔍 Search
+                </button>
+              </form>
+
+              {submittedTuneSearch.length >= 2 && (
                 <ul className="tune-list" style={{ marginTop: '0.75rem' }}>
                   {librarySearchMatches.length === 0 && <p className="tune-meta italic">No matches found.</p>}
                   {librarySearchMatches.map((tune) => (
