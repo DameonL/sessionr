@@ -1,4 +1,7 @@
+using System;
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Data;
 
@@ -12,8 +15,23 @@ public static class DbSchemaMigrator
 {
     public static void EnsureSchemaUpToDate(AppDbContext db, bool useSqlite)
     {
+        bool addedStreakColumns = false;
+
         if (!useSqlite)
         {
+            var colExists = db.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'CurrentStreak'")
+                .AsEnumerable().FirstOrDefault() > 0;
+
+            if (!colExists)
+            {
+                db.Database.ExecuteSqlRaw("""
+                    ALTER TABLE Users ADD CurrentStreak INT NOT NULL DEFAULT 0;
+                    ALTER TABLE Users ADD StreakAnchorDate DATETIME2 NULL;
+                """);
+                addedStreakColumns = true;
+            }
+
             db.Database.ExecuteSqlRaw("""
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'Bio')
                     ALTER TABLE Users ADD Bio NVARCHAR(MAX) NULL;
@@ -60,10 +78,31 @@ public static class DbSchemaMigrator
                     ALTER TABLE Groups ADD ReviewedBy NVARCHAR(256) NULL;
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'CreatedAt')
                     ALTER TABLE Groups ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+
+                IF EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_GroupSessions_StartsAt' AND object_id = OBJECT_ID('GroupSessions'))
+                    DROP INDEX IX_GroupSessions_StartsAt ON GroupSessions;
+
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_Status' AND object_id = OBJECT_ID('UserTunes'))
+                    CREATE INDEX IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_LastPracticed' AND object_id = OBJECT_ID('UserTunes'))
+                    CREATE INDEX IX_UserTunes_UserId_LastPracticed ON UserTunes(UserId, LastPracticed);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_GroupSessions_GroupId_StartsAt' AND object_id = OBJECT_ID('GroupSessions'))
+                    CREATE INDEX IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);
             """);
         }
         else
         {
+            var colExists = db.Database.SqlQueryRaw<string>(
+                "SELECT name FROM pragma_table_info('Users') WHERE name = 'CurrentStreak'")
+                .AsEnumerable().Any();
+
+            if (!colExists)
+            {
+                ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN CurrentStreak INTEGER NOT NULL DEFAULT 0;");
+                ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN StreakAnchorDate TEXT NULL;");
+                addedStreakColumns = true;
+            }
+
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Bio TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Location TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Instruments TEXT NULL;");
@@ -77,7 +116,6 @@ public static class DbSchemaMigrator
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedAt TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedBy TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';");
-
 
             ExecuteSqlSafe(db, """
                 CREATE TABLE IF NOT EXISTS PointsTransactions (
@@ -99,7 +137,54 @@ public static class DbSchemaMigrator
                     CONSTRAINT UQ_UserBadges_User_BadgeKey UNIQUE (UserId, BadgeKey)
                 );
             """);
+
+            ExecuteSqlSafe(db, "DROP INDEX IF EXISTS IX_GroupSessions_StartsAt;");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_LastPracticed ON UserTunes(UserId, LastPracticed);");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);");
         }
+
+        if (addedStreakColumns)
+        {
+            try
+            {
+                PerformStreakBackfill(db);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"EnsureSchemaUpToDate: PerformStreakBackfill warning/error: {ex.Message}");
+            }
+        }
+    }
+
+    private static void PerformStreakBackfill(AppDbContext db)
+    {
+        var now = DateTime.UtcNow;
+        var users = db.Users.ToList();
+        var practiceLogs = db.PracticeLog
+            .AsNoTracking()
+            .Select(p => new { p.UserTune.UserId, p.PracticedAt })
+            .ToList()
+            .GroupBy(p => p.UserId);
+
+        foreach (var userGroup in practiceLogs)
+        {
+            var user = users.FirstOrDefault(u => u.UserId == userGroup.Key);
+            if (user == null) continue;
+
+            var timestamps = userGroup.Select(p => p.PracticedAt).ToList();
+            var streak = PracticeStreakCalculator.ComputeCurrentStreak(timestamps, now);
+            if (streak > 0)
+            {
+                var dates = timestamps.Select(t => t.Date).Distinct().ToHashSet();
+                var today = now.Date;
+                var anchor = dates.Contains(today) ? today : today.AddDays(-1);
+                user.CurrentStreak = streak;
+                user.StreakAnchorDate = anchor;
+            }
+        }
+
+        db.SaveChanges();
     }
 
     private static void ExecuteSqlSafe(AppDbContext db, string sql)

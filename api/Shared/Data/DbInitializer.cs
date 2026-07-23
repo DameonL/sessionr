@@ -107,6 +107,8 @@ public static class DbInitializer
             PracticedAt = today.AddDays(-daysAgo).AddHours(18),
         });
         db.PracticeLog.AddRange(log);
+        user.CurrentStreak = 3;
+        user.StreakAnchorDate = today;
         db.SaveChanges();
 
         var set = new Set { UserId = user.UserId, Title = "G Session Starter" };

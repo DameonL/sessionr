@@ -8,6 +8,8 @@ public class User
     public string? Bio { get; set; }
     public string? Location { get; set; }
     public string? Instruments { get; set; }
+    public int CurrentStreak { get; set; } = 0;
+    public DateTime? StreakAnchorDate { get; set; }
 
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<Set> Sets { get; set; } = new List<Set>();

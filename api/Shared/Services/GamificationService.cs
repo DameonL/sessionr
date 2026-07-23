@@ -30,10 +30,9 @@ public class GamificationService(AppDbContext db)
     /// <summary>
     /// Awards points for a qualifying action, unless the same (user, reason, sourceId) has
     /// already been awarded — the idempotency guard against double-clicks/retried requests.
-    /// Returns the keys of any badges newly earned as a result (empty if the award was a
-    /// no-op repeat, since any badge it would have triggered was already awarded the first time).
+    /// Returns the keys of any badges newly earned as a result.
     /// </summary>
-    public async Task<IReadOnlyList<string>> AwardPointsAsync(Guid userId, PointsReason reason, string sourceId)
+    public async Task<IReadOnlyList<string>> AwardPointsAsync(Guid userId, PointsReason reason, string sourceId, User? user = null, bool saveImmediately = true)
     {
         var alreadyAwarded = await db.PointsTransactions
             .AnyAsync(t => t.UserId == userId && t.Reason == reason && t.SourceId == sourceId);
@@ -49,9 +48,15 @@ public class GamificationService(AppDbContext db)
             Reason = reason,
             SourceId = sourceId,
         });
-        await db.SaveChangesAsync();
 
-        return await EvaluateBadgesAsync(userId);
+        var newBadges = await EvaluateBadgesAsync(userId, user, saveImmediately: false);
+
+        if (saveImmediately)
+        {
+            await db.SaveChangesAsync();
+        }
+
+        return newBadges;
     }
 
     /// <summary>
@@ -59,9 +64,10 @@ public class GamificationService(AppDbContext db)
     /// that can newly qualify a badge on their own (e.g. a tune's status flipping to Active),
     /// as opposed to an explicitly points-earning action.
     /// </summary>
-    public async Task<IReadOnlyList<string>> CheckBadgesAsync(Guid userId) => await EvaluateBadgesAsync(userId);
+    public async Task<IReadOnlyList<string>> CheckBadgesAsync(Guid userId) =>
+        await EvaluateBadgesAsync(userId, user: null, saveImmediately: true);
 
-    private async Task<IReadOnlyList<string>> EvaluateBadgesAsync(Guid userId)
+    private async Task<IReadOnlyList<string>> EvaluateBadgesAsync(Guid userId, User? user, bool saveImmediately)
     {
         var earnedKeys = (await db.UserBadges
             .Where(b => b.UserId == userId)
@@ -90,27 +96,27 @@ public class GamificationService(AppDbContext db)
             newlyEarned.Add(key);
         }
 
-        var practiceTimestamps = await db.PracticeLog
-            .Where(p => p.UserTune.UserId == userId)
-            .Select(p => p.PracticedAt)
-            .ToListAsync();
+        user ??= await db.Users.SingleAsync(u => u.UserId == userId);
+        var today = DateTime.UtcNow.Date;
+        var effectiveStreak = (user.StreakAnchorDate.HasValue &&
+            (user.StreakAnchorDate.Value.Date == today || user.StreakAnchorDate.Value.Date == today.AddDays(-1)))
+            ? user.CurrentStreak
+            : 0;
 
-        if (practiceTimestamps.Count > 0)
+        if (effectiveStreak > 0)
         {
             Award("first-practice");
-
-            var streak = PracticeStreakCalculator.ComputeCurrentStreak(practiceTimestamps, DateTime.UtcNow);
-            if (streak >= 7) Award("streak-7", Streak7BonusPoints);
-            if (streak >= 30) Award("streak-30", Streak30BonusPoints);
-            if (streak >= 100) Award("streak-100", Streak100BonusPoints);
-            if (streak >= 365) Award("streak-365", Streak365BonusPoints);
+            if (effectiveStreak >= 7) Award("streak-7", Streak7BonusPoints);
+            if (effectiveStreak >= 30) Award("streak-30", Streak30BonusPoints);
+            if (effectiveStreak >= 100) Award("streak-100", Streak100BonusPoints);
+            if (effectiveStreak >= 365) Award("streak-365", Streak365BonusPoints);
         }
 
         var activeCount = await db.UserTunes.CountAsync(ut => ut.UserId == userId && ut.Status == TuneStatus.Active);
         if (activeCount >= ActiveTunesForFirstBadge) Award("active-5");
         if (activeCount >= ActiveTunesForSecondBadge) Award("active-20");
 
-        if (newlyEarned.Count > 0)
+        if (saveImmediately && db.ChangeTracker.HasChanges())
         {
             await db.SaveChangesAsync();
         }

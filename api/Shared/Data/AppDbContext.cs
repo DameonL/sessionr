@@ -47,6 +47,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             // A user holds at most one instance of a given tune.
             entity.HasIndex(ut => new { ut.UserId, ut.TuneId }).IsUnique();
+            entity.HasIndex(ut => new { ut.UserId, ut.Status });
+            entity.HasIndex(ut => new { ut.UserId, ut.LastPracticed });
 
             entity.Property(ut => ut.Status).HasConversion<string>().HasMaxLength(20);
 
@@ -236,7 +238,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gs => gs.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(gs => gs.StartsAt);
+            entity.HasIndex(gs => new { gs.GroupId, gs.StartsAt });
         });
 
         modelBuilder.Entity<SessionRsvp>(entity =>

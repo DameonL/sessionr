@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 
@@ -206,6 +207,9 @@ public static class AzureDirectoryAuthorization
         return new CallerIdentity(null, null, null);
     }
 
+    private static readonly MemoryCache UserIdentityCache = new(new MemoryCacheOptions());
+    private static readonly MemoryCacheEntryOptions CacheEntryOptions = new() { SlidingExpiration = TimeSpan.FromMinutes(10) };
+
     /// <summary>Resolves the caller identity and ensures a matching db.Users row exists.</summary>
     public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)
     {
@@ -213,14 +217,35 @@ public static class AzureDirectoryAuthorization
 
         if (identity.UserId.HasValue)
         {
-            return await EnsureUserExistsAsync(db, identity.UserId.Value, identity.Email, identity.DisplayName);
+            var cacheKey = $"user_oid_{identity.UserId.Value}";
+            if (UserIdentityCache.TryGetValue(cacheKey, out Guid cachedUserId))
+            {
+                return cachedUserId;
+            }
+
+            var userId = await EnsureUserExistsAsync(db, identity.UserId.Value, identity.Email, identity.DisplayName);
+            UserIdentityCache.Set(cacheKey, userId, CacheEntryOptions);
+            return userId;
         }
 
         if (!string.IsNullOrWhiteSpace(identity.Email))
         {
+            var cacheKey = $"user_email_{identity.Email}";
+            if (UserIdentityCache.TryGetValue(cacheKey, out Guid cachedUserId))
+            {
+                return cachedUserId;
+            }
+
             var userByEmail = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == identity.Email);
-            if (userByEmail != null) return userByEmail.UserId;
-            return await EnsureUserExistsAsync(db, Guid.CreateVersion7(), identity.Email, identity.DisplayName);
+            if (userByEmail != null)
+            {
+                UserIdentityCache.Set(cacheKey, userByEmail.UserId, CacheEntryOptions);
+                return userByEmail.UserId;
+            }
+
+            var newUserId = await EnsureUserExistsAsync(db, Guid.CreateVersion7(), identity.Email, identity.DisplayName);
+            UserIdentityCache.Set(cacheKey, newUserId, CacheEntryOptions);
+            return newUserId;
         }
 
         return null;

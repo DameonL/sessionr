@@ -377,13 +377,19 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
                 .Select(gm => gm.GroupId)
                 .ToListAsync();
 
+            var allEvents = await db.GroupFeedEvents
+                .Where(e => groupIds.Contains(e.GroupId) && e.UserId == userId && e.EventType == GroupFeedEventType.TuneLearned)
+                .OrderByDescending(e => e.CreatedAt)
+                .Take(groupIds.Count * TuneLearnedDedupeLookback)
+                .ToListAsync();
+
+            var eventsByGroup = allEvents
+                .GroupBy(e => e.GroupId)
+                .ToDictionary(g => g.Key, g => g.Take(TuneLearnedDedupeLookback).ToList());
+
             foreach (var groupId in groupIds)
             {
-                var existingEvents = await db.GroupFeedEvents
-                    .Where(e => e.GroupId == groupId && e.UserId == userId && e.EventType == GroupFeedEventType.TuneLearned)
-                    .OrderByDescending(e => e.CreatedAt)
-                    .Take(TuneLearnedDedupeLookback)
-                    .ToListAsync();
+                var existingEvents = eventsByGroup.GetValueOrDefault(groupId) ?? new List<GroupFeedEvent>();
 
                 var alreadyRecorded = existingEvents.Any(e =>
                     JsonSerializer.Deserialize<TuneLearnedPayload>(e.Payload)?.TuneIds.Contains(tuneId) == true);
@@ -433,6 +439,7 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         }
 
         var userTune = await db.UserTunes
+            .Include(ut => ut.User)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
         if (userTune is null)
@@ -443,16 +450,34 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
         var now = DateTime.UtcNow;
         userTune.LastPracticed = now;
 
+        var user = userTune.User;
+        var today = now.Date;
+
+        if (user.StreakAnchorDate.HasValue && user.StreakAnchorDate.Value.Date == today)
+        {
+            // Already logged practice today — streak unchanged
+        }
+        else if (user.StreakAnchorDate.HasValue && user.StreakAnchorDate.Value.Date == today.AddDays(-1))
+        {
+            user.CurrentStreak += 1;
+            user.StreakAnchorDate = today;
+        }
+        else
+        {
+            user.CurrentStreak = 1;
+            user.StreakAnchorDate = today;
+        }
+
         db.PracticeLog.Add(new PracticeLogEntry
         {
             UserTuneId = userTuneId,
             PracticedAt = now
         });
 
-        await db.SaveChangesAsync();
-
         var sourceId = $"{userTuneId}:{now:yyyy-MM-dd}";
-        var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId);
+        var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId, user, saveImmediately: false);
+
+        await db.SaveChangesAsync();
 
         return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
     }
@@ -502,15 +527,17 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return Unauthorized("Authentication credentials are required.");
         }
 
+        var user = await db.Users
+            .AsNoTracking()
+            .SingleAsync(u => u.UserId == callerUserId.Value);
+
         var today = DateTime.UtcNow.Date;
         var windowStart = today.AddDays(-29);
 
-        var practiceTimestamps = await db.PracticeLog
-            .AsNoTracking()
-            .Where(p => p.UserTune.UserId == callerUserId.Value)
-            .Select(p => p.PracticedAt)
-            .ToListAsync();
-        var streak = PracticeStreakCalculator.ComputeCurrentStreak(practiceTimestamps, DateTime.UtcNow);
+        var streak = (user.StreakAnchorDate.HasValue &&
+            (user.StreakAnchorDate.Value.Date == today || user.StreakAnchorDate.Value.Date == today.AddDays(-1)))
+            ? user.CurrentStreak
+            : 0;
 
         var countsInWindow = (await db.PracticeLog
                 .AsNoTracking()
