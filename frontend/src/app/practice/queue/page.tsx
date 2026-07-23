@@ -9,7 +9,7 @@ import {
   getPracticeQueue,
   logPractice,
 } from '../../../services/api'
-import { currentUserId, useSignal } from '../../../state/appState'
+import { currentUserId, showToast, useSignal } from '../../../state/appState'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../../../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -25,17 +25,27 @@ export default function DailyQueuePage() {
   })
 
   const practiceMutation = useMutation({
-    mutationFn: logPractice,
-    onSuccess: () => {
-      setSelectedId(null)
+    mutationFn: ({ userTuneId }: { userTuneId: string; title: string }) => logPractice(userTuneId),
+    onSuccess: (_data, variables) => {
+      showToast(`Practice logged for "${variables.title}"`, 'success')
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       queryClient.invalidateQueries({ queryKey: ['practice-stats', userId] })
+    },
+    onError: (_err, variables) => {
+      showToast(`Failed to log practice for "${variables.title}"`, 'error')
     },
   })
 
   const items = queue.data ?? []
   const current = items.find((i) => i.userTuneId === selectedId) ?? items[0]
+
+  const handlePractice = (tuneId: string, title: string) => {
+    const idx = items.findIndex((i) => i.userTuneId === tuneId)
+    const next = items.find((i, i2) => i2 > idx && i.userTuneId !== tuneId) ?? items.find((i) => i.userTuneId !== tuneId)
+    setSelectedId(next ? next.userTuneId : null)
+    practiceMutation.mutate({ userTuneId: tuneId, title })
+  }
 
   return (
     <>
@@ -58,10 +68,7 @@ export default function DailyQueuePage() {
           </div>
           <p className="badge badge-queue">{current.reason}</p>
           <TunePlayer abc={current.abc} tuneId={current.userTuneId} targetBpm={current.targetBpm} tuneType={current.tuneType} />
-          <button
-            disabled={practiceMutation.isPending}
-            onClick={() => practiceMutation.mutate(current.userTuneId)}
-          >
+          <button onClick={() => handlePractice(current.userTuneId, current.title)}>
             ✓ Done — log practice
           </button>
         </div>

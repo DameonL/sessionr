@@ -9,7 +9,7 @@ import {
   getPracticeQueue,
   logPractice,
 } from '../../../services/api'
-import { currentUserId, useSignal } from '../../../state/appState'
+import { currentUserId, showToast, useSignal } from '../../../state/appState'
 import { parseSuggestionReason, suggestNextPracticeTunes, type NextTuneSuggestion } from '../../../services/suggestions'
 
 interface SetDraftItem {
@@ -159,9 +159,9 @@ export default function MedleySetsPage() {
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
       setSetDraft([])
-      alert('Logged practice for all tunes in the set!')
+      showToast('Logged practice for all tunes in the set!', 'success')
     } catch (err) {
-      alert(`Failed logging practice: ${(err as Error).message}`)
+      showToast(`Failed logging practice: ${(err as Error).message}`, 'error')
     }
   }
 
