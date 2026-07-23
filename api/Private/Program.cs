@@ -6,6 +6,8 @@ using SessionApp.Api.Services;
 
 using SessionApp.Api.Functions;
 
+// Workaround from https://github.com/Azure/azure-functions-dotnet-worker/issues/3374#issuecomment-4984606378
+Directory.SetCurrentDirectory(AppContext.BaseDirectory);
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
