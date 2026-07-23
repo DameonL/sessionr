@@ -23,10 +23,16 @@ const MIN_BACKER_OFFSET_MS = 10;
 const MAX_BACKER_OFFSET_MS = 35;
 /**
  * On a tune's first pass, each backer joins in one at a time rather than all
- * at once — the Nth backer enters after N measures (plus the usual humanized
- * offset), so the band visibly/audibly builds within the first few bars.
+ * at once — the Nth backer enters after roughly N measures, so the band
+ * visibly/audibly builds within the first few bars.
  */
 const BACKER_ENTRANCE_MEASURES = [1, 2, 3];
+/**
+ * Entrances are nudged off the barline by up to this fraction of a measure
+ * (earlier or later) — a real player joining in doesn't click in exactly on
+ * beat 1, they catch the tail of the previous bar or slip in just after it.
+ */
+const ENTRANCE_MEASURE_JITTER_FRACTION = 0.2;
 /** Small per-pass tempo jitter so the band doesn't feel perfectly metronomic. */
 const TEMPO_JITTER_PCT = 0.02;
 
@@ -155,18 +161,24 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
       setStatus("playing");
       synths[0].start();
       synths.slice(1).forEach((synth, backerIndex) => {
-        const humanizedOffset = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
+        const humanizedOffsetMs = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
         // First pass: each backer enters one at a time, N measures in, so the band audibly
-        // builds — seek the backer's own synth forward to that point in the tune before
-        // starting it, rather than just delaying when it starts (which would otherwise play
-        // the opening notes late instead of joining in where the tune actually is).
+        // builds. The wall-clock delay before starting must match how far into the tune we
+        // then seek — otherwise the backer starts playing almost immediately (barely after
+        // the leader) but from a position N measures into the buffer, so it sounds like it's
+        // playing a completely different part of the tune than the leader, rather than
+        // joining in where the tune actually is by the time it comes in.
         const entranceMeasures = isFirstPass ? BACKER_ENTRANCE_MEASURES[backerIndex] ?? 0 : 0;
-        const entranceSeconds = (entranceMeasures * msPerMeasure) / 1000;
+        // Nudge off the barline rather than landing exactly on beat 1 of the entrance measure.
+        const measureJitter =
+          entranceMeasures > 0 ? (Math.random() * 2 - 1) * ENTRANCE_MEASURE_JITTER_FRACTION * msPerMeasure : 0;
+        const entranceMs = Math.max(0, entranceMeasures * msPerMeasure + measureJitter);
+        const entranceSeconds = entranceMs / 1000;
         const id = window.setTimeout(() => {
           if (!synthsRef.current.includes(synth)) return;
           if (entranceSeconds > 0) synth.seek(entranceSeconds, "seconds");
           synth.start();
-        }, humanizedOffset);
+        }, entranceMs + humanizedOffsetMs);
         pendingTimeoutsRef.current.push(id);
       });
       timer.start();
