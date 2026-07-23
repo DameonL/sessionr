@@ -1031,3 +1031,13 @@ export interface PublicUserProfile {
 
 export const getPublicUserProfile = (userId: string) =>
   apiFetchPublic<PublicUserProfile>(`/users/${userId}/profile`)
+
+export interface PublicActiveTune {
+  tuneId: string
+  title: string
+  tuneType: string
+  key: string
+}
+
+export const getPublicActiveTunes = (userId: string) =>
+  apiFetchPublic<PublicActiveTune[]>(`/users/${userId}/active-tunes`)

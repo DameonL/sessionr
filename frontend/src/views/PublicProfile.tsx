@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { getPublicGamificationSummary, getPublicUserProfile } from '../services/api'
+import { formatTuneType, getPublicActiveTunes, getPublicGamificationSummary, getPublicUserProfile } from '../services/api'
 import { getBadgeInfo } from '../services/badges'
 
 /** Bookmarkable public profile page: /profile/{userId} */
@@ -18,6 +18,13 @@ export function PublicProfile({ userId }: { userId?: string }) {
   const gamification = useQuery({
     queryKey: ['public-gamification', id],
     queryFn: () => getPublicGamificationSummary(id),
+    retry: false,
+    enabled: !!profile.data,
+  })
+
+  const activeTunes = useQuery({
+    queryKey: ['public-active-tunes', id],
+    queryFn: () => getPublicActiveTunes(id),
     retry: false,
     enabled: !!profile.data,
   })
@@ -72,6 +79,22 @@ export function PublicProfile({ userId }: { userId?: string }) {
           </div>
         )}
       </div>
+
+      {activeTunes.data && activeTunes.data.length > 0 && (
+        <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
+          <h2 style={{ marginTop: 0 }}>Active Tunes</h2>
+          <ul className="tune-list">
+            {activeTunes.data.map((t) => (
+              <li key={t.tuneId} className="card tune-row">
+                <Link className="tune-title quiet-link" href={`/tunes/${t.tuneId}`} prefetch={false}>
+                  {t.title}
+                </Link>
+                <span className="tune-meta">{formatTuneType(t.tuneType)} · {t.key}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
 }

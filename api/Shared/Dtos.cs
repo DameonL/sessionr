@@ -29,6 +29,8 @@ public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string?
 
 public record PublicUserProfileDto(Guid UserId, string DisplayName, string? Bio, string? Location, string? Instruments);
 
+public record PublicActiveTuneDto(Guid TuneId, string Title, string TuneType, string Key);
+
 public record SaveSetItem(Guid UserTuneId, int Repetitions);
 
 public record SaveSetRequest(string Title, List<SaveSetItem> Items);
