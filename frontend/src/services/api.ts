@@ -5,7 +5,7 @@
  * "/api/*" to the Public Functions app and everything else in "/api/*"
  * to the Private one (see next.config.ts).
  */
-import { getBearerToken, showToast } from '../state/appState'
+import { Signal, getBearerToken, showToast } from '../state/appState'
 import {
   cachePutResponse,
   getCachedResponse,
@@ -13,15 +13,68 @@ import {
   queuePendingMutation,
   type PendingMutation,
 } from './offlineDb'
+import { triggerSync } from './syncManager'
 
 const API_BASE = 'https://api-private.sessionr.org/api/'
 const PUBLIC_API_BASE = 'https://api-public.sessionr.org/api/'
+
+export const isApiOffline = new Signal(false)
+
+let usersMeRetryTimer: ReturnType<typeof setInterval> | null = null
+
+export async function checkUsersMeHealth(): Promise<boolean> {
+  try {
+    const token = await getBearerToken(false)
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    const cleanBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE
+    const res = await fetch(`${cleanBase}/users/me`, {
+      method: 'GET',
+      headers,
+    })
+
+    if (res.ok) {
+      if (isApiOffline.value) {
+        isApiOffline.value = false
+        if (usersMeRetryTimer) {
+          clearInterval(usersMeRetryTimer)
+          usersMeRetryTimer = null
+        }
+        void triggerSync()
+      } else if (usersMeRetryTimer) {
+        clearInterval(usersMeRetryTimer)
+        usersMeRetryTimer = null
+      }
+      return true
+    } else {
+      markApiOfflineAndScheduleRetry()
+      return false
+    }
+  } catch {
+    markApiOfflineAndScheduleRetry()
+    return false
+  }
+}
+
+function markApiOfflineAndScheduleRetry(): void {
+  isApiOffline.value = true
+  if (!usersMeRetryTimer) {
+    usersMeRetryTimer = setInterval(() => {
+      void checkUsersMeHealth()
+    }, 2 * 60 * 1000)
+  }
+}
 
 async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false): Promise<T> {
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
   const method = (init?.method ?? 'GET').toUpperCase()
+
+  const isPrivateApi = cleanBase === (API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE)
+  const isUsersMeCheck = isPrivateApi && (cleanPath === '/users/me' || cleanPath === 'users/me') && method === 'GET'
 
   // Content-Type: application/json isn't a CORS-safelisted header, so sending it
   // unconditionally forces a preflight (OPTIONS) round trip on every single cross-origin
@@ -44,11 +97,12 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
 
   // Skip straight to the offline path rather than waiting on a fetch that's
   // certain to fail — navigator.onLine is false only when the browser is
-  // confident there's no connectivity at all.
+  // confident there's no connectivity at all. Also check isApiOffline.
   const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
+  const isOffline = knownOffline || (isApiOffline.value && !isUsersMeCheck)
 
   let res: Response
-  if (!knownOffline) {
+  if (!isOffline) {
     try {
       res = await fetch(url, { headers, ...init })
     } catch (err) {
@@ -57,6 +111,9 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
       // which the backend actually responded to and shouldn't be treated
       // as "offline".
       if (!(err instanceof TypeError)) throw err
+      if (isPrivateApi) {
+        void checkUsersMeHealth()
+      }
       return handleUnreachable<T>(method, url, path, init)
     }
   } else {
@@ -69,6 +126,12 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
       console.warn('401 Unauthorized or expired token received, attempting token refresh and retry...')
       return doFetch<T>(base, path, init, true)
     }
+
+    if (isPrivateApi && method !== 'GET') {
+      void checkUsersMeHealth()
+      return queueOfflineMutation<T>(method, url, path, init)
+    }
+
     throw new Error(detail || `API ${res.status}: ${res.statusText}`)
   }
 

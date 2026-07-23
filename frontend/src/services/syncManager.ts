@@ -6,6 +6,7 @@
  * connectivity transition, since 'online' won't fire again in that case.
  */
 import { Signal, authStatus, getBearerToken, showToast } from '../state/appState'
+import { checkUsersMeHealth, isApiOffline } from './api'
 import { queryClient } from './queryClient'
 import {
   deletePendingMutation,
@@ -72,6 +73,11 @@ async function runSync(): Promise<void> {
     const mutations = await getPendingMutations()
     if (mutations.length === 0) {
       return
+    }
+
+    if (isApiOffline.value) {
+      const ok = await checkUsersMeHealth()
+      if (!ok) return
     }
 
     // Once a token attempt has already failed, don't keep calling
@@ -152,11 +158,13 @@ async function replayMutation(mutation: PendingMutation, token: string): Promise
         await delay(RETRY_DELAYS_MS[attempt])
         continue
       }
+      void checkUsersMeHealth()
       return false
     } catch {
       // Network dropped mid-replay. Stop retrying this mutation for this
       // cycle; the next online event, periodic tick, or manual sync will
       // pick the whole queue back up, this item included.
+      void checkUsersMeHealth()
       return false
     }
   }
