@@ -12,6 +12,7 @@ var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
 builder.UseMiddleware<ModeratorAuthorizationMiddleware>();
+builder.UseMiddleware<HttpCachingMiddleware>();
 
 
 var useSqlite = builder.Services.AddSessionAppDbContext();
