@@ -14,19 +14,54 @@ export interface VirtualSessionSet {
   tunes: SessionTune[]
 }
 
+export interface BandVoice {
+  role: 'leader' | 'backer'
+  program: number
+  pan: number
+  /** Fixed per-instrument intonation quirk, in cents — not randomized per note. */
+  centsOffset: number
+}
+
 export interface VirtualSession {
   sets: VirtualSessionSet[]
   generatedAt: string
+  /** [leader, ...3 backers], picked fresh per session so the same band plays the whole sitting. */
+  bandVoices: BandVoice[]
 }
 
 const MIN_ACTIVE_TUNES = 2
 const SETS_PER_SESSION = 3
 const REPETITIONS_PER_TUNE = 3
+const BACKERS_PER_SESSION = 3
 /** How many top-scored candidates to randomize among, so repeated generations don't always pick the same tune. */
 const TOP_CANDIDATE_POOL = 3
 
+const LEADER_VOICE: BandVoice = { role: 'leader', program: 110, pan: 0, centsOffset: 0 } // Fiddle
+
+/** Candidate backers, each from the curated INSTRUMENTS list, with a fixed small intonation quirk. */
+const BACKER_POOL: Omit<BandVoice, 'role'>[] = [
+  { program: 105, pan: -0.6, centsOffset: -3 }, // Banjo
+  { program: 25, pan: 0.6, centsOffset: 2 }, // Guitar (steel)
+  { program: 21, pan: 0, centsOffset: -2 }, // Accordion
+  { program: 78, pan: -0.3, centsOffset: 3 }, // Whistle
+  { program: 109, pan: 0.3, centsOffset: -4 }, // Bagpipe
+  { program: 73, pan: 0.15, centsOffset: 2 }, // Flute
+]
+
 function pickRandom<T>(items: T[], randomFn: () => number): T {
   return items[Math.floor(randomFn() * items.length)]
+}
+
+/** Picks 3 distinct backers from the pool for one session, alongside the fixed leader voice. */
+function pickBandVoices(randomFn: () => number): BandVoice[] {
+  const remaining = [...BACKER_POOL]
+  const backers: BandVoice[] = []
+  for (let i = 0; i < BACKERS_PER_SESSION && remaining.length > 0; i++) {
+    const index = Math.floor(randomFn() * remaining.length)
+    const [voice] = remaining.splice(index, 1)
+    backers.push({ role: 'backer', ...voice })
+  }
+  return [LEADER_VOICE, ...backers]
 }
 
 function buildOneSet(
@@ -96,5 +131,5 @@ export function generateVirtualSession(
 
   if (sets.length === 0) return null
 
-  return { sets, generatedAt: new Date().toISOString() }
+  return { sets, generatedAt: new Date().toISOString(), bandVoices: pickBandVoices(randomFn) }
 }

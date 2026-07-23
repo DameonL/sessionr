@@ -4,23 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import abcjs from "abcjs";
 import { fixAbcRepeats } from "../services/abcTools";
 import { getDefaultTargetBpm } from "../services/api";
-import type { SessionTune } from "../services/virtualSession";
+import type { BandVoice, SessionTune } from "../services/virtualSession";
 import { getOrCreateCursor, updateCursorPosition } from "./playerControls";
 
-interface BandVoice {
-  role: "leader" | "backer";
-  program: number;
-  pan: number;
-  volumeMultiplier: number;
-}
-
-/** Leader drives the melody, cursor, and note reveal; backers are audio-only. */
-const BAND_VOICES: BandVoice[] = [
-  { role: "leader", program: 110, pan: 0, volumeMultiplier: 1.0 }, // Fiddle
-  { role: "backer", program: 105, pan: -0.6, volumeMultiplier: 1.0 }, // Banjo
-  { role: "backer", program: 25, pan: 0.6, volumeMultiplier: 1.0 }, // Guitar (steel)
-  { role: "backer", program: 21, pan: 0, volumeMultiplier: 1.0 }, // Accordion
-];
+/** Per-note timing jitter for backers, in seconds — subtle, applied within every pass, not just at the entrance. */
+const TIMING_JITTER_SEC = 0.02;
+/** Per-note volume jitter for backers, as a multiplier range around the notated velocity. */
+const MIN_VOLUME_MULTIPLIER = 0.85;
+const MAX_VOLUME_MULTIPLIER = 1.15;
 
 /**
  * Backers start a touch after the leader, like independent live musicians —
@@ -41,6 +32,8 @@ const TEMPO_JITTER_PCT = 0.02;
 
 export interface VirtualSessionPlayerProps {
   tune: SessionTune;
+  /** [leader, ...backers] for this session — same band plays every tune in the sitting. */
+  bandVoices: BandVoice[];
   /** Notation stays hidden and reveals note-by-note until this tune has had one full pass this sitting. */
   alreadyRevealed: boolean;
   onTuneRevealed: (userTuneId: string) => void;
@@ -50,12 +43,13 @@ export interface VirtualSessionPlayerProps {
 /**
  * Plays a single Virtual Session tune with a simulated 4-piece band: one
  * leader synth (drives the cursor and, on a tune's first pass, progressive
- * note reveal) plus three backer synths. Backers are independently started
- * with a humanized stagger rather than in perfect sync; on a tune's first
- * pass they also enter one at a time across the first few measures instead
- * of all joining at once.
+ * note reveal) plus three backer synths. Backers get per-note timing/volume
+ * humanization and a fixed per-instrument detune (the leader's audio is left
+ * untouched so it stays exactly in sync with its own cursor/reveal timing),
+ * plus a humanized start stagger; on a tune's first pass they also enter one
+ * at a time across the first few measures instead of all joining at once.
  */
-export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, onTuneComplete }: VirtualSessionPlayerProps) {
+export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTuneRevealed, onTuneComplete }: VirtualSessionPlayerProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const visualObjRef = useRef<abcjs.TuneObject | null>(null);
   const synthsRef = useRef<abcjs.MidiBuffer[]>([]);
@@ -121,10 +115,13 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
     const baseBpm = tune.tuneType ? getDefaultTargetBpm(tune.tuneType) : visualObj.getBpm();
     const effectiveBpm = Math.round((baseBpm || visualObj.getBpm()) * (1 + jitterPct));
     const msPerMeasure = visualObj.millisecondsPerMeasure(effectiveBpm);
+    const meter = visualObj.getMeterFraction();
+    const meterSize = meter.den ? meter.num / meter.den : 1;
+    const tempoMultiplierSec = msPerMeasure / 1000 / meterSize;
 
     try {
       const synths = await Promise.all(
-        BAND_VOICES.map(async (voice) => {
+        bandVoices.map(async (voice) => {
           const synth = new abcjs.synth.CreateSynth();
           await synth.init({
             visualObj,
@@ -134,7 +131,13 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
               chordprog: voice.program,
               bassprog: voice.program,
               pan: [voice.pan, voice.pan, voice.pan],
-              soundFontVolumeMultiplier: voice.volumeMultiplier,
+              sequenceCallback:
+                voice.role === "backer"
+                  ? (tracks: abcjs.NoteMapTrack[]) => {
+                      humanizeBackerTracks(tracks, voice, tempoMultiplierSec);
+                      return tracks;
+                    }
+                  : undefined,
             },
           });
           await synth.prime();
@@ -235,6 +238,24 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
       <div className="sheet-music" ref={sheetRef} />
     </div>
   );
+}
+
+/**
+ * Mutates a backer's generated note sequence in place (abcjs ignores the
+ * return value) so it doesn't sound like a perfectly quantized MIDI track:
+ * a small random timing nudge and volume variation per note, plus this
+ * backer's own fixed intonation quirk.
+ */
+function humanizeBackerTracks(tracks: abcjs.NoteMapTrack[], voice: BandVoice, tempoMultiplierSec: number) {
+  for (const track of tracks) {
+    for (const note of track) {
+      const jitter = ((Math.random() * 2 - 1) * TIMING_JITTER_SEC) / tempoMultiplierSec;
+      note.start = Math.max(0, note.start + jitter);
+      note.end = Math.max(note.start + 0.001, note.end + jitter);
+      note.volume = Math.max(1, Math.round(note.volume * (MIN_VOLUME_MULTIPLIER + Math.random() * (MAX_VOLUME_MULTIPLIER - MIN_VOLUME_MULTIPLIER))));
+      if (voice.centsOffset) note.cents = (note.cents ?? 0) + voice.centsOffset;
+    }
+  }
 }
 
 function hideAllNotes(host: HTMLDivElement) {

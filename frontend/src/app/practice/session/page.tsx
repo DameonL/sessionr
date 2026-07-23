@@ -166,6 +166,7 @@ export default function VirtualSessionPage() {
       <VirtualSessionPlayer
         key={`${session!.generatedAt}:${currentTune.userTuneId}`}
         tune={currentTune}
+        bandVoices={session!.bandVoices}
         alreadyRevealed={revealedTuneIds.has(currentTune.userTuneId)}
         onTuneRevealed={handleTuneRevealed}
         onTuneComplete={handleTuneComplete}
