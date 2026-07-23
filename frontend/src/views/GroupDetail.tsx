@@ -458,7 +458,9 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             <p className="tune-meta italic">No tunes on the master list yet.</p>
           ) : (
             <ul className="tune-list">
-              {details.masterTunes.map((t) => (
+              {[...details.masterTunes]
+                .sort((a, b) => normalizeTitleForSorting(a.title).localeCompare(normalizeTitleForSorting(b.title)))
+                .map((t) => (
                 <li key={t.groupTuneId} className="card tune-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ flex: 1 }}>
                     <span className="tune-title">{t.title}</span>

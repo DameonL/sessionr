@@ -13,6 +13,7 @@ import {
   type GroupTuneListItem,
 } from '../services/api'
 import { useAuthStatus } from '../state/appState'
+import { normalizeTitleForSorting } from '../services/abcTools'
 
 interface DraftItem {
   groupTuneId: string
@@ -92,8 +93,9 @@ export function GroupSetBuilder({
       <GroupSetEditor
         draft={draft}
         setDraft={setDraft}
-        available={masterTunes
+        available={[...masterTunes]
           .filter((t) => !draft.items.some((i) => i.groupTuneId === t.groupTuneId))
+          .sort((a, b) => normalizeTitleForSorting(a.title).localeCompare(normalizeTitleForSorting(b.title)))
           .map((t) => ({ groupTuneId: t.groupTuneId, title: t.title, tuneType: t.tuneType, key: t.key }))}
         onSave={() => saveMutation.mutate(draft)}
         onCancel={() => setDraft(null)}
@@ -115,7 +117,9 @@ export function GroupSetBuilder({
       )}
 
       {sets.isPending && <p>Loading…</p>}
-      {(sets.data ?? []).map((set) => (
+      {[...(sets.data ?? [])]
+        .sort((a, b) => normalizeTitleForSorting(a.title).localeCompare(normalizeTitleForSorting(b.title)))
+        .map((set) => (
         <div key={set.groupSetId} className="card set-card" style={{ marginTop: '1rem' }}>
           <div className="set-header">
             <h3>
