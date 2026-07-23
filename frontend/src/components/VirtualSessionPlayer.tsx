@@ -22,11 +22,15 @@ const BAND_VOICES: BandVoice[] = [
   { role: "backer", program: 21, pan: 0, volumeMultiplier: 1.0 }, // Accordion
 ];
 
-/** Backers are audibly thin on a tune's first pass, then join in fully. */
-const FIRST_PASS_BACKER_VOLUME = 0.35;
-/** Backers start slightly after the leader, like independent live musicians. */
-const MIN_BACKER_OFFSET_MS = 20;
-const MAX_BACKER_OFFSET_MS = 80;
+/** Backers start a bit after the leader, like independent live musicians settling in. */
+const MIN_BACKER_OFFSET_MS = 60;
+const MAX_BACKER_OFFSET_MS = 280;
+/**
+ * On a tune's first pass, each backer joins in one at a time rather than all
+ * at once — the Nth backer enters after N measures (plus the usual humanized
+ * offset), so the band visibly/audibly builds within the first few bars.
+ */
+const BACKER_ENTRANCE_MEASURES = [1, 2, 3];
 /** Small per-pass tempo jitter so the band doesn't feel perfectly metronomic. */
 const TEMPO_JITTER_PCT = 0.02;
 
@@ -41,8 +45,10 @@ export interface VirtualSessionPlayerProps {
 /**
  * Plays a single Virtual Session tune with a simulated 4-piece band: one
  * leader synth (drives the cursor and, on a tune's first pass, progressive
- * note reveal) plus three backer synths, all independently started with a
- * small stagger so it doesn't sound like one quantized track.
+ * note reveal) plus three backer synths. Backers are independently started
+ * with a humanized stagger rather than in perfect sync; on a tune's first
+ * pass they also enter one at a time across the first few measures instead
+ * of all joining at once.
  */
 export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, onTuneComplete }: VirtualSessionPlayerProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -111,13 +117,9 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
     const effectiveBpm = Math.round((baseBpm || visualObj.getBpm()) * (1 + jitterPct));
     const msPerMeasure = visualObj.millisecondsPerMeasure(effectiveBpm);
 
-    const voices = isFirstPass
-      ? BAND_VOICES.map((v) => (v.role === "leader" ? v : { ...v, volumeMultiplier: v.volumeMultiplier * FIRST_PASS_BACKER_VOLUME }))
-      : BAND_VOICES;
-
     try {
       const synths = await Promise.all(
-        voices.map(async (voice) => {
+        BAND_VOICES.map(async (voice) => {
           const synth = new abcjs.synth.CreateSynth();
           await synth.init({
             visualObj,
@@ -144,13 +146,16 @@ export function VirtualSessionPlayer({ tune, alreadyRevealed, onTuneRevealed, on
 
       setStatus("playing");
       synths[0].start();
-      for (const synth of synths.slice(1)) {
-        const offset = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
+      synths.slice(1).forEach((synth, backerIndex) => {
+        const humanizedOffset = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
+        // First pass: each backer enters one at a time, N measures in, so the band audibly builds.
+        const entranceMeasures = isFirstPass ? BACKER_ENTRANCE_MEASURES[backerIndex] ?? 0 : 0;
+        const offset = entranceMeasures * msPerMeasure + humanizedOffset;
         const id = window.setTimeout(() => {
           if (synthsRef.current.includes(synth)) synth.start();
         }, offset);
         pendingTimeoutsRef.current.push(id);
-      }
+      });
       timer.start();
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");

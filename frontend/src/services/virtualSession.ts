@@ -21,7 +21,7 @@ export interface VirtualSession {
 
 const MIN_ACTIVE_TUNES = 2
 const SETS_PER_SESSION = 3
-const REPETITIONS_PER_TUNE = 2
+const REPETITIONS_PER_TUNE = 3
 /** How many top-scored candidates to randomize among, so repeated generations don't always pick the same tune. */
 const TOP_CANDIDATE_POOL = 3
 
