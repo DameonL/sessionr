@@ -24,7 +24,7 @@ const BAND_VOICES: BandVoice[] = [
 
 /** Backers start a bit after the leader, like independent live musicians settling in. */
 const MIN_BACKER_OFFSET_MS = 60;
-const MAX_BACKER_OFFSET_MS = 280;
+const MAX_BACKER_OFFSET_MS = 80;
 /**
  * On a tune's first pass, each backer joins in one at a time rather than all
  * at once — the Nth backer enters after N measures (plus the usual humanized
