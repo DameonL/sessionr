@@ -5,22 +5,10 @@ import abcjs from "abcjs";
 import { fixAbcRepeats } from "../services/abcTools";
 import { getDefaultTargetBpm } from "../services/api";
 import type { BandVoice, SessionTune } from "../services/virtualSession";
+import { backerStartOffsetMs, clearPendingTimeouts } from "../services/band";
+import { createBandSynth } from "../services/bandSynth";
 import { getOrCreateCursor, updateCursorPosition } from "./playerControls";
 
-/** Per-note timing jitter for backers, in seconds — subtle, applied within every pass, not just at the entrance. */
-const TIMING_JITTER_SEC = 0.02;
-/** Per-note volume jitter for backers, as a multiplier range around the notated velocity. */
-const MIN_VOLUME_MULTIPLIER = 0.85;
-const MAX_VOLUME_MULTIPLIER = 1.15;
-
-/**
- * Backers start a touch after the leader, like independent live musicians —
- * kept small since this offset persists for the whole pass (each synth runs
- * on its own clock once started), so anything much bigger reads as flamming
- * rather than a live feel.
- */
-const MIN_BACKER_OFFSET_MS = 10;
-const MAX_BACKER_OFFSET_MS = 35;
 /**
  * On a tune's first pass, each backer joins in one at a time rather than all
  * at once — the Nth backer enters after roughly N measures, so the band
@@ -35,6 +23,12 @@ const BACKER_ENTRANCE_MEASURES = [1, 2, 3];
 const ENTRANCE_MEASURE_JITTER_FRACTION = 0.2;
 /** Small per-pass tempo jitter so the band doesn't feel perfectly metronomic. */
 const TEMPO_JITTER_PCT = 0.02;
+
+interface PreparedPass {
+  synths: abcjs.MidiBuffer[];
+  effectiveBpm: number;
+  msPerMeasure: number;
+}
 
 export interface VirtualSessionPlayerProps {
   tune: SessionTune;
@@ -63,6 +57,12 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
   const pendingTimeoutsRef = useRef<number[]>([]);
   const passRef = useRef(1);
   const isFirstPassRef = useRef(!alreadyRevealed);
+  /** In-flight (or resolved) priming of the *next* pass's band, started as soon as the current pass begins playing. */
+  const nextPassRef = useRef<Promise<PreparedPass | null> | null>(null);
+  /** Synths from a resolved prefetch that haven't been claimed by startPass() yet — tracked so teardown()/a tune switch can stop them instead of leaking. */
+  const nextPassSynthsRef = useRef<abcjs.MidiBuffer[]>([]);
+  /** Bumped by teardown() so an in-flight startPass() knows if a tune switch or teardown occurred while it was awaiting synth preparation. */
+  const playSessionRef = useRef(0);
   const [status, setStatus] = useState<"loading" | "playing" | "done">("loading");
   const [pass, setPass] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +70,8 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
   useEffect(() => {
     passRef.current = 1;
     isFirstPassRef.current = !alreadyRevealed;
+    nextPassRef.current = null;
+    nextPassSynthsRef.current = [];
     setPass(1);
     setStatus("loading");
     setError(null);
@@ -94,29 +96,30 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tune.userTuneId]);
 
-  function clearPendingTimeouts() {
-    for (const id of pendingTimeoutsRef.current) window.clearTimeout(id);
-    pendingTimeoutsRef.current = [];
-  }
-
   function teardown() {
-    clearPendingTimeouts();
+    playSessionRef.current += 1;
+    pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
     for (const synth of synthsRef.current) synth.stop();
     synthsRef.current = [];
+    for (const synth of nextPassSynthsRef.current) synth.stop();
+    nextPassSynthsRef.current = [];
+    nextPassRef.current = null;
     if (timerRef.current) {
       timerRef.current.stop();
       timerRef.current = null;
     }
   }
 
-  async function startPass() {
+  /**
+   * Creates and primes a full band's synths for one pass — the expensive, async part
+   * (audio buffer rendering) — without starting playback. Split out from startPass so
+   * it can be run ahead of time for the *next* pass while the current one is still
+   * playing, instead of only starting once the current pass has already stopped.
+   */
+  async function prepareSynths(): Promise<PreparedPass | null> {
     const visualObj = visualObjRef.current;
-    if (!visualObj) return;
-    setStatus("loading");
-    setError(null);
-    clearPendingTimeouts();
+    if (!visualObj) return null;
 
-    const isFirstPass = isFirstPassRef.current;
     const jitterPct = (Math.random() * 2 - 1) * TEMPO_JITTER_PCT;
     const baseBpm = tune.tuneType ? getDefaultTargetBpm(tune.tuneType) : visualObj.getBpm();
     const effectiveBpm = Math.round((baseBpm || visualObj.getBpm()) * (1 + jitterPct));
@@ -127,29 +130,50 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
 
     try {
       const synths = await Promise.all(
-        bandVoices.map(async (voice) => {
-          const synth = new abcjs.synth.CreateSynth();
-          await synth.init({
-            visualObj,
-            millisecondsPerMeasure: msPerMeasure,
-            options: {
-              program: voice.program,
-              chordprog: voice.program,
-              bassprog: voice.program,
-              pan: [voice.pan, voice.pan, voice.pan],
-              sequenceCallback:
-                voice.role === "backer"
-                  ? (tracks: abcjs.NoteMapTrack[]) => {
-                      humanizeBackerTracks(tracks, voice, tempoMultiplierSec);
-                      return tracks;
-                    }
-                  : undefined,
-            },
-          });
-          await synth.prime();
-          return synth;
-        }),
+        bandVoices.map((voice) => createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec)),
       );
+      return { synths, effectiveBpm, msPerMeasure };
+    } catch {
+      return null;
+    }
+  }
+
+  async function startPass() {
+    const visualObj = visualObjRef.current;
+    if (!visualObj) return;
+    const mySession = playSessionRef.current;
+    setStatus("loading");
+    setError(null);
+    pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
+
+    const isFirstPass = isFirstPassRef.current;
+
+    // Reuse the band that was primed in the background while the previous pass was
+    // still playing, if it's ready (or wait for it if it hasn't quite finished yet) —
+    // that's what avoids a dead gap here on every repeat. Only the very first pass of
+    // a tune has to prime cold.
+    let prepared: PreparedPass | null;
+    if (nextPassRef.current) {
+      prepared = await nextPassRef.current;
+      nextPassRef.current = null;
+      nextPassSynthsRef.current = [];
+    } else {
+      prepared = await prepareSynths();
+    }
+
+    if (playSessionRef.current !== mySession) {
+      prepared?.synths.forEach((s) => s.stop());
+      return;
+    }
+
+    if (!prepared) {
+      setError("Audio unavailable (soundfont could not be loaded).");
+      return;
+    }
+
+    const { synths, effectiveBpm, msPerMeasure } = prepared;
+
+    try {
       synthsRef.current = synths;
 
       const timer = new abcjs.TimingCallbacks(visualObj, {
@@ -161,7 +185,7 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
       setStatus("playing");
       synths[0].start();
       synths.slice(1).forEach((synth, backerIndex) => {
-        const humanizedOffsetMs = MIN_BACKER_OFFSET_MS + Math.random() * (MAX_BACKER_OFFSET_MS - MIN_BACKER_OFFSET_MS);
+        const humanizedOffsetMs = backerStartOffsetMs();
         // First pass: each backer enters one at a time, N measures in, so the band audibly
         // builds. The wall-clock delay before starting must match how far into the tune we
         // then seek — otherwise the backer starts playing almost immediately (barely after
@@ -184,6 +208,22 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
       timer.start();
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
+      return;
+    }
+
+    // Kick off priming the next pass's band now, in the background, so it's ready by
+    // the time this pass ends instead of only starting to prime after it's already over.
+    if (passRef.current < tune.repetitions) {
+      const preparePromise = prepareSynths();
+      nextPassRef.current = preparePromise;
+      preparePromise.then((result) => {
+        if (nextPassRef.current === preparePromise) {
+          nextPassSynthsRef.current = result?.synths ?? [];
+        } else {
+          // Superseded by a tune change/teardown before this resolved — don't leak it.
+          result?.synths.forEach((s) => s.stop());
+        }
+      });
     }
   }
 
@@ -250,24 +290,6 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
       <div className="sheet-music" ref={sheetRef} />
     </div>
   );
-}
-
-/**
- * Mutates a backer's generated note sequence in place (abcjs ignores the
- * return value) so it doesn't sound like a perfectly quantized MIDI track:
- * a small random timing nudge and volume variation per note, plus this
- * backer's own fixed intonation quirk.
- */
-function humanizeBackerTracks(tracks: abcjs.NoteMapTrack[], voice: BandVoice, tempoMultiplierSec: number) {
-  for (const track of tracks) {
-    for (const note of track) {
-      const jitter = ((Math.random() * 2 - 1) * TIMING_JITTER_SEC) / tempoMultiplierSec;
-      note.start = Math.max(0, note.start + jitter);
-      note.end = Math.max(note.start + 0.001, note.end + jitter);
-      note.volume = Math.max(1, Math.round(note.volume * (MIN_VOLUME_MULTIPLIER + Math.random() * (MAX_VOLUME_MULTIPLIER - MIN_VOLUME_MULTIPLIER))));
-      if (voice.centsOffset) note.cents = (note.cents ?? 0) + voice.centsOffset;
-    }
-  }
 }
 
 function hideAllNotes(host: HTMLDivElement) {

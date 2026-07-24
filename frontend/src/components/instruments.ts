@@ -4,19 +4,25 @@ export interface Instruments {
   bass: number
 }
 
-/** Curated General MIDI programs that suit traditional music. */
+/** Curated General MIDI programs that suit traditional music — covers the usual instruments that turn up at a folk session. */
 export const INSTRUMENTS: { value: number; label: string }[] = [
   { value: 0, label: 'Piano' },
   { value: 15, label: 'Dulcimer' },
   { value: 21, label: 'Accordion' },
   { value: 22, label: 'Harmonica' },
+  { value: 23, label: 'Concertina' },
   { value: 24, label: 'Guitar (nylon)' },
   { value: 25, label: 'Guitar (steel)' },
   { value: 32, label: 'Acoustic Bass' },
   { value: 40, label: 'Violin' },
+  { value: 41, label: 'Viola' },
   { value: 42, label: 'Cello' },
+  { value: 43, label: 'Double Bass (bowed)' },
   { value: 46, label: 'Harp' },
+  { value: 68, label: 'Oboe' },
+  { value: 71, label: 'Clarinet' },
   { value: 73, label: 'Flute' },
+  { value: 75, label: 'Recorder' },
   { value: 78, label: 'Whistle' },
   { value: 105, label: 'Banjo' },
   { value: 109, label: 'Bagpipe' },
