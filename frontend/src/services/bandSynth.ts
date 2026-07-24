@@ -1,6 +1,11 @@
 import abcjs from 'abcjs'
 import { humanizeBackerTracks, type BandVoice } from './band'
 import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
+import { generateBodhranTrack } from './bodhran'
+
+export interface BandSynthOptions extends abcjs.SynthOptions {
+  bodhran?: boolean
+}
 
 /**
  * Creates and primes one band voice's synth: melody/chords/bass all set to the
@@ -8,7 +13,7 @@ import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/ins
  * panned to its stereo position, with per-note humanization wired in for
  * backers (never for the leader, which stays exactly in sync with its own
  * cursor/timing). `extraOptions` lets a caller layer on its own synth options
- * (e.g. swing) without duplicating this wiring.
+ * (e.g. swing, bodhran) without duplicating this wiring.
  *
  * Split out from band.ts (which stays free of the real abcjs runtime import,
  * only using its types) so pure band-picking logic — used by virtualSession.ts
@@ -21,11 +26,12 @@ export async function createBandSynth(
   msPerMeasure: number,
   voice: BandVoice,
   tempoMultiplierSec: number,
-  extraOptions?: abcjs.SynthOptions,
+  extraOptions?: BandSynthOptions,
 ): Promise<abcjs.MidiBuffer> {
   const synth = new abcjs.synth.CreateSynth()
   const isSubdivided = shouldSubdivideInstrument(voice.program)
   const isBacker = voice.role === 'backer'
+  const isBodhran = !!extraOptions?.bodhran && voice.role === 'leader'
 
   await synth.init({
     visualObj,
@@ -37,13 +43,19 @@ export async function createBandSynth(
       bassprog: voice.program,
       pan: [voice.pan, voice.pan, voice.pan],
       sequenceCallback:
-        isSubdivided || isBacker
+        isSubdivided || isBacker || isBodhran
           ? (tracks: abcjs.NoteMapTrack[]) => {
               if (isSubdivided) {
                 tracks = tracks.map((track) => subdivideLongNotes(track))
               }
               if (isBacker) {
                 humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
+              }
+              if (isBodhran) {
+                const drumTrack = generateBodhranTrack(visualObj)
+                if (drumTrack.length > 0) {
+                  tracks.push(drumTrack)
+                }
               }
               return tracks
             }
@@ -53,4 +65,5 @@ export async function createBandSynth(
   await synth.prime()
   return synth
 }
+
 

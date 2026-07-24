@@ -7,6 +7,7 @@ import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
 import { fixAbcRepeats } from "../services/abcTools";
+import { generateBodhranTrack } from "../services/bodhran";
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
@@ -114,6 +115,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const [swingPercent, setSwingPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).swingPercent);
   const [repeat, setRepeat] = useState(initialPrefs.repeat);
   const [repeatLimit, setRepeatLimit] = useState<number | null>(initialPrefs.repeatLimit);
+  const [bodhran, setBodhran] = useState(() => initialPrefs.bodhran ?? false);
   const [instruments, setInstruments] = useState(loadInstruments);
   const [bandPrefs, setBandPrefs] = useState(loadBandPrefs);
   const [bandVoices, setBandVoices] = useState<BandVoice[]>([]);
@@ -152,6 +154,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   instrumentsRef.current = instruments;
   const swingPercentRef = useRef(swingPercent);
   swingPercentRef.current = swingPercent;
+  const bodhranRef = useRef(bodhran);
+  bodhranRef.current = bodhran;
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -164,8 +168,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   }, []);
 
   useEffect(() => {
-    savePlayerPrefs({ repeat, repeatLimit, trainer });
-  }, [repeat, repeatLimit, trainer]);
+    savePlayerPrefs({ repeat, repeatLimit, bodhran, trainer });
+  }, [repeat, repeatLimit, bodhran, trainer]);
 
   useEffect(() => {
     saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent });
@@ -419,6 +423,16 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     setMarkA(null);
   }
 
+  function toggleBodhran() {
+    const next = !bodhran;
+    setBodhran(next);
+    bodhranRef.current = next;
+    savePlayerPrefs({ repeat, repeatLimit, bodhran: next, trainer });
+    if (status !== "stopped") {
+      play(tempoPercent);
+    }
+  }
+
   function updateTrainer(patch: Partial<Trainer>) {
     setTrainer((t) => {
       const next = { ...t, ...patch };
@@ -505,6 +519,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     const msPerMeasure = visualObj.millisecondsPerMeasure(effectiveBpm);
     const bandMode = isBandModeRef.current;
     const voicesToUse = bandMode ? bandVoicesRef.current : [];
+    const useBodhran = bodhranRef.current;
 
     // Sanitized prefs should keep this from happening, but fail loudly rather than
     // silently falling back to a Solo synth while the UI still shows Band mode.
@@ -517,7 +532,10 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         const tempoMultiplierSec = msPerMeasure / 1000 / meterSize;
         return await Promise.all(
           voicesToUse.map((voice) =>
-            createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, { swing: toAbcjsSwing(swingPercentRef.current) }),
+            createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
+              swing: toAbcjsSwing(swingPercentRef.current),
+              bodhran: useBodhran,
+            }),
           ),
         );
       }
@@ -531,7 +549,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
           ...synthInstrumentOptions(currentInst),
           swing: toAbcjsSwing(swingPercentRef.current),
           sequenceCallback: (tracks) => {
-            return tracks.map((track, trackIdx) => {
+            tracks = tracks.map((track, trackIdx) => {
               let prog = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
               if (track.length > 0 && track[0].instrument) {
                 const parsed = Number(track[0].instrument);
@@ -542,6 +560,13 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
               }
               return track;
             });
+            if (useBodhran) {
+              const drumTrack = generateBodhranTrack(visualObj);
+              if (drumTrack.length > 0) {
+                tracks.push(drumTrack);
+              }
+            }
+            return tracks;
           },
         },
       });
@@ -916,6 +941,14 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
               </label>
             )}
             <MetronomeControls {...metronome} />
+            <button
+              className={bodhran ? "toggled" : ""}
+              aria-pressed={bodhran}
+              onClick={toggleBodhran}
+              title="Toggle automated bodhrán folk drum backing"
+            >
+              🥁 Bodhrán
+            </button>
             <button
               className={loop || markA !== null ? "toggled" : ""}
               disabled={status === "stopped"}

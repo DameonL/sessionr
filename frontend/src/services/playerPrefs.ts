@@ -1,6 +1,7 @@
 export interface PlayerPrefs {
   repeat: boolean
   repeatLimit: number | null
+  bodhran: boolean
   trainer: {
     armed: boolean
     startPct: number
@@ -14,6 +15,7 @@ const PLAYER_PREFS_KEY = 'sessionapp.player-prefs'
 const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   repeat: false,
   repeatLimit: null,
+  bodhran: false,
   trainer: { armed: false, startPct: 60, stepPct: 5, targetPct: 100 },
 }
 
