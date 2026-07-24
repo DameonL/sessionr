@@ -2,19 +2,27 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMsal, useIsAuthenticated } from '@azure/msal-react'
+import { useMsal } from '@azure/msal-react'
 import { loginRequest } from '../services/authConfig'
+import { useAuthStatus } from '../state/appState'
 
 export function MsalLoginPanel() {
   const { instance } = useMsal()
-  const isAuthenticated = useIsAuthenticated()
+  const status = useAuthStatus()
   const router = useRouter()
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (status === 'authenticated') {
       router.push('/')
     }
-  }, [isAuthenticated, router])
+  }, [status, router])
+
+  // Covers both "still resolving" (pending) and "authenticated, redirect
+  // about to take effect" — either way, showing the sign-in button here
+  // would be wrong. Mirrors how RequireAuth/NavBar gate on the same signal.
+  if (status !== 'anonymous') {
+    return <div style={{ minHeight: '150px' }} />
+  }
 
   return (
     <>
