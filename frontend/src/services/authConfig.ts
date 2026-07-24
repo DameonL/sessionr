@@ -19,7 +19,7 @@ export const msalConfig: Configuration = {
     ]
   },
   cache: {
-    cacheLocation: "sessionStorage"
+    cacheLocation: "localStorage"
   }
 };
 

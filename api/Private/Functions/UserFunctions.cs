@@ -30,7 +30,14 @@ public class UserFunctions(AppDbContext db)
         }
 
         var isModerator = req.IsCallerModerator();
+
+        if (TryGetCachedProfile(callerUserId.Value, out var cached) && cached is not null)
+        {
+            return new OkObjectResult(new UserLoginResponse(cached.UserId, cached.DisplayName, cached.Username, cached.Email, cached.Bio, cached.Location, cached.Instruments, isModerator));
+        }
+
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
+        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments));
         return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
     }
 
@@ -121,6 +128,8 @@ public class UserFunctions(AppDbContext db)
         {
             return new ConflictObjectResult("That username was just taken — please choose another.");
         }
+
+        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments));
 
         var isModerator = req.IsCallerModerator();
         return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));

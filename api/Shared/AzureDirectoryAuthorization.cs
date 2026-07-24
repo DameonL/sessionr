@@ -27,6 +27,9 @@ public static class AzureDirectoryAuthorization
     /// <summary>Raw caller identity parsed from EasyAuth headers or a JWT Bearer token — no database access.</summary>
     public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
 
+    /// <summary>Cached copy of a user's profile fields, so warm GET /users/me requests can skip the DB entirely.</summary>
+    public record CachedUserProfile(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments);
+
     /// <summary>Ensures a user record exists in db.Users for the given authenticated identity.</summary>
     public static async Task<Guid> EnsureUserExistsAsync(AppDbContext db, Guid userId, string? email = null, string? displayName = null)
     {
@@ -233,6 +236,18 @@ public static class AzureDirectoryAuthorization
 
     private static readonly MemoryCache UserIdentityCache = new(new MemoryCacheOptions());
     private static readonly MemoryCacheEntryOptions CacheEntryOptions = new() { SlidingExpiration = TimeSpan.FromMinutes(10) };
+
+    /// <summary>Looks up a cached profile for GET /users/me, avoiding a DB round trip on a warm cache.</summary>
+    public static bool TryGetCachedProfile(Guid userId, out CachedUserProfile? profile)
+    {
+        return UserIdentityCache.TryGetValue($"user_profile_{userId}", out profile);
+    }
+
+    /// <summary>Caches (or refreshes) a user's profile fields, e.g. after a GET miss or a successful PATCH.</summary>
+    public static void CacheProfile(CachedUserProfile profile)
+    {
+        UserIdentityCache.Set($"user_profile_{profile.UserId}", profile, CacheEntryOptions);
+    }
 
     /// <summary>Resolves the caller identity and ensures a matching db.Users row exists.</summary>
     public static async Task<Guid?> GetCallerUserIdAsync(this HttpRequest req, AppDbContext db)

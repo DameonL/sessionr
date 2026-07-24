@@ -59,7 +59,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
               knownAuthorities: [`${config.tenantSubdomain}.ciamlogin.com`]
             },
             cache: {
-              cacheLocation: "sessionStorage"
+              cacheLocation: "localStorage"
             }
           };
 
