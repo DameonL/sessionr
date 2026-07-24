@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Services;
@@ -16,6 +17,7 @@ public static class DbSchemaMigrator
     public static void EnsureSchemaUpToDate(AppDbContext db, bool useSqlite)
     {
         bool addedStreakColumns = false;
+        bool addedUsernameColumn = false;
 
         if (!useSqlite)
         {
@@ -32,6 +34,16 @@ public static class DbSchemaMigrator
                 addedStreakColumns = true;
             }
 
+            var usernameColExists = db.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'Username'")
+                .AsEnumerable().FirstOrDefault() > 0;
+
+            if (!usernameColExists)
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE Users ADD Username NVARCHAR(30) NULL;");
+                addedUsernameColumn = true;
+            }
+
             db.Database.ExecuteSqlRaw("""
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'Bio')
                     ALTER TABLE Users ADD Bio NVARCHAR(MAX) NULL;
@@ -39,6 +51,9 @@ public static class DbSchemaMigrator
                     ALTER TABLE Users ADD Location NVARCHAR(256) NULL;
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'Instruments')
                     ALTER TABLE Users ADD Instruments NVARCHAR(512) NULL;
+
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Users_Username' AND object_id = OBJECT_ID('Users'))
+                    CREATE UNIQUE INDEX IX_Users_Username ON Users(Username) WHERE Username IS NOT NULL;
 
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PointsTransactions')
                     CREATE TABLE PointsTransactions (
@@ -103,9 +118,20 @@ public static class DbSchemaMigrator
                 addedStreakColumns = true;
             }
 
+            var usernameColExists = db.Database.SqlQueryRaw<string>(
+                "SELECT name FROM pragma_table_info('Users') WHERE name = 'Username'")
+                .AsEnumerable().Any();
+
+            if (!usernameColExists)
+            {
+                ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Username TEXT NULL;");
+                addedUsernameColumn = true;
+            }
+
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Bio TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Location TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Users ADD COLUMN Instruments TEXT NULL;");
+            ExecuteSqlSafe(db, "CREATE UNIQUE INDEX IF NOT EXISTS IX_Users_Username ON Users(Username) WHERE Username IS NOT NULL;");
 
             ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN IsReviewed INTEGER NOT NULL DEFAULT 1;");
             ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN ReviewedAt TEXT NULL;");
@@ -155,6 +181,49 @@ public static class DbSchemaMigrator
                 Console.Error.WriteLine($"EnsureSchemaUpToDate: PerformStreakBackfill warning/error: {ex.Message}");
             }
         }
+
+        if (addedUsernameColumn)
+        {
+            try
+            {
+                PerformUsernameBackfill(db);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"EnsureSchemaUpToDate: PerformUsernameBackfill warning/error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Assigns every existing usernameless user a slug derived from their DisplayName,
+    /// deterministically de-duplicating collisions with a numeric suffix (ordered by
+    /// UserId so re-running against the same data always produces the same result).
+    /// </summary>
+    private static void PerformUsernameBackfill(AppDbContext db)
+    {
+        var users = db.Users.OrderBy(u => u.UserId).ToList();
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var user in users)
+        {
+            var baseSlug = UsernameSlug.Slugify(user.DisplayName) ?? "musician";
+            var candidate = baseSlug;
+            var suffix = 2;
+            while (taken.Contains(candidate))
+            {
+                var suffixStr = $"-{suffix}";
+                var trimmedBase = baseSlug.Length + suffixStr.Length > 30
+                    ? baseSlug[..(30 - suffixStr.Length)].TrimEnd('-')
+                    : baseSlug;
+                candidate = trimmedBase + suffixStr;
+                suffix++;
+            }
+            taken.Add(candidate);
+            user.Username = candidate;
+        }
+
+        db.SaveChanges();
     }
 
     private static void PerformStreakBackfill(AppDbContext db)

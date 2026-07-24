@@ -2,15 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
-import { getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser, type UserBadge } from '../services/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { checkUsernameAvailable, getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser, type UserBadge } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
 import { BadgeModal } from '../components/BadgeModal'
 
+const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
+
 /** Edit-your-own-profile page: /profile */
 export function Profile() {
   const userId = useSignal(currentUserId)
+  const queryClient = useQueryClient()
   const profileQuery = useQuery({ queryKey: ['current-user'], queryFn: getCurrentUser })
   const gamificationQuery = useQuery({ queryKey: ['my-gamification'], queryFn: getMyGamificationSummary })
   const practiceStatsQuery = useQuery({ queryKey: ['practice-stats', userId], queryFn: getPracticeStats })
@@ -18,37 +21,75 @@ export function Profile() {
   const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [displayName, setDisplayName] = useState('')
+  const [username, setUsername] = useState('')
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle')
   const [bio, setBio] = useState('')
   const [location, setLocation] = useState('')
   const [instruments, setInstruments] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const seeded = useRef(false)
+  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const mustSetUsername = !!profileQuery.data && !profileQuery.data.username
 
   useEffect(() => {
     if (profileQuery.data && (!seeded.current || !isEditing)) {
       seeded.current = true
       setDisplayName(profileQuery.data.displayName)
+      setUsername(profileQuery.data.username ?? '')
       setBio(profileQuery.data.bio ?? '')
       setLocation(profileQuery.data.location ?? '')
       setInstruments(profileQuery.data.instruments ?? '')
     }
   }, [profileQuery.data, isEditing])
 
+  useEffect(() => {
+    if (mustSetUsername) setIsEditing(true)
+  }, [mustSetUsername])
+
+  useEffect(() => {
+    if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
+
+    if (!isEditing || !username || username === profileQuery.data?.username) {
+      setUsernameStatus('idle')
+      return
+    }
+    if (!USERNAME_FORMAT.test(username)) {
+      setUsernameStatus('invalid')
+      return
+    }
+
+    setUsernameStatus('checking')
+    usernameCheckTimer.current = setTimeout(() => {
+      checkUsernameAvailable(username)
+        .then((result) => setUsernameStatus(result.available ? 'available' : 'taken'))
+        .catch(() => setUsernameStatus('idle'))
+    }, 400)
+
+    return () => {
+      if (usernameCheckTimer.current) clearTimeout(usernameCheckTimer.current)
+    }
+  }, [username, isEditing, profileQuery.data?.username])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!displayName.trim()) return
+    if (!USERNAME_FORMAT.test(username)) return
+    if (usernameStatus === 'taken' || usernameStatus === 'checking') return
 
     setSaving(true)
     setError(null)
     try {
       const updated = await updateCurrentUser({
         displayName: displayName.trim(),
+        username: username.trim().toLowerCase(),
         bio: bio.trim(),
         location: location.trim(),
         instruments: instruments.trim(),
       })
       currentUserProfile.value = updated
+      queryClient.setQueryData(['current-user'], updated)
       showToast('Profile updated successfully!')
       setIsEditing(false)
     } catch (err: any) {
@@ -73,8 +114,8 @@ export function Profile() {
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h1 style={{ margin: 0 }}>Your Profile</h1>
-        {userId && (
-          <Link href={`/profile/${userId}`} prefetch={false} className="quiet-link">
+        {profileQuery.data?.username && (
+          <Link href={`/profile/${profileQuery.data.username}`} prefetch={false} className="quiet-link">
             View public profile ↗
           </Link>
         )}
@@ -140,7 +181,37 @@ export function Profile() {
       ) : (
         <form className="card" onSubmit={handleSubmit} style={{ padding: '1.5rem' }}>
           <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Edit Profile</h3>
+          {mustSetUsername && (
+            <p className="tune-meta" style={{ marginTop: 0, marginBottom: '1rem' }}>
+              Welcome! Choose a username to finish setting up your profile.
+            </p>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Username *</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                placeholder="e.g. jane-fiddler"
+                required
+                style={{ width: '100%' }}
+                disabled={saving}
+              />
+              {usernameStatus === 'checking' && (
+                <p className="tune-meta" style={{ margin: '0.25rem 0 0' }}>Checking…</p>
+              )}
+              {usernameStatus === 'available' && (
+                <p className="tune-meta" style={{ margin: '0.25rem 0 0', color: '#4dd0a5' }}>✓ Available</p>
+              )}
+              {usernameStatus === 'taken' && (
+                <p className="error" style={{ margin: '0.25rem 0 0' }}>✗ That username is already taken.</p>
+              )}
+              {usernameStatus === 'invalid' && (
+                <p className="error" style={{ margin: '0.25rem 0 0' }}>3-30 characters: lowercase letters, numbers, and hyphens only.</p>
+              )}
+            </div>
+
             <div>
               <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Display Name *</label>
               <input
@@ -192,10 +263,15 @@ export function Profile() {
             {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-              <button type="button" className="secondary" onClick={() => setIsEditing(false)} disabled={saving}>
-                Cancel
-              </button>
-              <button type="submit" disabled={saving || !displayName.trim()}>
+              {!mustSetUsername && (
+                <button type="button" className="secondary" onClick={() => setIsEditing(false)} disabled={saving}>
+                  Cancel
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={saving || !displayName.trim() || !USERNAME_FORMAT.test(username) || usernameStatus === 'checking' || usernameStatus === 'taken'}
+              >
                 {saving ? 'Saving…' : 'Save Profile'}
               </button>
             </div>

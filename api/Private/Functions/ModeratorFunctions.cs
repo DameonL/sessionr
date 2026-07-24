@@ -22,7 +22,7 @@ public class ModeratorFunctions(AppDbContext db)
     public record ModeratorGroupDto(Guid GroupId, string Name, string Description, string? City, bool IsPrivate, string? InviteCode, bool IsReviewed, DateTime? ReviewedAt, string? ReviewedBy, DateTime CreatedAt, int MemberCount);
     public record UpdateMasterTuneRequest(string Title, string TuneType, string Key, string MasterAbcText);
     public record SanitizeProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments);
-    public record ModeratorUserDetailsDto(Guid UserId, string DisplayName, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator, int GroupCount, int TuneCount);
+    public record ModeratorUserDetailsDto(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator, int GroupCount, int TuneCount);
 
     /// <summary>GET /api/moderator/unreviewed-tunes — fetch all tunes pending moderator review.</summary>
     [Function("GetUnreviewedTunes")]
@@ -261,6 +261,7 @@ public class ModeratorFunctions(AppDbContext db)
         return new OkObjectResult(new ModeratorUserDetailsDto(
             user.UserId,
             user.DisplayName,
+            user.Username,
             user.Email,
             user.Bio,
             user.Location,

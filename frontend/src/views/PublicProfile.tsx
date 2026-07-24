@@ -17,9 +17,9 @@ import { getBadgeInfo } from '../services/badges'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
 import { BadgeModal } from '../components/BadgeModal'
 
-/** Bookmarkable public profile page: /profile/{userId} */
-export function PublicProfile({ userId }: { userId?: string }) {
-  const id = userId ?? ''
+/** Bookmarkable public profile page: /profile/{username} */
+export function PublicProfile({ username }: { username?: string }) {
+  const slug = username ?? ''
   const viewerProfile = useSignal(currentUserProfile)
   const isViewerModerator = !!viewerProfile?.isModerator
   const queryClient = useQueryClient()
@@ -32,42 +32,44 @@ export function PublicProfile({ userId }: { userId?: string }) {
   const [sanInst, setSanInst] = useState('')
 
   const profile = useQuery({
-    queryKey: ['public-profile', id],
-    queryFn: () => getPublicUserProfile(id),
+    queryKey: ['public-profile', slug],
+    queryFn: () => getPublicUserProfile(slug),
     retry: false,
   })
 
+  const resolvedUserId = profile.data?.userId
+
   const moderatorDetails = useQuery({
-    queryKey: ['moderator-user-details', id],
-    queryFn: () => getModeratorUserDetails(id),
+    queryKey: ['moderator-user-details', resolvedUserId],
+    queryFn: () => getModeratorUserDetails(resolvedUserId!),
     retry: false,
-    enabled: isViewerModerator && !!id,
+    enabled: isViewerModerator && !!resolvedUserId,
   })
 
   const gamification = useQuery({
-    queryKey: ['public-gamification', id],
-    queryFn: () => getPublicGamificationSummary(id),
+    queryKey: ['public-gamification', resolvedUserId],
+    queryFn: () => getPublicGamificationSummary(resolvedUserId!),
     retry: false,
-    enabled: !!profile.data,
+    enabled: !!resolvedUserId,
   })
 
   const activeTunes = useQuery({
-    queryKey: ['public-active-tunes', id],
-    queryFn: () => getPublicActiveTunes(id),
+    queryKey: ['public-active-tunes', resolvedUserId],
+    queryFn: () => getPublicActiveTunes(resolvedUserId!),
     retry: false,
-    enabled: !!profile.data,
+    enabled: !!resolvedUserId,
   })
 
   const sanitizeMutation = useMutation({
     mutationFn: () =>
-      sanitizeUserProfile(id, {
+      sanitizeUserProfile(resolvedUserId!, {
         displayName: sanName,
         bio: sanBio,
         location: sanLoc,
         instruments: sanInst,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['public-profile', id] })
+      queryClient.invalidateQueries({ queryKey: ['public-profile', slug] })
       setShowSanitizeModal(false)
       showToast('Profile sanitized successfully.', 'success')
     },

@@ -67,7 +67,7 @@ function markApiOfflineAndScheduleRetry(): void {
   }
 }
 
-async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false): Promise<T> {
+async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false, opts?: { skipOfflineQueue?: boolean }): Promise<T> {
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
@@ -124,10 +124,10 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     const detail = await res.text().catch(() => '')
     if (res.status === 401 && !isRetry) {
       console.warn('401 Unauthorized or expired token received, attempting token refresh and retry...')
-      return doFetch<T>(base, path, init, true)
+      return doFetch<T>(base, path, init, true, opts)
     }
 
-    if (isPrivateApi && method !== 'GET') {
+    if (isPrivateApi && method !== 'GET' && !opts?.skipOfflineQueue) {
       void checkUsersMeHealth()
       return queueOfflineMutation<T>(method, url, path, init)
     }
@@ -226,7 +226,8 @@ async function queueOfflineMutation<T>(method: string, url: string, path: string
 }
 
 /** Calls the Private API (personal data, mutations). */
-export const apiFetch = <T>(path: string, init?: RequestInit) => doFetch<T>(API_BASE, path, init)
+export const apiFetch = <T>(path: string, init?: RequestInit, opts?: { skipOfflineQueue?: boolean }) =>
+  doFetch<T>(API_BASE, path, init, false, opts)
 
 /** Calls the Public API (anonymous-friendly reads + community contributions). */
 export const apiFetchPublic = <T>(path: string, init?: RequestInit) => doFetch<T>(PUBLIC_API_BASE, path, init)
@@ -1073,6 +1074,7 @@ export const rsvpToGroupSession = (groupId: string, sessionId: string, status: R
 export interface UserProfile {
   userId: string
   displayName: string
+  username: string | null
   email: string
   bio: string | null
   location: string | null
@@ -1082,19 +1084,29 @@ export interface UserProfile {
 
 export const getCurrentUser = () => apiFetch<UserProfile>('/users/me')
 
-export const updateCurrentUser = (patch: { displayName?: string; bio?: string; location?: string; instruments?: string }) =>
-  apiFetch<UserProfile>('/users/me', { method: 'PATCH', body: JSON.stringify(patch) })
+export const updateCurrentUser = (patch: { displayName?: string; bio?: string; location?: string; instruments?: string; username?: string }) =>
+  apiFetch<UserProfile>('/users/me', { method: 'PATCH', body: JSON.stringify(patch) }, { skipOfflineQueue: true })
+
+export interface UsernameAvailability {
+  username: string
+  available: boolean
+  reason: string | null
+}
+
+export const checkUsernameAvailable = (username: string) =>
+  apiFetchPublic<UsernameAvailability>(`/users/username-available/${encodeURIComponent(username)}`)
 
 export interface PublicUserProfile {
   userId: string
   displayName: string
+  username: string
   bio: string | null
   location: string | null
   instruments: string | null
 }
 
-export const getPublicUserProfile = (userId: string) =>
-  apiFetchPublic<PublicUserProfile>(`/users/${userId}/profile`)
+export const getPublicUserProfile = (username: string) =>
+  apiFetchPublic<PublicUserProfile>(`/users/by-username/${encodeURIComponent(username)}/profile`)
 
 export interface PublicActiveTune {
   tuneId: string
@@ -1136,6 +1148,7 @@ export interface ModeratorGroupData {
 export interface ModeratorUserDetails {
   userId: string
   displayName: string
+  username: string | null
   email: string
   bio: string | null
   location: string | null

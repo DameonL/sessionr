@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
@@ -15,7 +16,7 @@ namespace SessionApp.Api.Functions;
 
 public class UserFunctions(AppDbContext db)
 {
-    public record UserLoginResponse(Guid UserId, string DisplayName, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator);
+    public record UserLoginResponse(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator);
 
     /// <summary>GET /api/users/me — resolves (and lazily provisions) the caller's own user record.</summary>
     [Function("GetCurrentUser")]
@@ -30,7 +31,7 @@ public class UserFunctions(AppDbContext db)
 
         var isModerator = req.IsCallerModerator();
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
     }
 
 
@@ -93,9 +94,36 @@ public class UserFunctions(AppDbContext db)
             user.Instruments = trimmed.Length == 0 ? null : trimmed;
         }
 
-        await db.SaveChangesAsync();
+        if (body.Username is not null)
+        {
+            var trimmed = body.Username.Trim().ToLowerInvariant();
+            if (!UsernameSlug.ValidFormat.IsMatch(trimmed))
+            {
+                return new BadRequestObjectResult("Username must be 3-30 characters, lowercase letters, numbers, and hyphens only.");
+            }
+
+            if (trimmed != user.Username)
+            {
+                var taken = await db.Users.AnyAsync(u => u.Username == trimmed && u.UserId != user.UserId);
+                if (taken)
+                {
+                    return new ConflictObjectResult("That username is already taken.");
+                }
+                user.Username = trimmed;
+            }
+        }
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return new ConflictObjectResult("That username was just taken — please choose another.");
+        }
+
         var isModerator = req.IsCallerModerator();
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
     }
 
 

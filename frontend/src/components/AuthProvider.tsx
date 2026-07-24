@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
-import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper } from '../state/appState'
+import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -206,6 +207,8 @@ interface MsalBackgroundSyncProps {
 function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps) {
   const { accounts } = useMsal()
   const isAuthenticated = useIsAuthenticated()
+  const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     if (isAuthenticated && accounts.length > 0) {
@@ -222,6 +225,10 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
           currentUserId.value = profile.userId
           currentUserProfile.value = profile
           authStatus.value = 'authenticated'
+          if (!profile.username && pathname !== '/profile') {
+            showToast('Please choose a username to continue.', 'info')
+            router.replace('/profile')
+          }
         })
         .catch((err) => {
           console.error('Failed to sync user with DB:', err)

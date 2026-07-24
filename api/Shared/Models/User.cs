@@ -4,6 +4,7 @@ public class User
 {
     public Guid UserId { get; set; } = Guid.CreateVersion7();
     public string DisplayName { get; set; } = string.Empty;
+    public string? Username { get; set; }
     public string Email { get; set; } = string.Empty;
     public string? Bio { get; set; }
     public string? Location { get; set; }

@@ -25,9 +25,11 @@ public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 
 public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null);
 
-public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments);
+public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments, string? Username);
 
-public record PublicUserProfileDto(Guid UserId, string DisplayName, string? Bio, string? Location, string? Instruments);
+public record PublicUserProfileDto(Guid UserId, string DisplayName, string? Username, string? Bio, string? Location, string? Instruments);
+
+public record UsernameAvailabilityDto(string Username, bool Available, string? Reason);
 
 public record PublicActiveTuneDto(Guid TuneId, string Title, string TuneType, string Key);
 

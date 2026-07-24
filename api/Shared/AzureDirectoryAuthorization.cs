@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Functions;
 
@@ -74,6 +75,15 @@ public static class AzureDirectoryAuthorization
             DisplayName = trimmedDisplayName ?? "Musician"
         };
 
+        // Silently claim a username slug derived from the display name when it's free.
+        // On collision, leave Username null rather than auto-suffixing — the frontend
+        // gates app entry on this and routes the user to pick one explicitly.
+        var candidateUsername = UsernameSlug.Slugify(newUser.DisplayName);
+        if (candidateUsername != null && !await db.Users.AnyAsync(u => u.Username == candidateUsername))
+        {
+            newUser.Username = candidateUsername;
+        }
+
         db.Users.Add(newUser);
         try
         {
@@ -82,6 +92,20 @@ public static class AzureDirectoryAuthorization
         }
         catch
         {
+            // The AnyAsync pre-check above doesn't cover a concurrent signup claiming
+            // the same slug in between the check and this save — retry once without
+            // the username so user creation itself isn't blocked by that race.
+            if (newUser.Username != null)
+            {
+                newUser.Username = null;
+                try
+                {
+                    await db.SaveChangesAsync();
+                    return newUser.UserId;
+                }
+                catch { /* fall through to reload below */ }
+            }
+
             var reload = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail));
             if (reload != null) return reload.UserId;
             throw;

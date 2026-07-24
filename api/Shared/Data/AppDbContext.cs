@@ -85,6 +85,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasIndex(u => u.Email).IsUnique();
+            entity.HasIndex(u => u.Username).IsUnique();
+            entity.Property(u => u.Username).HasMaxLength(30);
         });
 
         // User <-> Group many-to-many through the explicit GroupMembership join entity,

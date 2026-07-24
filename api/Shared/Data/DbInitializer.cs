@@ -22,6 +22,7 @@ public static class DbInitializer
         var user = new User
         {
             DisplayName = "Dev Musician",
+            Username = "dev-musician",
             Email = "dev@example.com",
             Bio = "Session fiddler and tune collector.",
             Location = "Portland, OR",
