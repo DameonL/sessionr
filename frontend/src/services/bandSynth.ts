@@ -1,5 +1,6 @@
 import abcjs from 'abcjs'
 import { humanizeBackerTracks, type BandVoice } from './band'
+import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
 
 /**
  * Creates and primes one band voice's synth: melody/chords/bass all set to the
@@ -23,6 +24,9 @@ export async function createBandSynth(
   extraOptions?: abcjs.SynthOptions,
 ): Promise<abcjs.MidiBuffer> {
   const synth = new abcjs.synth.CreateSynth()
+  const isSubdivided = shouldSubdivideInstrument(voice.program)
+  const isBacker = voice.role === 'backer'
+
   await synth.init({
     visualObj,
     millisecondsPerMeasure: msPerMeasure,
@@ -33,9 +37,14 @@ export async function createBandSynth(
       bassprog: voice.program,
       pan: [voice.pan, voice.pan, voice.pan],
       sequenceCallback:
-        voice.role === 'backer'
+        isSubdivided || isBacker
           ? (tracks: abcjs.NoteMapTrack[]) => {
-              humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
+              if (isSubdivided) {
+                tracks = tracks.map((track) => subdivideLongNotes(track))
+              }
+              if (isBacker) {
+                humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
+              }
               return tracks
             }
           : undefined,
@@ -44,3 +53,4 @@ export async function createBandSynth(
   await synth.prime()
   return synth
 }
+

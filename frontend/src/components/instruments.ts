@@ -1,3 +1,5 @@
+import type abcjs from 'abcjs'
+
 export interface Instruments {
   melody: number
   chords: number
@@ -53,3 +55,52 @@ export function synthInstrumentOptions(instruments: Instruments) {
     bassprog: instruments.bass,
   }
 }
+
+/**
+ * Returns true if the General MIDI program corresponds to a plucked or strummed
+ * instrument (e.g. guitars, banjo, dulcimer, acoustic bass, harp) where notes
+ * longer than 1/8th should be played as repeated 1/8th note strokes.
+ * Bowed strings (Fiddle, Violin, Cello) and sustained wind/reed instruments return false.
+ */
+export function shouldSubdivideInstrument(program: number): boolean {
+  if (typeof program !== 'number' || isNaN(program)) return false
+  return (
+    program === 15 || // Dulcimer / Santur
+    (program >= 24 && program <= 31) || // Guitars
+    (program >= 32 && program <= 39) || // Basses
+    program === 45 || // Pizzicato Strings
+    program === 46 || // Harp
+    (program >= 104 && program <= 108) // Banjo, Sitar, Shamisen, Koto
+  )
+}
+
+const EIGHTH_NOTE_DURATION = 0.125
+const EPSILON = 0.0001
+
+/**
+ * Subdivides any notes in a sequence track that are strictly longer than 1/8th note
+ * (duration > 0.125 whole notes) into consecutive 1/8th notes that add up to the
+ * original note duration.
+ */
+export function subdivideLongNotes(track: abcjs.NoteMapTrack): abcjs.NoteMapTrack {
+  const newTrack: abcjs.NoteMapTrack = []
+  for (const note of track) {
+    const duration = note.end - note.start
+    if (duration > EIGHTH_NOTE_DURATION + EPSILON) {
+      let currentStart = note.start
+      while (currentStart < note.end - EPSILON) {
+        const currentEnd = Math.min(currentStart + EIGHTH_NOTE_DURATION, note.end)
+        newTrack.push({
+          ...note,
+          start: currentStart,
+          end: currentEnd,
+        })
+        currentStart = currentEnd
+      }
+    } else {
+      newTrack.push(note)
+    }
+  }
+  return newTrack
+}
+

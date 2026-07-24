@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import abcjs from "abcjs";
-import { INSTRUMENTS, loadInstruments, saveInstruments, synthInstrumentOptions } from "./instruments";
+import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
 import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoice } from "../services/band";
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
@@ -523,12 +523,26 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       }
 
       const synth = new abcjs.synth.CreateSynth();
+      const currentInst = instrumentsRef.current;
       await synth.init({
         visualObj,
         millisecondsPerMeasure: msPerMeasure,
         options: {
-          ...synthInstrumentOptions(instrumentsRef.current),
+          ...synthInstrumentOptions(currentInst),
           swing: toAbcjsSwing(swingPercentRef.current),
+          sequenceCallback: (tracks) => {
+            return tracks.map((track, trackIdx) => {
+              let prog = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
+              if (track.length > 0 && track[0].instrument) {
+                const parsed = Number(track[0].instrument);
+                if (!isNaN(parsed)) prog = parsed;
+              }
+              if (shouldSubdivideInstrument(prog)) {
+                return subdivideLongNotes(track);
+              }
+              return track;
+            });
+          },
         },
       });
       await synth.prime();
