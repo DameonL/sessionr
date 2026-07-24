@@ -20,6 +20,7 @@ import { currentUserId, repertoireSearch, useSignal } from '../state/appState'
 import { RepertoireBackup } from '../components/RepertoireBackup'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
+import { Spinner } from '../components/Spinner'
 
 function getSortKey(item: RepertoireListItem, field: 'title' | 'tuneType' | 'key'): string {
   const val = (item[field] || '').toLowerCase()
@@ -167,7 +168,9 @@ export function Repertoire() {
         </label>
       </div>
 
-      {repertoireQuery.isPending && <p>Loading…</p>}
+      {repertoireQuery.isPending && (
+        <div className="spinner-row"><Spinner /></div>
+      )}
       {repertoireQuery.isError && <p className="error">Could not load repertoire.</p>}
 
       <ul className="tune-list">

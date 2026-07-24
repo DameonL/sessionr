@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from 'react'
+import { Spinner } from './Spinner'
 
 interface InfiniteScrollSentinelProps {
   hasMore?: boolean
@@ -34,8 +35,8 @@ export function InfiniteScrollSentinel({ hasMore, isLoadingMore, onLoadMore }: I
   if (!hasMore) return null
 
   return (
-    <div ref={sentinelRef} style={{ padding: '1.25rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-      {isLoadingMore ? 'Loading more items… 🎵' : ''}
+    <div ref={sentinelRef} className="spinner-row" style={{ padding: '1.25rem' }}>
+      {isLoadingMore && <Spinner size={22} />}
     </div>
   )
 }

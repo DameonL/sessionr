@@ -1315,6 +1315,21 @@ a.stat:hover {
   margin: 0;
 }
 
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.25);
+  border-top-color: #4dd0a5;
+  border-bottom-color: #3b82f6;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner-row {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
