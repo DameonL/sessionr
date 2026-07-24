@@ -7,7 +7,7 @@ import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
 import { fixAbcRepeats } from "../services/abcTools";
-import { generateBodhranTrack } from "../services/bodhran";
+import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran";
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
@@ -542,31 +542,27 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
 
       const synth = new abcjs.synth.CreateSynth();
       const currentInst = instrumentsRef.current;
+      const bodhranPattern = useBodhran ? getBodhranDrumOption(visualObj.getMeterFraction()) : undefined;
+
       await synth.init({
         visualObj,
         millisecondsPerMeasure: msPerMeasure,
         options: {
           ...synthInstrumentOptions(currentInst),
           swing: toAbcjsSwing(swingPercentRef.current),
+          drum: bodhranPattern,
+          drumBars: bodhranPattern ? 1 : undefined,
           sequenceCallback: (tracks) => {
-            tracks = tracks.map((track, trackIdx) => {
-              let prog = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
+            return tracks.map((track, trackIdx) => {
+              let prog: number | string = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
               if (track.length > 0 && track[0].instrument) {
-                const parsed = Number(track[0].instrument);
-                if (!isNaN(parsed)) prog = parsed;
+                prog = track[0].instrument;
               }
               if (shouldSubdivideInstrument(prog)) {
                 return subdivideLongNotes(track);
               }
               return track;
             });
-            if (useBodhran) {
-              const drumTrack = generateBodhranTrack(visualObj);
-              if (drumTrack.length > 0) {
-                tracks.push(drumTrack);
-              }
-            }
-            return tracks;
           },
         },
       });

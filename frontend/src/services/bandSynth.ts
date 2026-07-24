@@ -1,7 +1,7 @@
 import abcjs from 'abcjs'
 import { humanizeBackerTracks, type BandVoice } from './band'
 import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
-import { generateBodhranTrack } from './bodhran'
+import { generateBodhranTrack, getBodhranDrumOption } from './bodhran'
 
 export interface BandSynthOptions extends abcjs.SynthOptions {
   bodhran?: boolean
@@ -32,6 +32,7 @@ export async function createBandSynth(
   const isSubdivided = shouldSubdivideInstrument(voice.program)
   const isBacker = voice.role === 'backer'
   const isBodhran = !!extraOptions?.bodhran && voice.role === 'leader'
+  const bodhranPattern = isBodhran ? getBodhranDrumOption(visualObj.getMeterFraction()) : undefined
 
   await synth.init({
     visualObj,
@@ -42,20 +43,16 @@ export async function createBandSynth(
       chordprog: voice.program,
       bassprog: voice.program,
       pan: [voice.pan, voice.pan, voice.pan],
+      drum: bodhranPattern || extraOptions?.drum,
+      drumBars: bodhranPattern ? 1 : extraOptions?.drumBars,
       sequenceCallback:
-        isSubdivided || isBacker || isBodhran
+        isSubdivided || isBacker
           ? (tracks: abcjs.NoteMapTrack[]) => {
               if (isSubdivided) {
                 tracks = tracks.map((track) => subdivideLongNotes(track))
               }
               if (isBacker) {
                 humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
-              }
-              if (isBodhran) {
-                const drumTrack = generateBodhranTrack(visualObj)
-                if (drumTrack.length > 0) {
-                  tracks.push(drumTrack)
-                }
               }
               return tracks
             }
@@ -65,5 +62,6 @@ export async function createBandSynth(
   await synth.prime()
   return synth
 }
+
 
 

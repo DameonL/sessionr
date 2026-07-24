@@ -156,3 +156,19 @@ export function generateBodhranTrack(
 
   return drumTrack
 }
+
+/**
+ * Returns an abcjs drum option string (e.g. "dddddddd 36 76 37 76 36 76 37 76 90 50 75 50 85 50 75 50")
+ * matching the tune's meter fraction, so abcjs pre-loads percussion soundfonts
+ * and synthesizes the traditional bodhran pattern natively.
+ */
+export function getBodhranDrumOption(meter?: { num?: number; den?: number } | null): string {
+  const { strokes } = getBodhranPatternForMeter(meter)
+  if (!strokes || strokes.length === 0) return ''
+
+  const dPattern = 'd'.repeat(strokes.length)
+  const pitches = strokes.map((s) => s.pitch).join(' ')
+  const vols = strokes.map((s) => s.volume).join(' ')
+  return `${dPattern} ${pitches} ${vols}`
+}
+

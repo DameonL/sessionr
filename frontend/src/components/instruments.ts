@@ -57,21 +57,36 @@ export function synthInstrumentOptions(instruments: Instruments) {
 }
 
 /**
- * Returns true if the General MIDI program corresponds to a plucked or strummed
+ * Returns true if the General MIDI program or instrument name corresponds to a plucked or strummed
  * instrument (e.g. guitars, banjo, dulcimer, acoustic bass, harp) where notes
  * longer than 1/8th should be played as repeated 1/8th note strokes.
  * Bowed strings (Fiddle, Violin, Cello) and sustained wind/reed instruments return false.
  */
-export function shouldSubdivideInstrument(program: number): boolean {
-  if (typeof program !== 'number' || isNaN(program)) return false
-  return (
-    program === 15 || // Dulcimer / Santur
-    (program >= 24 && program <= 31) || // Guitars
-    (program >= 32 && program <= 39) || // Basses
-    program === 45 || // Pizzicato Strings
-    program === 46 || // Harp
-    (program >= 104 && program <= 108) // Banjo, Sitar, Shamisen, Koto
-  )
+export function shouldSubdivideInstrument(instrument: number | string): boolean {
+  if (typeof instrument === 'number') {
+    if (isNaN(instrument)) return false
+    return (
+      instrument === 15 || // Dulcimer / Santur
+      (instrument >= 24 && instrument <= 31) || // Guitars
+      (instrument >= 32 && instrument <= 39) || // Basses
+      instrument === 45 || // Pizzicato Strings
+      instrument === 46 || // Harp
+      (instrument >= 104 && instrument <= 108) // Banjo, Sitar, Shamisen, Koto
+    )
+  }
+  if (typeof instrument === 'string') {
+    const lower = instrument.toLowerCase()
+    return (
+      lower.includes('guitar') ||
+      lower.includes('banjo') ||
+      lower.includes('dulcimer') ||
+      lower.includes('harp') ||
+      lower.includes('sitar') ||
+      lower.includes('koto') ||
+      (lower.includes('bass') && !lower.includes('double_bass') && !lower.includes('contrabass'))
+    )
+  }
+  return false
 }
 
 const EIGHTH_NOTE_DURATION = 0.125
