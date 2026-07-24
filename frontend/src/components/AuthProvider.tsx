@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
+import { InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
 import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper, showToast } from '../state/appState'
@@ -205,12 +205,22 @@ interface MsalBackgroundSyncProps {
 
 /** Keeps the shared signals in sync with the active MSAL account, notifying status to parent. */
 function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps) {
-  const { accounts } = useMsal()
+  const { accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const router = useRouter()
   const pathname = usePathname()
 
   useEffect(() => {
+    // Right after returning from Microsoft's login redirect, MSAL needs a
+    // moment to process the response and restore the account into its cache
+    // — until inProgress settles back to None, accounts/isAuthenticated can
+    // still read as empty/false even though the user IS signed in. Bailing
+    // out here (leaving authStatus at its 'pending' default) is what stops
+    // the UI from flashing "signed out" before the real state resolves.
+    if (inProgress !== InteractionStatus.None) {
+      return
+    }
+
     if (isAuthenticated && accounts.length > 0) {
       const activeAccount = accounts[0]
       const displayName = activeAccount.name ||
@@ -243,7 +253,7 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
       authStatus.value = 'anonymous'
       onSyncEnd()
     }
-  }, [isAuthenticated, accounts])
+  }, [isAuthenticated, accounts, inProgress])
 
   return null
 }
