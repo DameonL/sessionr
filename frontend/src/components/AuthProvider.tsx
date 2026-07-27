@@ -6,7 +6,7 @@ import { InteractionStatus, Logger, PublicClientApplication, stubbedPublicClient
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
 import { loginRequest } from '../services/authConfig'
-import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper, showToast } from '../state/appState'
+import { authStatus, currentUserId, currentUserProfile, getBearerToken, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -98,15 +98,18 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
               cachedToken = null;
               if (!redirectInProgress) {
-                redirectInProgress = true;
-                try {
-                  await pca.acquireTokenRedirect({
-                    ...loginRequest,
-                    account: activeAccount,
-                  });
-                } catch (redirectErr) {
-                  console.error('acquireTokenRedirect failed:', redirectErr);
-                  redirectInProgress = false;
+                const isInIframe = typeof window !== 'undefined' && window.parent !== window;
+                if (!isInIframe) {
+                  redirectInProgress = true;
+                  try {
+                    await pca.acquireTokenRedirect({
+                      ...loginRequest,
+                      account: activeAccount,
+                    });
+                  } catch (redirectErr) {
+                    console.error('acquireTokenRedirect failed:', redirectErr);
+                    redirectInProgress = false;
+                  }
                 }
               }
               return null;
@@ -213,31 +216,49 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
     }
 
     if (isAuthenticated && accounts.length > 0) {
-      const activeAccount = accounts[0]
-      const displayName = activeAccount.name ||
-                          (activeAccount.idTokenClaims as any)?.name ||
-                          (activeAccount.idTokenClaims as any)?.given_name ||
-                          'Microsoft Musician';
-
-      onSyncStart(displayName)
-
-      getCurrentUser()
-        .then((profile) => {
-          currentUserId.value = profile.userId
-          currentUserProfile.value = profile
-          authStatus.value = 'authenticated'
-          if (!profile.username && pathname !== '/profile') {
-            showToast('Please choose a username to continue.', 'info')
-            router.replace('/profile')
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to sync user with DB:', err)
+      getBearerToken(false).then((token) => {
+        if (!token) {
+          currentUserId.value = ''
+          currentUserProfile.value = null
           authStatus.value = 'anonymous'
-        })
-        .finally(() => {
           onSyncEnd()
-        })
+          return
+        }
+
+        const activeAccount = accounts[0]
+        const displayName = activeAccount.name ||
+                            (activeAccount.idTokenClaims as any)?.name ||
+                            (activeAccount.idTokenClaims as any)?.given_name ||
+                            'Microsoft Musician';
+
+        onSyncStart(displayName)
+
+        getCurrentUser()
+          .then((profile) => {
+            if (profile) {
+              currentUserId.value = profile.userId
+              currentUserProfile.value = profile
+              authStatus.value = 'authenticated'
+              if (!profile.username && pathname !== '/profile') {
+                showToast('Please choose a username to continue.', 'info')
+                router.replace('/profile')
+              }
+            } else {
+              currentUserId.value = ''
+              currentUserProfile.value = null
+              authStatus.value = 'anonymous'
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to sync user with DB:', err)
+            currentUserId.value = ''
+            currentUserProfile.value = null
+            authStatus.value = 'anonymous'
+          })
+          .finally(() => {
+            onSyncEnd()
+          })
+      })
     } else {
       currentUserId.value = ''
       currentUserProfile.value = null

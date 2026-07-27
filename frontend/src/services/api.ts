@@ -86,13 +86,24 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     ...init?.headers as Record<string, string>,
   }
 
+  let token: string | null = null
   try {
-    const token = await getBearerToken(isRetry)
+    token = await getBearerToken(isRetry)
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
   } catch (err) {
     console.error('Failed to get bearer token', err)
+  }
+
+  // Private API endpoints require a verified token. If no token is available,
+  // do not fire an unauthenticated request to the private backend (which will
+  // return 401 and trigger false offline checks).
+  if (isPrivateApi && !token) {
+    if (isUsersMeCheck) {
+      return null as unknown as T
+    }
+    throw new UnauthenticatedError('Sign in required for this action.')
   }
 
   // Skip straight to the offline path rather than waiting on a fetch that's
@@ -169,6 +180,14 @@ function classifyMutation(method: string, path: string): { mutationType: Pending
     return { mutationType: 'set_mutation', description: 'Set change' }
   }
   return { mutationType: 'other', description: `${method} ${path}` }
+}
+
+export class UnauthenticatedError extends Error {
+  unauthenticated = true
+  constructor(message = 'Sign in required for this action.') {
+    super(message)
+    this.name = 'UnauthenticatedError'
+  }
 }
 
 /** Marks a mutation as caught by the offline queue rather than genuinely failed. */
