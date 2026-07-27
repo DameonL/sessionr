@@ -46,9 +46,9 @@ interface Loop {
 
 interface Trainer {
   armed: boolean;
-  startPct: number;
-  stepPct: number;
-  targetPct: number;
+  startBpm: number;
+  stepBpm: number;
+  targetBpm: number;
 }
 
 export interface SetPlayerProps {
@@ -106,6 +106,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const keyRootRef = useRef<number>(72);
   const loopRef = useRef<Loop | null>(null);
   const trainerRef = useRef<Trainer | null>(null);
+  const currentTrainerBpmRef = useRef<number>(80);
   const passRef = useRef(1);
 
   const metronome = useMetronomePrefs();
@@ -126,6 +127,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const [loop, setLoop] = useState<Loop | null>(null);
   const [markA, setMarkA] = useState<number | null>(null);
   const [trainer, setTrainer] = useState<Trainer>(initialPrefs.trainer);
+  trainerRef.current = trainer;
   const [passCount, setPassCount] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -239,20 +241,24 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       tuneLinesRef.current[index] = extractLinesFromTimings(timings);
       if (index === 0) {
         const naturalBpm = visualObj.getBpm();
-        const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null);
+        const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null) ?? (naturalBpm > 0 ? naturalBpm : 120);
+        if (effectiveTargetBpm) {
+          setTrainer((t) => ({
+            ...t,
+            targetBpm: t.targetBpm || effectiveTargetBpm,
+            startBpm: t.startBpm || Math.round(effectiveTargetBpm * 0.6),
+          }));
+        }
         const targetPct =
           effectiveTargetBpm && naturalBpm > 0
             ? Math.min(150, Math.max(50, Math.round((effectiveTargetBpm / naturalBpm) * 100)))
-            : null;
-        if (targetPct !== null) {
-          setTrainer((t) => ({ ...t, targetPct }));
-        }
+            : 100;
         if (hasSavedTempo) {
           setTempoPercent(savedTempo.tempoPercent);
           setSwingPercent(savedTempo.swingPercent);
         } else {
           setSwingPercent(0);
-          setTempoPercent(targetPct !== null ? targetPct : 100);
+          setTempoPercent(targetPct);
         }
       }
       return visualObj;
@@ -618,7 +624,12 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     setError(null);
     try {
       const startingTrainer = trainer.armed && wasStopped;
-      const effectivePercent = startingTrainer ? trainer.startPct : percent;
+      let effectivePercent = percent;
+      if (startingTrainer) {
+        currentTrainerBpmRef.current = trainer.startBpm;
+        const naturalBpm0 = visualObjsRef.current[0]?.getBpm() ?? 0;
+        effectivePercent = naturalBpm0 > 0 ? Math.min(200, Math.max(20, Math.round((trainer.startBpm / naturalBpm0) * 100))) : trainer.startBpm;
+      }
       const oldDurations = durationsRef.current;
       const newDurations = items.map((_, index) => {
         const visualObj = visualObjsRef.current[index];
@@ -663,8 +674,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       if (startingTrainer) {
         passRef.current = 1;
         setPassCount(1);
-        setTempoPercent(trainer.startPct);
-        startTune(targetIndex, trainer.startPct, targetPass, loop?.a ?? targetFraction);
+        setTempoPercent(effectivePercent);
+        startTune(targetIndex, effectivePercent, targetPass, loop?.a ?? targetFraction);
       } else {
         startTune(targetIndex, percent, targetPass, loop?.a ?? targetFraction);
       }
@@ -765,9 +776,17 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
 
         const activeTrainer = trainerRef.current;
         if (activeTrainer?.armed) {
+          const currentBpm = currentTrainerBpmRef.current;
+          if (currentBpm >= activeTrainer.targetBpm) {
+            stop();
+            return undefined;
+          }
           passRef.current++;
           setPassCount(passRef.current);
-          const nextPct = Math.min(percent + activeTrainer.stepPct, activeTrainer.targetPct);
+          const nextBpm = Math.min(currentBpm + activeTrainer.stepBpm, activeTrainer.targetBpm);
+          currentTrainerBpmRef.current = nextBpm;
+          const naturalBpm0 = visualObjsRef.current[0]?.getBpm() ?? 0;
+          const nextPct = naturalBpm0 > 0 ? Math.min(200, Math.max(20, Math.round((nextBpm / naturalBpm0) * 100))) : nextBpm;
           play(nextPct);
           return undefined;
         }
@@ -908,7 +927,10 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             <button
               className={repeat ? "toggled" : ""}
               aria-pressed={repeat}
+              disabled={trainer.armed}
+              title={trainer.armed ? "Speed trainer controls repeats while active" : undefined}
               onClick={() => {
+                if (trainer.armed) return;
                 const next = !repeat;
                 setRepeat(next);
                 repeatRef.current = next;
@@ -984,48 +1006,55 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             <button
               className={trainer.armed ? "toggled" : ""}
               aria-pressed={trainer.armed}
-              onClick={() => updateTrainer({ armed: !trainer.armed })}
+              onClick={() => {
+                const nextArmed = !trainer.armed;
+                if (nextArmed) {
+                  setRepeat(false);
+                  repeatRef.current = false;
+                }
+                updateTrainer({ armed: nextArmed });
+              }}
             >
               🎯 Speed trainer
             </button>
             {trainer.armed && (
               <>
                 <label>
-                  Start %
+                  Start BPM
                   <TrainerNumberInput
                     className="trainer-input"
-                    min={50}
-                    max={150}
+                    min={30}
+                    max={300}
                     step={5}
-                    value={trainer.startPct}
-                    onChange={(startPct) => updateTrainer({ startPct })}
+                    value={trainer.startBpm}
+                    onChange={(startBpm) => updateTrainer({ startBpm })}
                   />
                 </label>
                 <label>
-                  Step %
+                  Step BPM
                   <TrainerNumberInput
                     className="trainer-input"
                     min={1}
-                    max={20}
+                    max={50}
                     step={1}
-                    value={trainer.stepPct}
-                    onChange={(stepPct) => updateTrainer({ stepPct })}
+                    value={trainer.stepBpm}
+                    onChange={(stepBpm) => updateTrainer({ stepBpm })}
                   />
                 </label>
                 <label>
-                  Target %
+                  Target BPM
                   <TrainerNumberInput
                     className="trainer-input"
-                    min={50}
-                    max={150}
+                    min={30}
+                    max={300}
                     step={5}
-                    value={trainer.targetPct}
-                    onChange={(targetPct) => updateTrainer({ targetPct })}
+                    value={trainer.targetBpm}
+                    onChange={(targetBpm) => updateTrainer({ targetBpm })}
                   />
                 </label>
                 {status !== "stopped" && (
                   <span className="tune-meta">
-                    Pass {passCount} · {tempoPercent}% → {trainer.targetPct}%
+                    Pass {passCount} · {effectiveBpm} BPM → {trainer.targetBpm} BPM
                   </span>
                 )}
               </>

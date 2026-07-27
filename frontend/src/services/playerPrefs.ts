@@ -4,9 +4,9 @@ export interface PlayerPrefs {
   bodhran: boolean
   trainer: {
     armed: boolean
-    startPct: number
-    stepPct: number
-    targetPct: number
+    startBpm: number
+    stepBpm: number
+    targetBpm: number
   }
 }
 
@@ -16,7 +16,7 @@ const DEFAULT_PLAYER_PREFS: PlayerPrefs = {
   repeat: false,
   repeatLimit: null,
   bodhran: false,
-  trainer: { armed: false, startPct: 60, stepPct: 5, targetPct: 100 },
+  trainer: { armed: false, startBpm: 80, stepBpm: 15, targetBpm: 120 },
 }
 
 export function loadPlayerPrefs(): PlayerPrefs {
@@ -24,10 +24,25 @@ export function loadPlayerPrefs(): PlayerPrefs {
     const raw = localStorage.getItem(PLAYER_PREFS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
+      const rawTrainer = parsed.trainer || {}
       return {
         ...DEFAULT_PLAYER_PREFS,
         ...parsed,
-        trainer: { ...DEFAULT_PLAYER_PREFS.trainer, ...parsed.trainer },
+        trainer: {
+          armed: Boolean(rawTrainer.armed),
+          startBpm:
+            typeof rawTrainer.startBpm === 'number'
+              ? rawTrainer.startBpm
+              : DEFAULT_PLAYER_PREFS.trainer.startBpm,
+          stepBpm:
+            typeof rawTrainer.stepBpm === 'number'
+              ? rawTrainer.stepBpm
+              : DEFAULT_PLAYER_PREFS.trainer.stepBpm,
+          targetBpm:
+            typeof rawTrainer.targetBpm === 'number'
+              ? rawTrainer.targetBpm
+              : DEFAULT_PLAYER_PREFS.trainer.targetBpm,
+        },
       }
     }
   } catch {}
