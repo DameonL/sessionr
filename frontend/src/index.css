@@ -357,6 +357,40 @@ label {
   .hamburger-btn {
     display: flex;
   }
+
+  button,
+  input,
+  select {
+    min-height: 42px;
+  }
+
+  .detail-controls,
+  .player-controls {
+    gap: 0.5rem;
+  }
+
+  .detail-controls > label,
+  .player-controls > label {
+    flex: 1 1 140px;
+  }
+
+  .detail-controls button,
+  .player-controls button {
+    flex: 1 1 auto;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .player-container .player-controls:first-child {
+    position: sticky;
+    top: 3.5rem;
+    z-index: 90;
+    background: var(--bg);
+    padding: 0.5rem 0;
+    margin-top: 0;
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 main {
@@ -822,6 +856,15 @@ a.stat:hover {
   border-radius: 8px;
   backdrop-filter: blur(4px);
   border: 1px solid var(--border);
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  opacity: 1;
+  visibility: visible;
+}
+
+.fullscreen-controls.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .fullscreen-controls button {

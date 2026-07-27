@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
@@ -169,6 +169,57 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     document.addEventListener("fullscreenchange", handleFsChange);
     return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
+
+  const [showFsControls, setShowFsControls] = useState(true);
+  const fsControlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetFsControlsTimer = useCallback(() => {
+    setShowFsControls(true);
+    if (fsControlsTimerRef.current) {
+      clearTimeout(fsControlsTimerRef.current);
+    }
+    fsControlsTimerRef.current = setTimeout(() => {
+      setShowFsControls(false);
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      setShowFsControls(true);
+      if (fsControlsTimerRef.current) {
+        clearTimeout(fsControlsTimerRef.current);
+        fsControlsTimerRef.current = null;
+      }
+      return;
+    }
+
+    resetFsControlsTimer();
+
+    const handleUserActivity = () => {
+      resetFsControlsTimer();
+    };
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener("mousemove", handleUserActivity);
+    container.addEventListener("touchstart", handleUserActivity);
+    container.addEventListener("pointermove", handleUserActivity);
+    container.addEventListener("keydown", handleUserActivity);
+    container.addEventListener("click", handleUserActivity);
+
+    return () => {
+      if (fsControlsTimerRef.current) {
+        clearTimeout(fsControlsTimerRef.current);
+        fsControlsTimerRef.current = null;
+      }
+      container.removeEventListener("mousemove", handleUserActivity);
+      container.removeEventListener("touchstart", handleUserActivity);
+      container.removeEventListener("pointermove", handleUserActivity);
+      container.removeEventListener("keydown", handleUserActivity);
+      container.removeEventListener("click", handleUserActivity);
+    };
+  }, [isFullscreen, resetFsControlsTimer]);
 
   useEffect(() => {
     savePlayerPrefs({ repeat, repeatLimit, bodhran, trainer });
@@ -895,7 +946,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
       {isFullscreen && (
-        <div className="fullscreen-controls">
+        <div className={`fullscreen-controls ${showFsControls ? "" : "hidden"}`}>
           <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
             {status === "playing" ? "⏸" : "▶"}
           </button>
