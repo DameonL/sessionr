@@ -137,6 +137,21 @@ export function TuneLibrary() {
         <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap' }}>
           🔍 Search
         </button>
+        {(hasSearchQuery || searchInput || filterTypeInput) && (
+          <button
+            type="button"
+            className="secondary"
+            style={{ padding: '0.45rem 1rem', whiteSpace: 'nowrap' }}
+            onClick={() => {
+              setSearchInput('')
+              setFilterTypeInput('')
+              setSubmittedSearch('')
+              setSubmittedType('')
+            }}
+          >
+            ✕ Clear
+          </button>
+        )}
       </form>
 
       {!hasSearchQuery && (

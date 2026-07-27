@@ -19,6 +19,7 @@ import { currentUserId, useSignal } from '../state/appState'
 import { foldAbcOctaves, transposeAbc } from '../services/abcTools'
 import { showBadgeToasts } from '../services/badges'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
+import { DebouncedNumberInput } from '../components/DebouncedNumberInput'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -156,10 +157,13 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
         </label>
         <label>
           Target BPM
-          <TargetBpmInput
-            targetBpm={item.targetBpm}
-            userTuneId={item.userTuneId}
-            onSave={(bpm) => updateMutation.mutate({ targetBpm: bpm })}
+          <DebouncedNumberInput
+            min={40}
+            max={200}
+            value={item.targetBpm ?? null}
+            onChange={(bpm) => {
+              if (bpm !== null) updateMutation.mutate({ targetBpm: bpm })
+            }}
           />
         </label>
         <button
@@ -295,109 +299,4 @@ function AbcEditor({
   )
 }
 
-function TargetBpmInput({
-  targetBpm,
-  userTuneId,
-  onSave,
-}: {
-  targetBpm?: number | null
-  userTuneId: string
-  onSave: (bpm: number) => void
-}) {
-  const [localBpm, setLocalBpm] = useState<string>(targetBpm?.toString() ?? '')
-  const [isFocused, setIsFocused] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingSaveRef = useRef<number | null>(null)
-  const latestLocalRef = useRef<string>(localBpm)
-  const latestTargetBpmRef = useRef<number | undefined | null>(targetBpm)
-  const onSaveRef = useRef(onSave)
-  const userTuneIdRef = useRef(userTuneId)
-
-  latestLocalRef.current = localBpm
-  latestTargetBpmRef.current = targetBpm
-  onSaveRef.current = onSave
-  userTuneIdRef.current = userTuneId
-
-  useEffect(() => {
-    if (!isFocused && pendingSaveRef.current === null) {
-      setLocalBpm(targetBpm?.toString() ?? '')
-    }
-  }, [targetBpm, isFocused])
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-      let bpmToSave = pendingSaveRef.current
-      if (bpmToSave === null) {
-        const parsed = parseInt(latestLocalRef.current, 10)
-        if (
-          !isNaN(parsed) &&
-          parsed >= 40 &&
-          parsed <= 200 &&
-          parsed !== latestTargetBpmRef.current
-        ) {
-          bpmToSave = parsed
-        }
-      }
-      if (bpmToSave !== null && bpmToSave !== latestTargetBpmRef.current) {
-        updateUserTune(userTuneIdRef.current, { targetBpm: bpmToSave }).catch(() => {})
-      }
-    }
-  }, [])
-
-  const scheduleSave = (bpmNum: number) => {
-    pendingSaveRef.current = bpmNum
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-    }
-    timerRef.current = setTimeout(() => {
-      onSaveRef.current(bpmNum)
-      pendingSaveRef.current = null
-      timerRef.current = null
-    }, 5000)
-  }
-
-  const handleBlur = () => {
-    setIsFocused(false)
-    const bpmNum = parseInt(localBpm, 10)
-    if (!isNaN(bpmNum) && bpmNum >= 40 && bpmNum <= 200) {
-      if (bpmNum !== targetBpm) {
-        scheduleSave(bpmNum)
-      } else {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current)
-          timerRef.current = null
-        }
-        pendingSaveRef.current = null
-      }
-    } else {
-      setLocalBpm(targetBpm?.toString() ?? '')
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-      pendingSaveRef.current = null
-    }
-  }
-
-  return (
-    <input
-      type="number"
-      min="40"
-      max="200"
-      value={localBpm}
-      onFocus={() => setIsFocused(true)}
-      onChange={(e) => setLocalBpm(e.target.value)}
-      onBlur={handleBlur}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.currentTarget.blur()
-        }
-      }}
-    />
-  )
-}
 

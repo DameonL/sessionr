@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
 import {
@@ -42,10 +42,21 @@ export function TuneSettingsModal({
   const queryClient = useQueryClient()
   const authStatus = useAuthStatus()
   const profile = useSignal(currentUserProfile)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   // undefined = no explicit user choice yet (show the first/most-popular setting);
   // null = user explicitly collapsed everything; string = user explicitly expanded that setting.
   const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
-  
+
   // Submit new setting states
   const [showNewSettingForm, setShowNewSettingForm] = useState(false)
   const [newSettingKey, setNewSettingKey] = useState('')

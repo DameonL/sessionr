@@ -166,6 +166,19 @@ export function Repertoire() {
             <option value="desc">Descending</option>
           </select>
         </label>
+        {Boolean(search || filterType || filterKey || filterStatus) && (
+          <button
+            className="secondary"
+            onClick={() => {
+              repertoireSearch.value = ''
+              setFilterType('')
+              setFilterKey('')
+              setFilterStatus('')
+            }}
+          >
+            ✕ Clear filters
+          </button>
+        )}
       </div>
 
       {repertoireQuery.isPending && (

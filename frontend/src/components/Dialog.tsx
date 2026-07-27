@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 
 interface DialogProps {
   isOpen: boolean
@@ -11,6 +11,17 @@ interface DialogProps {
 }
 
 export function Dialog({ isOpen, title, onClose, children, maxWidth = '480px' }: DialogProps) {
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (

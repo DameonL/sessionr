@@ -11,6 +11,7 @@ import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran"
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
+import { DebouncedNumberInput } from "./DebouncedNumberInput";
 import {
   MetronomeControls,
   StaffLine,
@@ -919,6 +920,11 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         >
           {showAdvanced ? "▾" : "▸"} Advanced Controls
         </button>
+        {trainer.armed && (
+          <span className="badge badge-working" title="Speed Trainer is active and controlling repeats">
+            🎯 Speed Trainer ({trainer.startBpm} → {trainer.targetBpm} BPM)
+          </span>
+        )}
       </div>
 
       {showAdvanced && (
@@ -941,20 +947,17 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             {repeat && (
               <label>
                 Times
-                <input
-                  type="number"
-                  min="1"
+                <DebouncedNumberInput
+                  className="reps-input"
+                  min={1}
+                  allowNull
                   placeholder="∞"
-                  value={repeatLimit || ""}
-                  onChange={(e) => {
-                    const val = (e.target as HTMLInputElement).value;
-                    const num = val ? parseInt(val, 10) : null;
-                    const clamped = num === null ? null : Math.max(1, num);
+                  title="Number of times to repeat (leave empty for infinite)"
+                  value={repeatLimit}
+                  onChange={(clamped) => {
                     setRepeatLimit(clamped);
                     repeatLimitRef.current = clamped;
                   }}
-                  className="reps-input"
-                  title="Number of times to repeat (leave empty for infinite)"
                 />
               </label>
             )}
@@ -1021,35 +1024,35 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
               <>
                 <label>
                   Start BPM
-                  <TrainerNumberInput
+                  <DebouncedNumberInput
                     className="trainer-input"
                     min={30}
                     max={300}
                     step={5}
                     value={trainer.startBpm}
-                    onChange={(startBpm) => updateTrainer({ startBpm })}
+                    onChange={(startBpm) => startBpm !== null && updateTrainer({ startBpm })}
                   />
                 </label>
                 <label>
                   Step BPM
-                  <TrainerNumberInput
+                  <DebouncedNumberInput
                     className="trainer-input"
                     min={1}
                     max={50}
                     step={1}
                     value={trainer.stepBpm}
-                    onChange={(stepBpm) => updateTrainer({ stepBpm })}
+                    onChange={(stepBpm) => stepBpm !== null && updateTrainer({ stepBpm })}
                   />
                 </label>
                 <label>
                   Target BPM
-                  <TrainerNumberInput
+                  <DebouncedNumberInput
                     className="trainer-input"
                     min={30}
                     max={300}
                     step={5}
                     value={trainer.targetBpm}
-                    onChange={(targetBpm) => updateTrainer({ targetBpm })}
+                    onChange={(targetBpm) => targetBpm !== null && updateTrainer({ targetBpm })}
                   />
                 </label>
                 {status !== "stopped" && (
@@ -1140,16 +1143,13 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
           <div className="player-controls">
             <label>
               Players
-              <input
+              <DebouncedNumberInput
                 className="trainer-input"
-                type="number"
                 min={MIN_BAND_COUNT}
                 max={MAX_BAND_COUNT}
                 value={bandPrefs.count}
-                onChange={(e) => {
-                  const raw = Number((e.target as HTMLInputElement).value);
-                  const count = Math.max(MIN_BAND_COUNT, Math.min(MAX_BAND_COUNT, raw || MIN_BAND_COUNT));
-                  updateBandPrefs({ count });
+                onChange={(count) => {
+                  if (count !== null) updateBandPrefs({ count });
                 }}
               />
             </label>
@@ -1298,112 +1298,4 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   }
 }
 
-interface TrainerNumberInputProps {
-  value: number
-  min: number
-  max: number
-  step?: number
-  className?: string
-  onChange: (val: number) => void
-}
-
-function TrainerNumberInput({
-  value,
-  min,
-  max,
-  step = 1,
-  className,
-  onChange,
-}: TrainerNumberInputProps) {
-  const [localVal, setLocalVal] = useState<string>(value.toString())
-  const [isFocused, setIsFocused] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingSaveRef = useRef<number | null>(null)
-  const latestLocalRef = useRef<string>(localVal)
-  const latestValueRef = useRef<number>(value)
-  const onChangeRef = useRef(onChange)
-
-  latestLocalRef.current = localVal
-  latestValueRef.current = value
-  onChangeRef.current = onChange
-
-  useEffect(() => {
-    if (!isFocused && pendingSaveRef.current === null) {
-      setLocalVal(value.toString())
-    }
-  }, [value, isFocused])
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-      let valToSave = pendingSaveRef.current
-      if (valToSave === null) {
-        const parsed = parseInt(latestLocalRef.current, 10)
-        if (!isNaN(parsed) && parsed >= min && parsed <= max && parsed !== latestValueRef.current) {
-          valToSave = parsed
-        }
-      }
-      if (valToSave !== null && valToSave !== latestValueRef.current) {
-        onChangeRef.current(valToSave)
-      }
-    }
-  }, [min, max])
-
-  const scheduleSave = (num: number) => {
-    pendingSaveRef.current = num
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-    }
-    timerRef.current = setTimeout(() => {
-      onChangeRef.current(num)
-      pendingSaveRef.current = null
-      timerRef.current = null
-    }, 5000)
-  }
-
-  const handleBlur = () => {
-    setIsFocused(false)
-    const parsed = parseInt(localVal, 10)
-    if (!isNaN(parsed) && parsed >= min && parsed <= max) {
-      if (parsed !== value) {
-        scheduleSave(parsed)
-      } else {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current)
-          timerRef.current = null
-        }
-        pendingSaveRef.current = null
-      }
-    } else {
-      setLocalVal(value.toString())
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-      pendingSaveRef.current = null
-    }
-  }
-
-  return (
-    <input
-      type="number"
-      min={min}
-      max={max}
-      step={step}
-      className={className}
-      value={localVal}
-      onFocus={() => setIsFocused(true)}
-      onChange={(e) => setLocalVal(e.target.value)}
-      onBlur={handleBlur}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.currentTarget.blur()
-        }
-      }}
-    />
-  )
-}
 
