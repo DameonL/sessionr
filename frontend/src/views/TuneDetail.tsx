@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -156,15 +156,10 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
         </label>
         <label>
           Target BPM
-          <input
-            type="number"
-            min="40"
-            max="200"
-            value={item.targetBpm ?? ''}
-            onChange={(e) => {
-              const bpm = Number(e.target.value)
-              if (bpm) updateMutation.mutate({ targetBpm: bpm })
-            }}
+          <TargetBpmInput
+            targetBpm={item.targetBpm}
+            userTuneId={item.userTuneId}
+            onSave={(bpm) => updateMutation.mutate({ targetBpm: bpm })}
           />
         </label>
         <button
@@ -299,3 +294,110 @@ function AbcEditor({
     </div>
   )
 }
+
+function TargetBpmInput({
+  targetBpm,
+  userTuneId,
+  onSave,
+}: {
+  targetBpm?: number | null
+  userTuneId: string
+  onSave: (bpm: number) => void
+}) {
+  const [localBpm, setLocalBpm] = useState<string>(targetBpm?.toString() ?? '')
+  const [isFocused, setIsFocused] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSaveRef = useRef<number | null>(null)
+  const latestLocalRef = useRef<string>(localBpm)
+  const latestTargetBpmRef = useRef<number | undefined | null>(targetBpm)
+  const onSaveRef = useRef(onSave)
+  const userTuneIdRef = useRef(userTuneId)
+
+  latestLocalRef.current = localBpm
+  latestTargetBpmRef.current = targetBpm
+  onSaveRef.current = onSave
+  userTuneIdRef.current = userTuneId
+
+  useEffect(() => {
+    if (!isFocused && pendingSaveRef.current === null) {
+      setLocalBpm(targetBpm?.toString() ?? '')
+    }
+  }, [targetBpm, isFocused])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      let bpmToSave = pendingSaveRef.current
+      if (bpmToSave === null) {
+        const parsed = parseInt(latestLocalRef.current, 10)
+        if (
+          !isNaN(parsed) &&
+          parsed >= 40 &&
+          parsed <= 200 &&
+          parsed !== latestTargetBpmRef.current
+        ) {
+          bpmToSave = parsed
+        }
+      }
+      if (bpmToSave !== null && bpmToSave !== latestTargetBpmRef.current) {
+        updateUserTune(userTuneIdRef.current, { targetBpm: bpmToSave }).catch(() => {})
+      }
+    }
+  }, [])
+
+  const scheduleSave = (bpmNum: number) => {
+    pendingSaveRef.current = bpmNum
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+    }
+    timerRef.current = setTimeout(() => {
+      onSaveRef.current(bpmNum)
+      pendingSaveRef.current = null
+      timerRef.current = null
+    }, 5000)
+  }
+
+  const handleBlur = () => {
+    setIsFocused(false)
+    const bpmNum = parseInt(localBpm, 10)
+    if (!isNaN(bpmNum) && bpmNum >= 40 && bpmNum <= 200) {
+      if (bpmNum !== targetBpm) {
+        scheduleSave(bpmNum)
+      } else {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current)
+          timerRef.current = null
+        }
+        pendingSaveRef.current = null
+      }
+    } else {
+      setLocalBpm(targetBpm?.toString() ?? '')
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      pendingSaveRef.current = null
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min="40"
+      max="200"
+      value={localBpm}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => setLocalBpm(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+

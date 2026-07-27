@@ -992,37 +992,35 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
               <>
                 <label>
                   Start %
-                  <input
+                  <TrainerNumberInput
                     className="trainer-input"
-                    type="number"
-                    min="50"
-                    max="150"
-                    step="5"
+                    min={50}
+                    max={150}
+                    step={5}
                     value={trainer.startPct}
-                    onChange={(e) => updateTrainer({ startPct: Number((e.target as HTMLInputElement).value) || 60 })}
+                    onChange={(startPct) => updateTrainer({ startPct })}
                   />
                 </label>
                 <label>
                   Step %
-                  <input
+                  <TrainerNumberInput
                     className="trainer-input"
-                    type="number"
-                    min="1"
-                    max="20"
+                    min={1}
+                    max={20}
+                    step={1}
                     value={trainer.stepPct}
-                    onChange={(e) => updateTrainer({ stepPct: Number((e.target as HTMLInputElement).value) || 5 })}
+                    onChange={(stepPct) => updateTrainer({ stepPct })}
                   />
                 </label>
                 <label>
                   Target %
-                  <input
+                  <TrainerNumberInput
                     className="trainer-input"
-                    type="number"
-                    min="50"
-                    max="150"
-                    step="5"
+                    min={50}
+                    max={150}
+                    step={5}
                     value={trainer.targetPct}
-                    onChange={(e) => updateTrainer({ targetPct: Number((e.target as HTMLInputElement).value) || 100 })}
+                    onChange={(targetPct) => updateTrainer({ targetPct })}
                   />
                 </label>
                 {status !== "stopped" && (
@@ -1270,3 +1268,113 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     }
   }
 }
+
+interface TrainerNumberInputProps {
+  value: number
+  min: number
+  max: number
+  step?: number
+  className?: string
+  onChange: (val: number) => void
+}
+
+function TrainerNumberInput({
+  value,
+  min,
+  max,
+  step = 1,
+  className,
+  onChange,
+}: TrainerNumberInputProps) {
+  const [localVal, setLocalVal] = useState<string>(value.toString())
+  const [isFocused, setIsFocused] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSaveRef = useRef<number | null>(null)
+  const latestLocalRef = useRef<string>(localVal)
+  const latestValueRef = useRef<number>(value)
+  const onChangeRef = useRef(onChange)
+
+  latestLocalRef.current = localVal
+  latestValueRef.current = value
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!isFocused && pendingSaveRef.current === null) {
+      setLocalVal(value.toString())
+    }
+  }, [value, isFocused])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      let valToSave = pendingSaveRef.current
+      if (valToSave === null) {
+        const parsed = parseInt(latestLocalRef.current, 10)
+        if (!isNaN(parsed) && parsed >= min && parsed <= max && parsed !== latestValueRef.current) {
+          valToSave = parsed
+        }
+      }
+      if (valToSave !== null && valToSave !== latestValueRef.current) {
+        onChangeRef.current(valToSave)
+      }
+    }
+  }, [min, max])
+
+  const scheduleSave = (num: number) => {
+    pendingSaveRef.current = num
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+    }
+    timerRef.current = setTimeout(() => {
+      onChangeRef.current(num)
+      pendingSaveRef.current = null
+      timerRef.current = null
+    }, 5000)
+  }
+
+  const handleBlur = () => {
+    setIsFocused(false)
+    const parsed = parseInt(localVal, 10)
+    if (!isNaN(parsed) && parsed >= min && parsed <= max) {
+      if (parsed !== value) {
+        scheduleSave(parsed)
+      } else {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current)
+          timerRef.current = null
+        }
+        pendingSaveRef.current = null
+      }
+    } else {
+      setLocalVal(value.toString())
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      pendingSaveRef.current = null
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      className={className}
+      value={localVal}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => setLocalVal(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
