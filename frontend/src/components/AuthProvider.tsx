@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
+import { loginRequest } from '../services/authConfig'
 import { authStatus, currentUserId, currentUserProfile, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
@@ -66,6 +67,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           const pca = new PublicClientApplication(msalConfigObj);
           pca.initialize().then(() => {
             setPcaInstance(pca);
+            let redirectInProgress = false;
+
             setTokenAcquisitionHelper(async (forceRefresh = false) => {
               const accounts = pca.getAllAccounts();
               if (accounts.length === 0) {
@@ -80,7 +83,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
               const activeAccount = pca.getActiveAccount() || accounts[0];
               try {
                 const response = await pca.acquireTokenSilent({
-                  scopes: ['openid', 'profile'],
+                  scopes: loginRequest.scopes || ['openid', 'profile'],
                   account: activeAccount,
                   forceRefresh,
                 });
@@ -89,36 +92,24 @@ export default function AuthProvider({ children }: AuthProviderProps) {
                   cachedToken = token;
                   return token;
                 }
-
-                const fresh = await pca.acquireTokenSilent({
-                  scopes: ['openid', 'profile'],
-                  account: activeAccount,
-                  forceRefresh: true,
-                });
-                const freshToken = fresh.idToken || fresh.accessToken || null;
-                if (freshToken) {
-                  cachedToken = freshToken;
-                }
-                return freshToken;
               } catch (error) {
-                console.warn('acquireTokenSilent failed, trying forceRefresh:', error);
+                console.warn('acquireTokenSilent failed, initiating redirect:', error);
+              }
+
+              cachedToken = null;
+              if (!redirectInProgress) {
+                redirectInProgress = true;
                 try {
-                  const fresh = await pca.acquireTokenSilent({
-                    scopes: ['openid', 'profile'],
+                  await pca.acquireTokenRedirect({
+                    ...loginRequest,
                     account: activeAccount,
-                    forceRefresh: true,
                   });
-                  const freshToken = fresh.idToken || fresh.accessToken || null;
-                  if (freshToken) {
-                    cachedToken = freshToken;
-                  }
-                  return freshToken;
-                } catch (retryErr) {
-                  console.warn('Token forceRefresh failed:', retryErr);
-                  cachedToken = null;
-                  return null;
+                } catch (redirectErr) {
+                  console.error('acquireTokenRedirect failed:', redirectErr);
+                  redirectInProgress = false;
                 }
               }
+              return null;
             });
           }).catch((err) => {
             console.error('MSAL initialization failed:', err);
