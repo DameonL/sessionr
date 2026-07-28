@@ -81,19 +81,9 @@ export default function AuthProvider({ children }: AuthProviderProps) {
               }
 
               const activeAccount = pca.getActiveAccount() || accounts[0];
-              try {
-                const response = await pca.acquireTokenSilent({
-                  scopes: loginRequest.scopes || ['openid', 'profile'],
-                  account: activeAccount,
-                  forceRefresh,
-                });
-                const token = response.idToken || response.accessToken || null;
-                if (token && !isJwtExpired(token, 30)) {
-                  cachedToken = token;
-                  return token;
-                }
-              } catch (error) {
-                console.warn('acquireTokenSilent failed, initiating redirect:', error);
+              if (!forceRefresh && activeAccount?.idToken && !isJwtExpired(activeAccount.idToken, 30)) {
+                cachedToken = activeAccount.idToken;
+                return activeAccount.idToken;
               }
 
               cachedToken = null;

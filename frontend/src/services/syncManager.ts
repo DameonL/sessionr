@@ -37,15 +37,11 @@ export function initSyncManager(): void {
   }, PERIODIC_INTERVAL_MS)
 
   // Don't attempt the first sync until AuthProvider's own MSAL bootstrap has
-  // settled — firing getBearerToken concurrently with the app's own initial
-  // acquireTokenSilent call (which happens on every cold load) makes MSAL
-  // throw block_iframe_reload, since it only allows one hidden-iframe silent
-  // renewal in flight at a time. This same subscription also catches a
-  // *fresh* sign-in later (status flipping back to 'authenticated' after the
-  // user completes an interactive login from the "Sign In to Sync" button),
-  // which is what actually clears authRequired below and gives sync another
-  // real chance — as opposed to the periodic timer blindly re-hammering a
-  // session that's already known to be unrefreshable.
+  // settled. This subscription also catches a *fresh* sign-in later (status
+  // flipping back to 'authenticated' after the user completes an interactive
+  // login from the "Sign In to Sync" button), which is what clears authRequired
+  // below and gives sync another real chance — as opposed to the periodic timer
+  // blindly re-hammering a session that's already known to be unrefreshable.
   authStatus.subscribe((status) => {
     if (status === 'pending') return
     if (status === 'authenticated') authRequired.value = false
@@ -80,23 +76,17 @@ async function runSync(): Promise<void> {
       if (!ok) return
     }
 
-    // Once a token attempt has already failed, don't keep calling
-    // acquireTokenSilent on every online event / 60s tick — a session that
-    // can't refresh silently won't start succeeding on its own, and hammering
-    // it repeatedly is what produced the block_iframe_reload loop (each
-    // attempt colliding with MSAL's own still-unwinding previous attempt).
-    // The banner's "Sign In to Sync" button drives an interactive
-    // loginRedirect instead; a fresh 'authenticated' status is what clears
-    // this flag and lets sync try again for real.
+    // Once a token attempt has already failed, don't keep attempting token
+    // retrieval on every online event / 60s tick — an unauthenticated session
+    // won't start succeeding on its own. The banner's "Sign In to Sync" button
+    // drives an interactive loginRedirect instead; a fresh 'authenticated'
+    // status is what clears this flag and lets sync try again for real.
     if (authRequired.value) {
       return
     }
 
-    // Non-forcing: the shared helper already checks the cached token's
-    // expiry and only falls through to a live acquireTokenSilent call (with
-    // its own internal forceRefresh escalation) when actually needed —
-    // forcing unconditionally here is what caused the concurrent-iframe
-    // collision above.
+    // Non-forcing: the shared helper checks the cached token's expiry before
+    // attempting any token retrieval.
     const token = await getBearerToken(false)
     if (!token) {
       authRequired.value = true
