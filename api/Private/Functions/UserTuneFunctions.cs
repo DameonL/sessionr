@@ -447,26 +447,12 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             return new NotFoundResult();
         }
 
+        var offsetMinutes = req.GetTimezoneOffsetMinutes();
         var now = DateTime.UtcNow;
         userTune.LastPracticed = now;
 
         var user = userTune.User;
-        var today = now.Date;
-
-        if (user.StreakAnchorDate.HasValue && user.StreakAnchorDate.Value.Date == today)
-        {
-            // Already logged practice today — streak unchanged
-        }
-        else if (user.StreakAnchorDate.HasValue && user.StreakAnchorDate.Value.Date == today.AddDays(-1))
-        {
-            user.CurrentStreak += 1;
-            user.StreakAnchorDate = today;
-        }
-        else
-        {
-            user.CurrentStreak = 1;
-            user.StreakAnchorDate = today;
-        }
+        var localToday = now.AddMinutes(-offsetMinutes).Date;
 
         db.PracticeLog.Add(new PracticeLogEntry
         {
@@ -474,7 +460,17 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             PracticedAt = now
         });
 
-        var sourceId = $"{userTuneId}:{now:yyyy-MM-dd}";
+        var allTimestamps = await db.PracticeLog
+            .Where(p => p.UserTune.UserId == callerUserId.Value)
+            .Select(p => p.PracticedAt)
+            .ToListAsync();
+        allTimestamps.Add(now);
+
+        var computedStreak = PracticeStreakCalculator.ComputeCurrentStreak(allTimestamps, now, offsetMinutes);
+        user.CurrentStreak = computedStreak;
+        user.StreakAnchorDate = localToday;
+
+        var sourceId = $"{userTuneId}:{localToday:yyyy-MM-dd}";
         var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId, user, saveImmediately: false);
 
         await db.SaveChangesAsync();
@@ -531,26 +527,29 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
             .AsNoTracking()
             .SingleAsync(u => u.UserId == callerUserId.Value);
 
-        var today = DateTime.UtcNow.Date;
-        var windowStart = today.AddDays(-29);
+        var offsetMinutes = req.GetTimezoneOffsetMinutes();
+        var now = DateTime.UtcNow;
+        var localToday = now.AddMinutes(-offsetMinutes).Date;
+        var localWindowStart = localToday.AddDays(-29);
 
-        var streak = (user.StreakAnchorDate.HasValue &&
-            (user.StreakAnchorDate.Value.Date == today || user.StreakAnchorDate.Value.Date == today.AddDays(-1)))
-            ? user.CurrentStreak
-            : 0;
+        var allPracticeTimestamps = await db.PracticeLog
+            .AsNoTracking()
+            .Where(p => p.UserTune.UserId == callerUserId.Value)
+            .Select(p => p.PracticedAt)
+            .ToListAsync();
 
-        var countsInWindow = (await db.PracticeLog
-                .AsNoTracking()
-                .Where(p => p.UserTune.UserId == callerUserId.Value && p.PracticedAt >= windowStart)
-                .Select(p => p.PracticedAt)
-                .ToListAsync())
-            .GroupBy(d => d.Date)
+        var streak = PracticeStreakCalculator.ComputeCurrentStreak(allPracticeTimestamps, now, offsetMinutes);
+
+        var countsInWindow = allPracticeTimestamps
+            .Select(d => d.AddMinutes(-offsetMinutes).Date)
+            .Where(d => d >= localWindowStart && d <= localToday)
+            .GroupBy(d => d)
             .ToDictionary(g => g.Key, g => g.Count());
 
         var perDay = Enumerable.Range(0, 30)
             .Select(offset =>
             {
-                var day = windowStart.AddDays(offset);
+                var day = localWindowStart.AddDays(offset);
                 return new PracticeDayDto(day.ToString("yyyy-MM-dd"), countsInWindow.GetValueOrDefault(day));
             })
             .ToList();

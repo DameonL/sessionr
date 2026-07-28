@@ -413,4 +413,16 @@ public static class AzureDirectoryAuthorization
         }
         return Convert.FromBase64String(output);
     }
+
+    /// <summary>Reads the client's local timezone offset in minutes from the X-Timezone-Offset header (defaults to 0 / UTC if missing or invalid).</summary>
+    public static int GetTimezoneOffsetMinutes(this HttpRequest req)
+    {
+        if (req != null &&
+            req.Headers.TryGetValue("X-Timezone-Offset", out var values) &&
+            int.TryParse(values.FirstOrDefault(), out var offset))
+        {
+            return offset;
+        }
+        return 0;
+    }
 }

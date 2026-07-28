@@ -82,6 +82,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   // anonymous/public GETs with no Authorization header then qualify as CORS-simple requests
   // and skip preflight entirely.
   const headers: Record<string, string> = {
+    'X-Timezone-Offset': String(new Date().getTimezoneOffset()),
     ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
     ...init?.headers as Record<string, string>,
   }
