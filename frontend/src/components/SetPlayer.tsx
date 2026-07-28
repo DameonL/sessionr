@@ -60,9 +60,13 @@ export interface SetPlayerProps {
   linkHref?: (item: SetPlayerItem) => string | null;
 }
 
-/** Shared by buildSynthsForTune (what the synth is primed at) and startTune (what the timer runs at), so they can't silently drift apart. */
-function computeEffectiveBpm(visualObj: abcjs.TuneObject, percent: number): number {
-  return Math.round(visualObj.getBpm() * (percent / 100));
+/** Computes the base/natural BPM for a tune, falling back to explicit targetBpm or default genre BPM (120) if no Q: header is present. */
+function getTuneBaseBpm(visualObj: abcjs.TuneObject | null, targetBpm?: number | null, tuneType?: string): number {
+  const natural = visualObj?.getBpm() ?? 0;
+  if (natural > 0) return natural;
+  if (targetBpm) return targetBpm;
+  if (tuneType) return getDefaultTargetBpm(tuneType);
+  return 120;
 }
 
 /**
@@ -113,7 +117,11 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   const metronome = useMetronomePrefs();
   const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome;
   const [status, setStatus] = useState<PlayerStatus>("stopped");
-  const [tempoPercent, setTempoPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).tempoPercent);
+  const [currentBpm, setCurrentBpm] = useState<number>(() => {
+    const saved = loadTunePlaybackPrefs(tuneKey);
+    const base = getTuneBaseBpm(null, targetBpm, items[0]?.tuneType);
+    return Math.round(base * (saved.tempoPercent / 100));
+  });
   const [swingPercent, setSwingPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).swingPercent);
   const [repeat, setRepeat] = useState(initialPrefs.repeat);
   const [repeatLimit, setRepeatLimit] = useState<number | null>(initialPrefs.repeatLimit);
@@ -226,13 +234,13 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   }, [repeat, repeatLimit, bodhran, trainer]);
 
   useEffect(() => {
+    const baseBpm = getTuneBaseBpm(visualObjsRef.current[0], targetBpm, items[0]?.tuneType);
+    const tempoPercent = baseBpm > 0 ? Math.round((currentBpm / baseBpm) * 100) : 100;
     saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent });
     // tuneKey deliberately excluded: this must only fire on an actual tempo/swing change by the
-    // user, not on every tune switch (which would re-save the just-loaded tune's own values, or
-    // worse, briefly save the previous tune's values under the new tuneKey before the load effect
-    // below has a chance to apply the new tune's tempo/swing).
+    // user, not on every tune switch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tempoPercent, swingPercent]);
+  }, [currentBpm, swingPercent]);
 
   useEffect(() => {
     saveBandPrefs(bandPrefs);
@@ -242,11 +250,6 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     if (isBandMode) {
       setBandVoices(pickBandVoices(bandPrefs.eligiblePrograms, bandPrefs.count));
     } else {
-      // Clear to an empty array on the Band -> Solo transition so the single
-      // [bandVoices] replay effect below covers BOTH toggle directions through
-      // one mechanism, instead of Solo needing its own special-cased trigger.
-      // The functional updater bails out (same reference) when already empty,
-      // so this can't cause a spurious replay while already in Solo mode.
       setBandVoices((prev) => (prev.length === 0 ? prev : []));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,12 +257,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
 
   useEffect(() => {
     if (status !== "stopped") {
-      play(tempoPercent);
+      play(currentBpm);
     }
-    // Re-run playback whenever the effective band configuration changes in either
-    // direction — switching into/out of Band mode, changing the player count/eligible
-    // pool, or hitting Randomize — all funnel through bandVoices changing, so this is
-    // the single place that decides whether a live session needs to restart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bandVoices]);
 
@@ -292,8 +291,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       noteTimingsRef.current[index] = timings;
       tuneLinesRef.current[index] = extractLinesFromTimings(timings);
       if (index === 0) {
-        const naturalBpm = visualObj.getBpm();
-        const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null) ?? (naturalBpm > 0 ? naturalBpm : 120);
+        const baseBpm = getTuneBaseBpm(visualObj, targetBpm, item.tuneType);
+        const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null) ?? baseBpm;
         if (effectiveTargetBpm) {
           setTrainer((t) => ({
             ...t,
@@ -301,16 +300,12 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             startBpm: t.startBpm || Math.round(effectiveTargetBpm * 0.6),
           }));
         }
-        const targetPct =
-          effectiveTargetBpm && naturalBpm > 0
-            ? Math.min(150, Math.max(50, Math.round((effectiveTargetBpm / naturalBpm) * 100)))
-            : 100;
         if (hasSavedTempo) {
-          setTempoPercent(savedTempo.tempoPercent);
+          setCurrentBpm(Math.round(baseBpm * (savedTempo.tempoPercent / 100)));
           setSwingPercent(savedTempo.swingPercent);
         } else {
           setSwingPercent(0);
-          setTempoPercent(targetPct);
+          setCurrentBpm(effectiveTargetBpm);
         }
       }
       return visualObj;
@@ -357,12 +352,14 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       const newDurations = items.map((_, index) => {
         const visualObj = visualObjsRef.current[index];
         const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-        return naturalTotalSec * (100 / tempoPercent);
+        const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
+        const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
+        return currentBpm > 0 ? naturalTotalSec * (sourceBpm / currentBpm) : naturalTotalSec;
       });
       durationsRef.current = newDurations;
       setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
     }
-  }, [itemsKey, tempoPercent]);
+  }, [itemsKey, currentBpm, targetBpm]);
 
   function clearHighlights() {
     for (const el of highlightedRef.current) {
@@ -418,9 +415,6 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
     pendingBackersRef.current.clear();
     for (const voices of synthsRef.current) {
-      // Lazy per-tune building can leave earlier, not-yet-reached indices as
-      // holes (never assigned) rather than empty arrays — for...of yields
-      // undefined for a hole, which would throw on the inner loop below.
       if (!voices) continue;
       for (const synth of voices) synth.stop();
     }
@@ -487,7 +481,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     bodhranRef.current = next;
     savePlayerPrefs({ repeat, repeatLimit, bodhran: next, trainer });
     if (status !== "stopped") {
-      play(tempoPercent);
+      play(currentBpm);
     }
   }
 
@@ -547,40 +541,24 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     setActivePass(targetPass);
 
     const mySession = beginNewPlaySession();
-    const result = await ensureTuneSynths(targetIndex, tempoPercent, mySession);
-    if (result === "stale") return; // a newer stop/seek/play has since taken over
+    const result = await ensureTuneSynths(targetIndex, currentBpm, mySession);
+    if (result === "stale") return;
     if (result === "failed") {
       setError("Audio unavailable (soundfont could not be loaded).");
       return;
     }
 
-    startTune(targetIndex, tempoPercent, targetPass, startFraction, false);
+    startTune(targetIndex, currentBpm, targetPass, startFraction, false);
   }
 
-  /**
-   * Builds (and primes) the synth voices for one tune at the given tempo — Band mode
-   * (one synth per band voice, humanized/panned) or Solo mode (one synth with
-   * melody/chords/bass), whichever is currently configured. Returns null on any
-   * failure (missing visualObj, synth init/prime error, or Band mode with no
-   * eligible instruments) rather than throwing, so every caller can handle it the
-   * same way.
-   *
-   * Reads its config (Band vs. Solo, band voices, instruments, swing) via refs
-   * rather than the enclosing closure — this function can be invoked, via
-   * advanceToTune(), from an eventCallback registered many renders ago, so the
-   * closure variables could be stale; the refs are always kept current.
-   */
-  async function buildSynthsForTune(index: number, percent: number): Promise<abcjs.MidiBuffer[] | null> {
+  async function buildSynthsForTune(index: number, bpm: number): Promise<abcjs.MidiBuffer[] | null> {
     const visualObj = visualObjsRef.current[index];
     if (!visualObj) return null;
-    const effectiveBpm = computeEffectiveBpm(visualObj, percent);
-    const msPerMeasure = visualObj.millisecondsPerMeasure(effectiveBpm);
+    const msPerMeasure = visualObj.millisecondsPerMeasure(bpm);
     const bandMode = isBandModeRef.current;
     const voicesToUse = bandMode ? bandVoicesRef.current : [];
     const useBodhran = bodhranRef.current;
 
-    // Sanitized prefs should keep this from happening, but fail loudly rather than
-    // silently falling back to a Solo synth while the UI still shows Band mode.
     if (bandMode && voicesToUse.length === 0) return null;
 
     try {
@@ -631,44 +609,30 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     }
   }
 
-  /**
-   * Builds a tune's synths on demand only if it doesn't already have some (a
-   * fresh tune-transition target, not a same-tune pass repeat). `mySession` is
-   * whatever beginNewPlaySession() returned when the caller started — if a
-   * newer stop()/seek() has since bumped playSessionRef, "stale" is returned
-   * so the caller discards the (now-irrelevant) result instead of committing
-   * it and resurrecting audio the user already moved past.
-   */
-  async function ensureTuneSynths(index: number, percent: number, mySession: number): Promise<"ok" | "stale" | "failed"> {
+  async function ensureTuneSynths(index: number, bpm: number, mySession: number): Promise<"ok" | "stale" | "failed"> {
     if (synthsRef.current[index] && synthsRef.current[index].length > 0) return "ok";
-    const voices = await buildSynthsForTune(index, percent);
+    const voices = await buildSynthsForTune(index, bpm);
     if (playSessionRef.current !== mySession) return "stale";
     if (!voices) return "failed";
     synthsRef.current[index] = voices;
     return "ok";
   }
 
-  /** Builds a tune's synths on demand only if it doesn't already have some, then starts it — the tune-transition path (next tune in a set, or a whole-set repeat) reached from startTune's eventCallback. */
-  async function advanceToTune(nextIndex: number, percent: number) {
+  async function advanceToTune(nextIndex: number, bpm: number) {
     const mySession = playSessionRef.current;
-    const result = await ensureTuneSynths(nextIndex, percent, mySession);
-    if (result === "stale") return; // a newer stop/seek/play already owns playback state — nothing to clean up here
+    const result = await ensureTuneSynths(nextIndex, bpm, mySession);
+    if (result === "stale") return;
     if (result === "failed") {
       setError("Audio unavailable (soundfont could not be loaded).");
       stop();
       return;
     }
-    startTune(nextIndex, percent);
+    startTune(nextIndex, bpm);
   }
 
-  async function play(percent = tempoPercent) {
-    const keepPosition = positionSec > 0;
+  async function play(targetBpmParam?: number, keepPosition = positionSec > 0) {
     const wasStopped = status === "stopped";
     stop(keepPosition);
-    // stop() just bumped the play session — capture it so we can tell, after the
-    // async synth build below, whether a newer stop()/seek()/play() has since
-    // taken over (e.g. the user clicked Play twice in quick succession) and this
-    // call's result should be discarded rather than committed.
     const mySession = playSessionRef.current;
     if (wasStopped) {
       setPassRef.current = 1;
@@ -676,17 +640,20 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     setError(null);
     try {
       const startingTrainer = trainer.armed && wasStopped;
-      let effectivePercent = percent;
+      let effectiveBpm = targetBpmParam ?? currentBpm;
+
       if (startingTrainer) {
         currentTrainerBpmRef.current = trainer.startBpm;
-        const naturalBpm0 = visualObjsRef.current[0]?.getBpm() ?? 0;
-        effectivePercent = naturalBpm0 > 0 ? Math.min(200, Math.max(20, Math.round((trainer.startBpm / naturalBpm0) * 100))) : trainer.startBpm;
+        effectiveBpm = trainer.startBpm;
       }
+
       const oldDurations = durationsRef.current;
       const newDurations = items.map((_, index) => {
         const visualObj = visualObjsRef.current[index];
         const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-        return naturalTotalSec * (100 / effectivePercent);
+        const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
+        const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
+        return effectiveBpm > 0 ? naturalTotalSec * (sourceBpm / effectiveBpm) : naturalTotalSec;
       });
       durationsRef.current = newDurations;
       setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
@@ -696,9 +663,6 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       let targetFraction = 0;
 
       if (keepPosition) {
-        // positionSec accumulated under the tempo in effect before this call, so it must be
-        // resolved against oldDurations — the tempo may have just changed (e.g. speed trainer
-        // stepping up between passes), and the resulting fraction is tempo-independent.
         let remaining = positionSec;
         for (let i = 0; i < items.length; i++) {
           const tuneDuration = oldDurations[i] ?? 0;
@@ -715,40 +679,33 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
         targetFraction = oldTuneDuration > 0 ? remaining / oldTuneDuration : 0;
       }
 
-      // Only the tune about to start needs its (expensive, async) synths built now —
-      // the rest of the set builds lazily, one tune at a time, as playback reaches it.
-      const voices = await buildSynthsForTune(targetIndex, effectivePercent);
-      if (playSessionRef.current !== mySession) return; // superseded by a newer stop/seek/play while this was building
+      const voices = await buildSynthsForTune(targetIndex, effectiveBpm);
+      if (playSessionRef.current !== mySession) return;
       if (!voices) throw new Error("Could not build synths for tune.");
       synthsRef.current[targetIndex] = voices;
 
       setStatus("playing");
+      setCurrentBpm(effectiveBpm);
       if (startingTrainer) {
         passRef.current = 1;
         setPassCount(1);
-        setTempoPercent(effectivePercent);
-        startTune(targetIndex, effectivePercent, targetPass, loop?.a ?? targetFraction);
-      } else {
-        startTune(targetIndex, percent, targetPass, loop?.a ?? targetFraction);
       }
+      startTune(targetIndex, effectiveBpm, targetPass, loop?.a ?? targetFraction);
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
     }
   }
 
-  function startTune(index: number, percent: number, startPass = 1, startFraction = 0, shouldScroll = true) {
+  function startTune(index: number, bpm: number, startPass = 1, startFraction = 0, shouldScroll = true) {
     const visualObj = visualObjsRef.current[index];
     const voices = synthsRef.current[index];
     if (!visualObj || !voices || voices.length === 0) return;
 
-    // Defensively clear any leftover entrance timeouts from whatever was playing before,
-    // rather than relying on tune duration always dwarfing the 10-35ms stagger window.
     pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
     pendingBackersRef.current.clear();
 
-    const synth = voices[0]; // leader — drives the timer/cursor, exactly as the single-synth model did
+    const synth = voices[0];
     const backers = voices.slice(1);
-    const effectiveBpm = computeEffectiveBpm(visualObj, percent);
     let pass = startPass;
 
     setActiveIndex(index);
@@ -769,7 +726,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     keyRootRef.current = getAbcKeyRoot(items[index].abc);
 
     const timer = new abcjs.TimingCallbacks(visualObj, {
-      qpm: effectiveBpm,
+      qpm: bpm,
       beatCallback: (beatNumber: number) => {
         if (useMetronomeRef.current) {
           const sound = metronomeSoundRef.current;
@@ -826,23 +783,6 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
           cursor.setAttribute("y2", "0");
         }
 
-        const activeTrainer = trainerRef.current;
-        if (activeTrainer?.armed) {
-          const currentBpm = currentTrainerBpmRef.current;
-          if (currentBpm >= activeTrainer.targetBpm) {
-            stop();
-            return undefined;
-          }
-          passRef.current++;
-          setPassCount(passRef.current);
-          const nextBpm = Math.min(currentBpm + activeTrainer.stepBpm, activeTrainer.targetBpm);
-          currentTrainerBpmRef.current = nextBpm;
-          const naturalBpm0 = visualObjsRef.current[0]?.getBpm() ?? 0;
-          const nextPct = naturalBpm0 > 0 ? Math.min(200, Math.max(20, Math.round((nextBpm / naturalBpm0) * 100))) : nextBpm;
-          play(nextPct);
-          return undefined;
-        }
-
         if (pass < items[index].repetitions) {
           pass++;
           setActivePass(pass);
@@ -853,27 +793,40 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
           timer.start(0);
           return "continue";
         } else if (index + 1 < items.length) {
-          advanceToTune(index + 1, percent);
-        } else if (repeatRef.current) {
-          if (repeatLimitRef.current === null || setPassRef.current < repeatLimitRef.current) {
-            setPassRef.current++;
-            advanceToTune(0, percent);
+          advanceToTune(index + 1, bpm);
+        } else {
+          // Reached end of entire tune/set. Check Speed Trainer.
+          const activeTrainer = trainerRef.current;
+          if (activeTrainer?.armed) {
+            const currentBpmVal = currentTrainerBpmRef.current;
+            if (currentBpmVal >= activeTrainer.targetBpm) {
+              stop();
+              return undefined;
+            }
+            passRef.current++;
+            setPassCount(passRef.current);
+            const nextBpm = Math.min(currentBpmVal + activeTrainer.stepBpm, activeTrainer.targetBpm);
+            currentTrainerBpmRef.current = nextBpm;
+            play(nextBpm, false);
+            return undefined;
+          }
+
+          if (repeatRef.current) {
+            if (repeatLimitRef.current === null || setPassRef.current < repeatLimitRef.current) {
+              setPassRef.current++;
+              advanceToTune(0, bpm);
+            } else {
+              stop();
+            }
           } else {
             stop();
           }
-        } else {
-          stop();
         }
         return undefined;
       },
     });
     timerRef.current = timer;
 
-    // Read via the ref, not the closure: this startTune call can be reached
-    // (via advanceToTune, after its own async synth build) from an eventCallback
-    // registered many renders ago, whose closure over `status` would otherwise
-    // reflect whatever it was back then — e.g. missing a Pause the user clicked
-    // while that build was in flight.
     const isPlayerPaused = statusRef.current === "paused";
     if (isPlayerPaused) {
       for (const v of voices) v.seek(startFraction);
@@ -899,11 +852,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
 
   function onTempoInput(e: ChangeEvent<HTMLInputElement>) {
     const raw = Number((e.target as HTMLInputElement).value);
-    if (naturalBpm > 0) {
-      setTempoPercent(Math.min(150, Math.max(50, Math.round((raw / naturalBpm) * 100))));
-    } else {
-      setTempoPercent(raw);
-    }
+    setCurrentBpm(raw);
   }
 
   function onSwingInput(e: ChangeEvent<HTMLInputElement>) {
@@ -913,7 +862,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
 
   function restartAtCurrentPosition() {
     if (status !== "stopped") {
-      play(tempoPercent);
+      play(currentBpm);
     }
   }
   const tempoInputRef = useCommitOnChange(restartAtCurrentPosition);
@@ -925,7 +874,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       setInstruments(next);
       saveInstruments(next);
       if (status !== "stopped") {
-        play(tempoPercent);
+        play(currentBpm);
       }
     };
   }
@@ -940,8 +889,8 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   }
 
   const activeVisualObj = visualObjsRef.current[activeIndex ?? 0] ?? null;
-  const naturalBpm = activeVisualObj?.getBpm() ?? 0;
-  const effectiveBpm = naturalBpm > 0 ? Math.round(naturalBpm * (tempoPercent / 100)) : 0;
+  const baseBpm = getTuneBaseBpm(activeVisualObj, targetBpm, items[activeIndex ?? 0]?.tuneType);
+  const tempoPercent = baseBpm > 0 ? Math.round((currentBpm / baseBpm) * 100) : 100;
 
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
@@ -1031,14 +980,14 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             </button>
             {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
             <label>
-              Tempo {effectiveBpm > 0 ? `${effectiveBpm} BPM (${tempoPercent}%)` : `${tempoPercent}%`}
+              Tempo {currentBpm} BPM ({tempoPercent}%)
               <input
                 ref={tempoInputRef}
                 type="range"
-                min={naturalBpm > 0 ? Math.round(naturalBpm * 0.5) : 50}
-                max={naturalBpm > 0 ? Math.round(naturalBpm * 1.5) : 150}
+                min={Math.max(30, Math.round(baseBpm * 0.5))}
+                max={Math.round(baseBpm * 1.5)}
                 step="1"
-                value={naturalBpm > 0 ? effectiveBpm : tempoPercent}
+                value={currentBpm}
                 onChange={onTempoInput}
               />
             </label>
@@ -1108,7 +1057,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
                 </label>
                 {status !== "stopped" && (
                   <span className="tune-meta">
-                    Pass {passCount} · {effectiveBpm} BPM → {trainer.targetBpm} BPM
+                    Pass {passCount} · {currentBpm} BPM → {trainer.targetBpm} BPM
                   </span>
                 )}
               </>
