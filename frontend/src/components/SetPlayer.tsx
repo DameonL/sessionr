@@ -554,6 +554,9 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
   async function buildSynthsForTune(index: number, bpm: number): Promise<abcjs.MidiBuffer[] | null> {
     const visualObj = visualObjsRef.current[index];
     if (!visualObj) return null;
+    const timings = visualObj.setTiming(bpm);
+    noteTimingsRef.current[index] = timings;
+    tuneLinesRef.current[index] = extractLinesFromTimings(timings);
     const msPerMeasure = visualObj.millisecondsPerMeasure(bpm);
     const bandMode = isBandModeRef.current;
     const voicesToUse = bandMode ? bandVoicesRef.current : [];
@@ -1239,7 +1242,7 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       remaining -= totalTuneDuration;
     }
 
-    const naturalMs = remaining * tempoPercent * 10;
+    const naturalMs = remaining * 1000;
     const timings = noteTimingsRef.current[targetIndex];
     if (!timings || timings.length === 0) return;
 
