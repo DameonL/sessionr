@@ -2,6 +2,12 @@ export interface TimeZoneOption {
   id: string
   displayName: string
   offsetMinutes: number
+  region: string
+}
+
+export interface TimeZoneGroup {
+  label: string
+  options: TimeZoneOption[]
 }
 
 // Fallback list of timezones in case Intl.supportedValuesOf('timeZone') is unavailable
@@ -117,6 +123,43 @@ const FALLBACK_TIMEZONES = [
   'Pacific/Tongatapu',
 ]
 
+const POPULAR_TIMEZONES = new Set([
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'Europe/London',
+  'Europe/Dublin',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Singapore',
+  'Asia/Hong_Kong',
+  'Australia/Sydney',
+])
+
+export function getDetectedTimeZone(): string {
+  try {
+    if (typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function') {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    }
+  } catch {
+    // Fallback
+  }
+  return 'UTC'
+}
+
+function determineRegion(id: string): string {
+  if (id === 'UTC' || id.startsWith('Etc/')) return 'UTC & Universal'
+  if (id.startsWith('America/') || id.startsWith('US/') || id.startsWith('Canada/')) return 'Americas'
+  if (id.startsWith('Europe/')) return 'Europe'
+  if (id.startsWith('Asia/') || id.startsWith('Pacific/') || id.startsWith('Australia/') || id.startsWith('Indian/')) return 'Asia & Pacific'
+  if (id.startsWith('Africa/') || id.startsWith('Atlantic/')) return 'Africa & Middle East'
+  return 'Other'
+}
+
 function getUtcOffset(timeZone: string, now: Date = new Date()): { offsetMinutes: number; formattedOffset: string } {
   try {
     const formatter = new Intl.DateTimeFormat('en-US', {
@@ -173,7 +216,8 @@ export function getTimeZoneList(): TimeZoneOption[] {
   for (const id of ids) {
     const { offsetMinutes, formattedOffset } = getUtcOffset(id, now)
     const displayName = `(${formattedOffset}) ${id}`
-    optionsMap.set(id, { id, displayName, offsetMinutes })
+    const region = determineRegion(id)
+    optionsMap.set(id, { id, displayName, offsetMinutes, region })
   }
 
   const options = Array.from(optionsMap.values())
@@ -186,4 +230,82 @@ export function getTimeZoneList(): TimeZoneOption[] {
 
   cachedTimeZoneList = options
   return cachedTimeZoneList
+}
+
+export function getTimeZoneGroups(filterQuery: string = '', currentSelection?: string): TimeZoneGroup[] {
+  const all = getTimeZoneList()
+  const q = filterQuery.trim().toLowerCase()
+
+  const matches = q
+    ? all.filter((tz) => tz.id.toLowerCase().includes(q) || tz.displayName.toLowerCase().includes(q))
+    : all
+
+  const detected = getDetectedTimeZone()
+
+  const popularOptions: TimeZoneOption[] = []
+  const americasOptions: TimeZoneOption[] = []
+  const europeOptions: TimeZoneOption[] = []
+  const asiaPacificOptions: TimeZoneOption[] = []
+  const africaMiddleEastOptions: TimeZoneOption[] = []
+  const utcUniversalOptions: TimeZoneOption[] = []
+  const otherOptions: TimeZoneOption[] = []
+
+  // Track items in popular to avoid duplicate keys in rendering
+  const addedToPopular = new Set<string>()
+
+  for (const tz of matches) {
+    if (!q && (POPULAR_TIMEZONES.has(tz.id) || tz.id === detected || tz.id === currentSelection)) {
+      if (!addedToPopular.has(tz.id)) {
+        addedToPopular.add(tz.id)
+        popularOptions.push(tz)
+      }
+    }
+
+    switch (tz.region) {
+      case 'Americas':
+        americasOptions.push(tz)
+        break
+      case 'Europe':
+        europeOptions.push(tz)
+        break
+      case 'Asia & Pacific':
+        asiaPacificOptions.push(tz)
+        break
+      case 'Africa & Middle East':
+        africaMiddleEastOptions.push(tz)
+        break
+      case 'UTC & Universal':
+        utcUniversalOptions.push(tz)
+        break
+      default:
+        otherOptions.push(tz)
+        break
+    }
+  }
+
+  const groups: TimeZoneGroup[] = []
+
+  if (popularOptions.length > 0) {
+    groups.push({ label: '🌟 Popular & Detected', options: popularOptions })
+  }
+  if (americasOptions.length > 0) {
+    groups.push({ label: '🌎 Americas', options: americasOptions })
+  }
+  if (europeOptions.length > 0) {
+    groups.push({ label: '🌍 Europe', options: europeOptions })
+  }
+  if (asiaPacificOptions.length > 0) {
+    groups.push({ label: '🌏 Asia & Pacific', options: asiaPacificOptions })
+  }
+  if (africaMiddleEastOptions.length > 0) {
+    groups.push({ label: '🌍 Africa & Middle East', options: africaMiddleEastOptions })
+  }
+  if (utcUniversalOptions.length > 0) {
+    groups.push({ label: '🌐 UTC & Universal', options: utcUniversalOptions })
+  }
+  if (otherOptions.length > 0) {
+    groups.push({ label: '📍 Other Regions', options: otherOptions })
+  }
+
+  return groups
 }

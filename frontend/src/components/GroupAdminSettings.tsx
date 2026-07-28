@@ -7,7 +7,7 @@ import { GroupDetails, updateGroupInfo, replaceGroupSchedules, deleteGroup } fro
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from './GroupScheduleBuilder'
 import { GroupUpdates } from './GroupUpdates'
 import { showToast } from '../state/appState'
-import { getTimeZoneList } from '../utils/timezones'
+import { getDetectedTimeZone, getTimeZoneGroups } from '../utils/timezones'
 
 interface GroupAdminSettingsProps {
   details: GroupDetails
@@ -26,11 +26,12 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
   const [city, setCity] = useState(details.city ?? '')
   const [isPrivate, setIsPrivate] = useState(details.isPrivate)
   const [timeZone, setTimeZone] = useState(details.timeZone || 'UTC')
+  const [tzFilter, setTzFilter] = useState('')
   const [infoSaving, setInfoSaving] = useState(false)
   const [infoError, setInfoError] = useState<string | null>(null)
 
-  const timeZoneOptions = getTimeZoneList()
-  const hasCurrentZone = timeZoneOptions.some((tz) => tz.id === timeZone)
+  const detectedTz = getDetectedTimeZone()
+  const timeZoneGroups = getTimeZoneGroups(tzFilter, timeZone)
 
   // Schedules State
   const [schedules, setSchedules] = useState<ScheduleDraft[]>(() =>
@@ -159,22 +160,43 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Group Time Zone</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem', flexWrap: 'wrap', gap: '0.25rem' }}>
+                <label style={{ fontWeight: 600 }}>Group Time Zone</label>
+                {detectedTz && detectedTz !== timeZone && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', margin: 0 }}
+                    onClick={() => setTimeZone(detectedTz)}
+                  >
+                    📍 Use My Local Time Zone ({detectedTz})
+                  </button>
+                )}
+              </div>
+
+              <input
+                type="text"
+                value={tzFilter}
+                onChange={(e) => setTzFilter(e.target.value)}
+                placeholder="🔍 Search time zones (e.g. London, York, UTC-05)..."
+                style={{ width: '100%', marginBottom: '0.35rem', fontSize: '0.85rem' }}
+                disabled={infoSaving}
+              />
+
               <select
                 value={timeZone}
                 onChange={(e) => setTimeZone(e.target.value)}
                 style={{ width: '100%' }}
                 disabled={infoSaving}
               >
-                {!hasCurrentZone && timeZone && (
-                  <option key={timeZone} value={timeZone}>
-                    {timeZone}
-                  </option>
-                )}
-                {timeZoneOptions.map((tz) => (
-                  <option key={tz.id} value={tz.id}>
-                    {tz.displayName}
-                  </option>
+                {timeZoneGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.options.map((tz) => (
+                      <option key={`${group.label}-${tz.id}`} value={tz.id}>
+                        {tz.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
