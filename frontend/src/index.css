@@ -848,14 +848,19 @@ a.stat:hover {
   position: fixed;
   top: 1rem;
   right: 1.5rem;
+  left: 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
   z-index: 99999;
   display: flex;
-  gap: 0.5rem;
-  background: rgba(0, 0, 0, 0.75);
-  padding: 0.5rem;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(15, 15, 18, 0.9);
+  padding: 0.5rem 0.8rem;
   border-radius: 8px;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   transition: opacity 0.3s ease, visibility 0.3s ease;
   opacity: 1;
   visibility: visible;
@@ -879,11 +884,80 @@ a.stat:hover {
   align-items: center;
   justify-content: center;
   transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.fullscreen-controls button.toggled {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
 }
 
 .fullscreen-controls button:hover {
   background: var(--accent);
   color: #000;
+}
+
+.fs-seek-track {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.fs-seek-track input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.fs-seek-track .time-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.primary-controls button.primary-action {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+.primary-controls button.primary-action:hover {
+  filter: brightness(1.1);
+}
+
+.reps-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.advanced-controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.advanced-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.advanced-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.15rem 0;
 }
 
 .sheet-music .abcjs-cursor {

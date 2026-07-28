@@ -58,6 +58,11 @@ export interface SetPlayerProps {
   isSingleTune?: boolean;
   /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
   linkHref?: (item: SetPlayerItem) => string | null;
+  /** Optional callback to log practice for the tune/set directly from the top player toolbar. */
+  onLogPractice?: () => void;
+  isPracticedToday?: boolean;
+  isLoggingPractice?: boolean;
+  logPracticeLabel?: string;
 }
 
 /** Computes the base/natural BPM for a tune, falling back to explicit targetBpm or default genre BPM (120) if no Q: header is present. */
@@ -80,7 +85,16 @@ function getTuneBaseBpm(visualObj: abcjs.TuneObject | null, targetBpm?: number |
  * stereo position, humanized timing/volume, and fixed intonation quirk, mirroring
  * the same virtual-band logic the Virtual Session feature uses).
  */
-export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlayerProps) {
+export function SetPlayer({
+  items,
+  targetBpm,
+  isSingleTune,
+  linkHref,
+  onLogPractice,
+  isPracticedToday,
+  isLoggingPractice,
+  logPracticeLabel,
+}: SetPlayerProps) {
   const tuneKey = items.map((i) => i.userTuneId).join(",");
   const sheetRefs = useRef<(HTMLDivElement | null)[]>([]);
   const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([]);
@@ -899,22 +913,113 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
       {isFullscreen && (
         <div className={`fullscreen-controls ${showFsControls ? "" : "hidden"}`}>
-          <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
+          <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())} title={status === "playing" ? "Pause" : "Play"}>
             {status === "playing" ? "⏸" : "▶"}
           </button>
-          <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0}>
+          <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0} title="Stop">
             ■
           </button>
-          <button onClick={toggleFullscreen}>✕</button>
+          <button
+            className={repeat ? "toggled" : ""}
+            aria-pressed={repeat}
+            disabled={trainer.armed}
+            title={trainer.armed ? "Speed trainer controls repeats while active" : "Repeat"}
+            onClick={() => {
+              if (trainer.armed) return;
+              const next = !repeat;
+              setRepeat(next);
+              repeatRef.current = next;
+            }}
+          >
+            🔁
+          </button>
+          <div className="fs-seek-track">
+            <span className="time-label">{formatTime(positionSec)}</span>
+            <input
+              type="range"
+              min="0"
+              max={currentTotalSec || 1}
+              step="0.1"
+              value={positionSec}
+              disabled={currentTotalSec <= 0}
+              aria-label="Position in tune"
+              onMouseDown={() => {
+                isDraggingRef.current = true;
+              }}
+              onTouchStart={() => {
+                isDraggingRef.current = true;
+              }}
+              onChange={(e) => {
+                const val = Number((e.target as HTMLInputElement).value);
+                setPositionSec(val);
+                updateVisualsForTime(val);
+              }}
+              onMouseUp={(e) => {
+                isDraggingRef.current = false;
+                seek(Number((e.currentTarget as HTMLInputElement).value));
+              }}
+              onTouchEnd={(e) => {
+                isDraggingRef.current = false;
+                seek(Number((e.currentTarget as HTMLInputElement).value));
+              }}
+            />
+            <span className="time-label">{formatTime(currentTotalSec)}</span>
+          </div>
+          <button onClick={toggleFullscreen} title="Exit Fullscreen">
+            ✕
+          </button>
         </div>
       )}
-      <div className="player-controls">
+
+      <div className="player-controls primary-controls">
         <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
           {status === "playing" ? "⏸ Pause" : isSingle ? "▶ Play" : "▶ Play set"}
         </button>
         <button onClick={() => stop(false)} disabled={status === "stopped" && positionSec === 0}>
           ■ Stop
         </button>
+        <button
+          className={repeat ? "toggled" : ""}
+          aria-pressed={repeat}
+          disabled={trainer.armed}
+          title={trainer.armed ? "Speed trainer controls repeats while active" : undefined}
+          onClick={() => {
+            if (trainer.armed) return;
+            const next = !repeat;
+            setRepeat(next);
+            repeatRef.current = next;
+          }}
+        >
+          {isSingle ? "🔁 Repeat" : "🔁 Repeat set"}
+        </button>
+        {repeat && (
+          <label className="reps-label">
+            Times
+            <DebouncedNumberInput
+              className="reps-input"
+              min={1}
+              allowNull
+              placeholder="∞"
+              title="Number of times to repeat (leave empty for infinite)"
+              value={repeatLimit}
+              onChange={(clamped) => {
+                setRepeatLimit(clamped);
+                repeatLimitRef.current = clamped;
+              }}
+            />
+          </label>
+        )}
+        {onLogPractice && (
+          <button
+            className={isPracticedToday ? "toggled" : "primary-action"}
+            disabled={isPracticedToday || isLoggingPractice}
+            onClick={onLogPractice}
+          >
+            {isPracticedToday
+              ? "✓ Practiced today"
+              : logPracticeLabel || (isSingle ? "✓ Log practice" : "✓ Log set practice")}
+          </button>
+        )}
         <button onClick={toggleFullscreen}>⛶ Fullscreen</button>
         <button
           className={showAdvanced ? "toggled" : ""}
@@ -928,146 +1033,22 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
             🎯 Speed Trainer ({trainer.startBpm} → {trainer.targetBpm} BPM)
           </span>
         )}
+        {metronome.useMetronome && (
+          <span className="badge badge-working" title="Metronome active">
+            🔊 Metronome ({metronome.metronomeSound.label})
+          </span>
+        )}
+        {bodhran && (
+          <span className="badge badge-working" title="Bodhrán drum active">
+            🥁 Bodhrán
+          </span>
+        )}
+        {isBandMode && (
+          <span className="badge badge-working" title="Band mode active">
+            👥 Band ({bandPrefs.count} players)
+          </span>
+        )}
       </div>
-
-      {showAdvanced && (
-        <>
-          <div className="player-controls">
-            <button
-              className={repeat ? "toggled" : ""}
-              aria-pressed={repeat}
-              disabled={trainer.armed}
-              title={trainer.armed ? "Speed trainer controls repeats while active" : undefined}
-              onClick={() => {
-                if (trainer.armed) return;
-                const next = !repeat;
-                setRepeat(next);
-                repeatRef.current = next;
-              }}
-            >
-              {isSingle ? "🔁 Repeat" : "🔁 Repeat set"}
-            </button>
-            {repeat && (
-              <label>
-                Times
-                <DebouncedNumberInput
-                  className="reps-input"
-                  min={1}
-                  allowNull
-                  placeholder="∞"
-                  title="Number of times to repeat (leave empty for infinite)"
-                  value={repeatLimit}
-                  onChange={(clamped) => {
-                    setRepeatLimit(clamped);
-                    repeatLimitRef.current = clamped;
-                  }}
-                />
-              </label>
-            )}
-            <MetronomeControls {...metronome} />
-            <button
-              className={bodhran ? "toggled" : ""}
-              aria-pressed={bodhran}
-              onClick={toggleBodhran}
-              title="Toggle automated bodhrán folk drum backing"
-            >
-              🥁 Bodhrán
-            </button>
-            <button
-              className={loop || markA !== null ? "toggled" : ""}
-              disabled={status === "stopped"}
-              onClick={markLoopPoint}
-              title="Mark loop start, then loop end, at the current position"
-            >
-              {markA !== null ? "Set loop end" : loop ? "New loop" : "Set loop start"}
-            </button>
-            {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
-            <label>
-              Tempo {currentBpm} BPM ({tempoPercent}%)
-              <input
-                ref={tempoInputRef}
-                type="range"
-                min={Math.max(30, Math.round(baseBpm * 0.5))}
-                max={Math.round(baseBpm * 1.5)}
-                step="1"
-                value={currentBpm}
-                onChange={onTempoInput}
-              />
-            </label>
-            <label>
-              Swing {swingPercent}%
-              <input
-                ref={swingInputRef}
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={swingPercent}
-                onChange={onSwingInput}
-              />
-            </label>
-          </div>
-
-          <div className="player-controls">
-            <button
-              className={trainer.armed ? "toggled" : ""}
-              aria-pressed={trainer.armed}
-              onClick={() => {
-                const nextArmed = !trainer.armed;
-                if (nextArmed) {
-                  setRepeat(false);
-                  repeatRef.current = false;
-                }
-                updateTrainer({ armed: nextArmed });
-              }}
-            >
-              🎯 Speed trainer
-            </button>
-            {trainer.armed && (
-              <>
-                <label>
-                  Start BPM
-                  <DebouncedNumberInput
-                    className="trainer-input"
-                    min={30}
-                    max={300}
-                    step={5}
-                    value={trainer.startBpm}
-                    onChange={(startBpm) => startBpm !== null && updateTrainer({ startBpm })}
-                  />
-                </label>
-                <label>
-                  Step BPM
-                  <DebouncedNumberInput
-                    className="trainer-input"
-                    min={1}
-                    max={50}
-                    step={1}
-                    value={trainer.stepBpm}
-                    onChange={(stepBpm) => stepBpm !== null && updateTrainer({ stepBpm })}
-                  />
-                </label>
-                <label>
-                  Target BPM
-                  <DebouncedNumberInput
-                    className="trainer-input"
-                    min={30}
-                    max={300}
-                    step={5}
-                    value={trainer.targetBpm}
-                    onChange={(targetBpm) => targetBpm !== null && updateTrainer({ targetBpm })}
-                  />
-                </label>
-                {status !== "stopped" && (
-                  <span className="tune-meta">
-                    Pass {passCount} · {currentBpm} BPM → {trainer.targetBpm} BPM
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        </>
-      )}
 
       <div className="player-seek">
         <span className="time-label">{formatTime(positionSec)}</span>
@@ -1112,75 +1093,188 @@ export function SetPlayer({ items, targetBpm, isSingleTune, linkHref }: SetPlaye
       </div>
 
       {showAdvanced && (
-        <div className="player-controls">
-          <button
-            className={isBandMode ? "toggled" : ""}
-            aria-pressed={isBandMode}
-            onClick={() => updateBandPrefs({ mode: isBandMode ? "solo" : "band" })}
-            title="Solo: one instrument with melody/chords/bass. Band: several independent players, like a folk session."
-          >
-            {isBandMode ? "👥 Band" : "🎻 Solo"}
-          </button>
-        </div>
-      )}
-
-      {showAdvanced && !isBandMode && (
-        <div className="player-controls">
-          {(["melody", "chords", "bass"] as const).map((part) => (
-            <label key={part}>
-              {part[0].toUpperCase() + part.slice(1)}
-              <select value={instruments[part]} onChange={onInstrumentChange(part)}>
-                {INSTRUMENTS.map((inst) => (
-                  <option key={inst.value} value={inst.value}>
-                    {inst.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      )}
-
-      {showAdvanced && isBandMode && (
-        <>
-          <div className="player-controls">
-            <label>
-              Players
-              <DebouncedNumberInput
-                className="trainer-input"
-                min={MIN_BAND_COUNT}
-                max={MAX_BAND_COUNT}
-                value={bandPrefs.count}
-                onChange={(count) => {
-                  if (count !== null) updateBandPrefs({ count });
-                }}
-              />
-            </label>
-            <button
-              onClick={() => setBandVoices(pickBandVoices(bandPrefs.eligiblePrograms, bandPrefs.count))}
-              title="Pick a fresh set of instruments from the eligible list below"
-            >
-              🎲 Randomize
-            </button>
-          </div>
-          <div className="player-controls">
-            {INSTRUMENTS.map((inst) => (
-              <label key={inst.value} style={{ fontWeight: 400 }}>
+        <div className="advanced-controls-panel">
+          <div className="advanced-section">
+            <h4 className="advanced-section-title">Playback & Tempo</h4>
+            <div className="player-controls">
+              <label>
+                Tempo {currentBpm} BPM ({tempoPercent}%)
                 <input
-                  type="checkbox"
-                  checked={bandPrefs.eligiblePrograms.includes(inst.value)}
-                  onChange={() => toggleEligibleInstrument(inst.value)}
-                />{" "}
-                {inst.label}
+                  ref={tempoInputRef}
+                  type="range"
+                  min={Math.max(30, Math.round(baseBpm * 0.5))}
+                  max={Math.round(baseBpm * 1.5)}
+                  step="1"
+                  value={currentBpm}
+                  onChange={onTempoInput}
+                />
               </label>
-            ))}
+              <label>
+                Swing {swingPercent}%
+                <input
+                  ref={swingInputRef}
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={swingPercent}
+                  onChange={onSwingInput}
+                />
+              </label>
+              <MetronomeControls {...metronome} />
+            </div>
           </div>
-          {bandVoices.length > 0 && (
-            <p className="tune-meta">
-              Now playing: {bandVoices.map((v) => INSTRUMENTS.find((i) => i.value === v.program)?.label ?? v.program).join(", ")}
-            </p>
-          )}
-        </>
+
+          <div className="advanced-section">
+            <h4 className="advanced-section-title">Practice Tools</h4>
+            <div className="player-controls">
+              <button
+                className={trainer.armed ? "toggled" : ""}
+                aria-pressed={trainer.armed}
+                onClick={() => {
+                  const nextArmed = !trainer.armed;
+                  if (nextArmed) {
+                    setRepeat(false);
+                    repeatRef.current = false;
+                  }
+                  updateTrainer({ armed: nextArmed });
+                }}
+              >
+                🎯 Speed trainer
+              </button>
+              {trainer.armed && (
+                <>
+                  <label>
+                    Start BPM
+                    <DebouncedNumberInput
+                      className="trainer-input"
+                      min={30}
+                      max={300}
+                      step={5}
+                      value={trainer.startBpm}
+                      onChange={(startBpm) => startBpm !== null && updateTrainer({ startBpm })}
+                    />
+                  </label>
+                  <label>
+                    Step BPM
+                    <DebouncedNumberInput
+                      className="trainer-input"
+                      min={1}
+                      max={50}
+                      step={1}
+                      value={trainer.stepBpm}
+                      onChange={(stepBpm) => stepBpm !== null && updateTrainer({ stepBpm })}
+                    />
+                  </label>
+                  <label>
+                    Target BPM
+                    <DebouncedNumberInput
+                      className="trainer-input"
+                      min={30}
+                      max={300}
+                      step={5}
+                      value={trainer.targetBpm}
+                      onChange={(targetBpm) => targetBpm !== null && updateTrainer({ targetBpm })}
+                    />
+                  </label>
+                  {status !== "stopped" && (
+                    <span className="tune-meta">
+                      Pass {passCount} · {effectiveBpm} BPM → {trainer.targetBpm} BPM
+                    </span>
+                  )}
+                </>
+              )}
+              <button
+                className={loop || markA !== null ? "toggled" : ""}
+                disabled={status === "stopped"}
+                onClick={markLoopPoint}
+                title="Mark loop start, then loop end, at the current position"
+              >
+                {markA !== null ? "Set loop end" : loop ? "New loop" : "Set loop start"}
+              </button>
+              {(loop || markA !== null) && <button onClick={clearLoop}>✕ Loop off</button>}
+            </div>
+          </div>
+
+          <div className="advanced-section">
+            <h4 className="advanced-section-title">Ensemble & Sound</h4>
+            <div className="player-controls">
+              <button
+                className={isBandMode ? "toggled" : ""}
+                aria-pressed={isBandMode}
+                onClick={() => updateBandPrefs({ mode: isBandMode ? "solo" : "band" })}
+                title="Solo: one instrument with melody/chords/bass. Band: several independent players, like a folk session."
+              >
+                {isBandMode ? "👥 Band" : "🎻 Solo"}
+              </button>
+              <button
+                className={bodhran ? "toggled" : ""}
+                aria-pressed={bodhran}
+                onClick={toggleBodhran}
+                title="Toggle automated bodhrán folk drum backing"
+              >
+                🥁 Bodhrán
+              </button>
+            </div>
+
+            {!isBandMode ? (
+              <div className="player-controls">
+                {(["melody", "chords", "bass"] as const).map((part) => (
+                  <label key={part}>
+                    {part[0].toUpperCase() + part.slice(1)}
+                    <select value={instruments[part]} onChange={onInstrumentChange(part)}>
+                      {INSTRUMENTS.map((inst) => (
+                        <option key={inst.value} value={inst.value}>
+                          {inst.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <>
+                <div className="player-controls">
+                  <label>
+                    Players
+                    <DebouncedNumberInput
+                      className="trainer-input"
+                      min={MIN_BAND_COUNT}
+                      max={MAX_BAND_COUNT}
+                      value={bandPrefs.count}
+                      onChange={(count) => {
+                        if (count !== null) updateBandPrefs({ count });
+                      }}
+                    />
+                  </label>
+                  <button
+                    onClick={() => setBandVoices(pickBandVoices(bandPrefs.eligiblePrograms, bandPrefs.count))}
+                    title="Pick a fresh set of instruments from the eligible list below"
+                  >
+                    🎲 Randomize
+                  </button>
+                </div>
+                <div className="player-controls">
+                  {INSTRUMENTS.map((inst) => (
+                    <label key={inst.value} style={{ fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={bandPrefs.eligiblePrograms.includes(inst.value)}
+                        onChange={() => toggleEligibleInstrument(inst.value)}
+                      />{" "}
+                      {inst.label}
+                    </label>
+                  ))}
+                </div>
+                {bandVoices.length > 0 && (
+                  <p className="tune-meta">
+                    Now playing: {bandVoices.map((v) => INSTRUMENTS.find((i) => i.value === v.program)?.label ?? v.program).join(", ")}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       )}
       {error && <p className="error">{error}</p>}
 

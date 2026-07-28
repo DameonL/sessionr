@@ -69,10 +69,14 @@ export default function DailyQueuePage() {
             </span>
           </div>
           <p className="badge badge-queue">{current.reason}</p>
-          <TunePlayer abc={current.abc} tuneId={current.userTuneId} targetBpm={current.targetBpm} tuneType={current.tuneType} />
-          <button onClick={() => handlePractice(current.userTuneId, current.title)}>
-            ✓ Done — log practice
-          </button>
+          <TunePlayer
+            abc={current.abc}
+            tuneId={current.userTuneId}
+            targetBpm={current.targetBpm}
+            tuneType={current.tuneType}
+            onLogPractice={() => handlePractice(current.userTuneId, current.title)}
+            logPracticeLabel="✓ Done — log practice"
+          />
         </div>
       )}
 

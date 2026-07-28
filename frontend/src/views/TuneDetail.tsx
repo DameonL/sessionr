@@ -119,7 +119,16 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
 
       {editingAbc === null ? (
         <>
-          <TunePlayer abc={item.abc} tuneId={item.userTuneId} targetBpm={item.targetBpm} tuneType={item.tuneType} />
+          <TunePlayer
+            abc={item.abc}
+            tuneId={item.userTuneId}
+            targetBpm={item.targetBpm}
+            tuneType={item.tuneType}
+            onLogPractice={() => practiceMutation.mutate()}
+            isPracticedToday={practicedToday}
+            isLoggingPractice={practiceMutation.isPending}
+            logPracticeLabel="✓ Mark practiced"
+          />
           <div className="detail-controls">
             <button onClick={() => setEditingAbc(item.abc)}>✎ Edit setting</button>
             <button className="secondary" onClick={() => setShowSettingsModal(true)}>⚙ Alternate Settings & Names</button>
@@ -166,13 +175,6 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
             }}
           />
         </label>
-        <button
-          className={practicedToday ? 'toggled' : ''}
-          disabled={practicedToday || practiceMutation.isPending}
-          onClick={() => practiceMutation.mutate()}
-        >
-          {practicedToday ? '✓ Practiced today' : 'Mark practiced'}
-        </button>
         <button className="danger" onClick={() => removeMutation.mutate()}>
           Remove
         </button>

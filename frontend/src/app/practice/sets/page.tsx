@@ -225,17 +225,16 @@ export default function MedleySetsPage() {
               <button onClick={() => setSetDraft([])} className="danger">
                 Clear Medley
               </button>
-              <button
-                onClick={logSetPractice}
-                disabled={practiceMutation.isPending}
-              >
-                ✓ Log practice for set
-              </button>
             </div>
 
             <div style={{ marginTop: '1.5rem' }}>
               <h3>Practice Medley</h3>
-              <SetPlayer items={setDraft} />
+              <SetPlayer
+                items={setDraft}
+                onLogPractice={logSetPractice}
+                isLoggingPractice={practiceMutation.isPending}
+                logPracticeLabel="✓ Log practice for set"
+              />
             </div>
           </div>
         )}
