@@ -39,7 +39,7 @@ public class PublicGroupSessionFunctions(AppDbContext db)
             .AsNoTracking()
             .Where(gs => gs.GroupId == groupId)
             .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps)
+            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .OrderBy(gs => gs.StartsAt)
             .ToListAsync();
 

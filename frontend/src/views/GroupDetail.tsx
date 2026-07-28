@@ -432,16 +432,28 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             groupId={id}
             userId={userId}
             isAdmin={isAdmin}
+            isMember={isMember}
             schedules={details.schedules ?? []}
             sessions={sessionsQuery.data ?? []}
           />
 
-          <GroupUpdates
-            groupId={id}
-            userId={userId}
-            isAdmin={isAdmin}
-            updates={details.updates ?? []}
-          />
+          <div style={{ marginTop: '2rem' }}>
+            <GroupSessions
+              groupId={id}
+              userId={userId}
+              isAdmin={isAdmin}
+              isMember={isMember}
+            />
+          </div>
+
+          <div style={{ marginTop: '2rem' }}>
+            <GroupUpdates
+              groupId={id}
+              userId={userId}
+              isAdmin={isAdmin}
+              updates={details.updates ?? []}
+            />
+          </div>
         </div>
       )}
 

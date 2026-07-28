@@ -97,12 +97,40 @@ public static class DbSchemaMigrator
                 IF EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_GroupSessions_StartsAt' AND object_id = OBJECT_ID('GroupSessions'))
                     DROP INDEX IX_GroupSessions_StartsAt ON GroupSessions;
 
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'GroupSessions')
+                    CREATE TABLE GroupSessions (
+                        GroupSessionId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        GroupId UNIQUEIDENTIFIER NOT NULL,
+                        Title NVARCHAR(200) NOT NULL,
+                        Location NVARCHAR(200) NULL,
+                        StartsAt DATETIME2 NOT NULL,
+                        Notes NVARCHAR(MAX) NULL,
+                        IsCancelled BIT NOT NULL DEFAULT 0,
+                        CreatedByUserId UNIQUEIDENTIFIER NOT NULL,
+                        CONSTRAINT FK_GroupSessions_Groups FOREIGN KEY (GroupId) REFERENCES Groups(GroupId) ON DELETE CASCADE,
+                        CONSTRAINT FK_GroupSessions_Users FOREIGN KEY (CreatedByUserId) REFERENCES Users(UserId)
+                    );
+
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SessionRsvps')
+                    CREATE TABLE SessionRsvps (
+                        SessionRsvpId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        GroupSessionId UNIQUEIDENTIFIER NOT NULL,
+                        UserId UNIQUEIDENTIFIER NOT NULL,
+                        Status INT NOT NULL,
+                        RespondedAt DATETIME2 NOT NULL,
+                        CONSTRAINT FK_SessionRsvps_GroupSessions FOREIGN KEY (GroupSessionId) REFERENCES GroupSessions(GroupSessionId) ON DELETE CASCADE,
+                        CONSTRAINT FK_SessionRsvps_Users FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE,
+                        CONSTRAINT UQ_SessionRsvps_GroupSession_User UNIQUE (GroupSessionId, UserId)
+                    );
+
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_Status' AND object_id = OBJECT_ID('UserTunes'))
                     CREATE INDEX IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_LastPracticed' AND object_id = OBJECT_ID('UserTunes'))
                     CREATE INDEX IX_UserTunes_UserId_LastPracticed ON UserTunes(UserId, LastPracticed);
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_GroupSessions_GroupId_StartsAt' AND object_id = OBJECT_ID('GroupSessions'))
                     CREATE INDEX IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_SessionRsvps_GroupSessionId_UserId' AND object_id = OBJECT_ID('SessionRsvps'))
+                    CREATE UNIQUE INDEX IX_SessionRsvps_GroupSessionId_UserId ON SessionRsvps(GroupSessionId, UserId);
             """);
         }
         else
@@ -163,11 +191,38 @@ public static class DbSchemaMigrator
                     CONSTRAINT UQ_UserBadges_User_BadgeKey UNIQUE (UserId, BadgeKey)
                 );
             """);
+            ExecuteSqlSafe(db, """
+                CREATE TABLE IF NOT EXISTS GroupSessions (
+                    GroupSessionId TEXT NOT NULL PRIMARY KEY,
+                    GroupId TEXT NOT NULL,
+                    Title TEXT NOT NULL,
+                    Location TEXT NULL,
+                    StartsAt TEXT NOT NULL,
+                    Notes TEXT NULL,
+                    IsCancelled INTEGER NOT NULL DEFAULT 0,
+                    CreatedByUserId TEXT NOT NULL,
+                    FOREIGN KEY (GroupId) REFERENCES Groups(GroupId) ON DELETE CASCADE,
+                    FOREIGN KEY (CreatedByUserId) REFERENCES Users(UserId)
+                );
+            """);
+            ExecuteSqlSafe(db, """
+                CREATE TABLE IF NOT EXISTS SessionRsvps (
+                    SessionRsvpId TEXT NOT NULL PRIMARY KEY,
+                    GroupSessionId TEXT NOT NULL,
+                    UserId TEXT NOT NULL,
+                    Status INTEGER NOT NULL,
+                    RespondedAt TEXT NOT NULL,
+                    CONSTRAINT UQ_SessionRsvps_GroupSession_User UNIQUE (GroupSessionId, UserId),
+                    FOREIGN KEY (GroupSessionId) REFERENCES GroupSessions(GroupSessionId) ON DELETE CASCADE,
+                    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+                );
+            """);
 
             ExecuteSqlSafe(db, "DROP INDEX IF EXISTS IX_GroupSessions_StartsAt;");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_LastPracticed ON UserTunes(UserId, LastPracticed);");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);");
+            ExecuteSqlSafe(db, "CREATE UNIQUE INDEX IF NOT EXISTS IX_SessionRsvps_GroupSessionId_UserId ON SessionRsvps(GroupSessionId, UserId);");
         }
 
         if (addedStreakColumns)

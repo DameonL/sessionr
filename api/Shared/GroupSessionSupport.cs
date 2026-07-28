@@ -20,5 +20,9 @@ public static class GroupSessionSupport
             createdByDisplayNameOverride ?? session.CreatedByUser?.DisplayName ?? "Member",
             session.Rsvps.Count(r => r.Status == RsvpStatus.Going),
             session.Rsvps.Count(r => r.Status == RsvpStatus.Maybe),
-            session.Rsvps.FirstOrDefault(r => r.UserId == viewerUserId)?.Status.ToString());
+            session.Rsvps.FirstOrDefault(r => r.UserId == viewerUserId)?.Status.ToString(),
+            session.Rsvps
+                .Where(r => r.User != null)
+                .Select(r => new RsvpAttendeeDto(r.UserId, r.User.DisplayName ?? "Member", r.Status.ToString()))
+                .ToList());
 }

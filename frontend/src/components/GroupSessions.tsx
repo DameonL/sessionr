@@ -13,7 +13,7 @@ import {
   type GroupSessionData,
   type RsvpStatus,
 } from '../services/api'
-import { useAuthStatus } from '../state/appState'
+import { useAuthStatus, showToast } from '../state/appState'
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -93,6 +93,9 @@ export function GroupSessions({
     mutationFn: ({ sessionId, status }: { sessionId: string; status: RsvpStatus }) =>
       rsvpToGroupSession(groupId, sessionId, status),
     onSuccess: invalidate,
+    onError: (err) => {
+      showToast((err as Error).message || 'Failed to update RSVP status.', 'error')
+    },
   })
 
   const startEdit = (s: GroupSessionData) =>
@@ -268,6 +271,9 @@ function SessionCard({
   onRsvp: (status: RsvpStatus) => void
   rsvpPending: boolean
 }) {
+  const goingAttendees = (session.attendees ?? []).filter((a) => a.status === 'Going')
+  const maybeAttendees = (session.attendees ?? []).filter((a) => a.status === 'Maybe')
+
   return (
     <div className="card" style={{ padding: '1rem', marginTop: '0.75rem' }}>
       <div className="set-header">
@@ -289,9 +295,26 @@ function SessionCard({
         {session.goingCount} going · {session.maybeCount} maybe · {session.notGoingCount} can&apos;t go
       </p>
 
+      {(goingAttendees.length > 0 || maybeAttendees.length > 0) && (
+        <div style={{ marginTop: '0.65rem', padding: '0.5rem 0.75rem', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '0.85rem' }}>
+          {goingAttendees.length > 0 && (
+            <div style={{ marginBottom: maybeAttendees.length > 0 ? '0.35rem' : 0 }}>
+              <strong style={{ color: 'var(--accent)' }}>✅ Going ({goingAttendees.length}):</strong>{' '}
+              <span>{goingAttendees.map((a) => a.displayName).join(', ')}</span>
+            </div>
+          )}
+          {maybeAttendees.length > 0 && (
+            <div>
+              <strong style={{ color: 'var(--learning)' }}>❓ Maybe ({maybeAttendees.length}):</strong>{' '}
+              <span>{maybeAttendees.map((a) => a.displayName).join(', ')}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {!session.isCancelled && (
         isMember ? (
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
             {(['Going', 'Maybe', 'NotGoing'] as RsvpStatus[]).map((status) => (
               <button
                 key={status}

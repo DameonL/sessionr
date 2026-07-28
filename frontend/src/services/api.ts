@@ -1044,6 +1044,12 @@ export const deleteGroupSet = (groupSetId: string) =>
 
 export type RsvpStatus = 'Going' | 'Maybe' | 'NotGoing'
 
+export interface RsvpAttendee {
+  userId: string
+  displayName: string
+  status: RsvpStatus
+}
+
 export interface GroupSessionData {
   groupSessionId: string
   title: string
@@ -1056,6 +1062,7 @@ export interface GroupSessionData {
   maybeCount: number
   notGoingCount: number
   viewerRsvpStatus: RsvpStatus | null
+  attendees?: RsvpAttendee[]
 }
 
 export const getGroupSessions = (groupId: string, userId: string) =>

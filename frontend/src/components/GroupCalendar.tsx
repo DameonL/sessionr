@@ -2,11 +2,14 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
 import {
   addGroupScheduleException,
   deleteGroupScheduleException,
+  rsvpToGroupSession,
   type GroupSessionData,
   type GroupMeetingScheduleData,
+  type RsvpStatus,
   parseServerDate,
 } from '../services/api'
 import { showToast } from '../state/appState'
@@ -15,6 +18,7 @@ interface GroupCalendarProps {
   groupId: string
   userId: string
   isAdmin: boolean
+  isMember?: boolean
   schedules?: GroupMeetingScheduleData[]
   sessions: GroupSessionData[]
 }
@@ -24,11 +28,13 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ]
+const RSVP_LABELS: Record<RsvpStatus, string> = { Going: 'Going', Maybe: 'Maybe', NotGoing: "Can't Go" }
 
 export function GroupCalendar({
   groupId,
   userId,
   isAdmin,
+  isMember = false,
   schedules = [],
   sessions,
 }: GroupCalendarProps) {
@@ -37,6 +43,17 @@ export function GroupCalendar({
   const queryClient = useQueryClient()
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['group-details', groupId, userId] })
+
+  const rsvpMutation = useMutation({
+    mutationFn: ({ sessionId, status }: { sessionId: string; status: RsvpStatus }) =>
+      rsvpToGroupSession(groupId, sessionId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['group-sessions', groupId, userId] })
+    },
+    onError: (err) => {
+      showToast((err as Error).message || 'Failed to update RSVP status.', 'error')
+    },
+  })
 
   const addExceptionMutation = useMutation({
     mutationFn: ({ scheduleId, exceptionDate }: { scheduleId: string; exceptionDate: string }) =>
@@ -343,16 +360,68 @@ export function GroupCalendar({
                   )}
                 </div>
               ))}
-              {selectedDaySessions.map((s) => (
-                <div key={s.groupSessionId} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
-                  <strong>📍 {s.title}</strong> {s.location ? `at ${s.location}` : ''} ({parseServerDate(s.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                  {s.notes && (
-                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>
-                      💬 <strong>Notes / Description:</strong> {s.notes}
-                    </p>
-                  )}
-                </div>
-              ))}
+              {selectedDaySessions.map((s) => {
+                const goingAttendees = (s.attendees ?? []).filter((a) => a.status === 'Going')
+                const maybeAttendees = (s.attendees ?? []).filter((a) => a.status === 'Maybe')
+
+                return (
+                  <div key={s.groupSessionId} style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <strong>📍 {s.isCancelled ? '❌ ' : ''}{s.title}</strong> {s.location ? `at ${s.location}` : ''} ({parseServerDate(s.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                      </div>
+                      <div className="tune-meta" style={{ fontSize: '0.8rem' }}>
+                        {s.goingCount} going · {s.maybeCount} maybe · {s.notGoingCount} can&apos;t go
+                      </div>
+                    </div>
+
+                    {s.notes && (
+                      <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                        💬 <strong>Notes / Description:</strong> {s.notes}
+                      </p>
+                    )}
+
+                    {(goingAttendees.length > 0 || maybeAttendees.length > 0) && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.4rem 0.6rem', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                        {goingAttendees.length > 0 && (
+                          <div style={{ marginBottom: maybeAttendees.length > 0 ? '0.25rem' : 0 }}>
+                            <strong style={{ color: 'var(--accent)' }}>✅ Going ({goingAttendees.length}):</strong>{' '}
+                            <span>{goingAttendees.map((a) => a.displayName).join(', ')}</span>
+                          </div>
+                        )}
+                        {maybeAttendees.length > 0 && (
+                          <div>
+                            <strong style={{ color: 'var(--learning)' }}>❓ Maybe ({maybeAttendees.length}):</strong>{' '}
+                            <span>{maybeAttendees.map((a) => a.displayName).join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!s.isCancelled && (
+                      isMember ? (
+                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                          {(['Going', 'Maybe', 'NotGoing'] as RsvpStatus[]).map((status) => (
+                            <button
+                              key={status}
+                              className={s.viewerRsvpStatus === status ? '' : 'secondary'}
+                              style={{ padding: '0.2rem 0.55rem', fontSize: '0.8rem' }}
+                              onClick={() => rsvpMutation.mutate({ sessionId: s.groupSessionId, status })}
+                              disabled={rsvpMutation.isPending}
+                            >
+                              {RSVP_LABELS[status]}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="tune-meta" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                          <Link href="/login" prefetch={false}>Sign in</Link> and join group to RSVP.
+                        </p>
+                      )
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

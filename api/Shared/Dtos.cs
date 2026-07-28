@@ -55,6 +55,8 @@ public record UpdateSessionRequest(string? Title, string? Location, DateTime? St
 
 public record RsvpRequest(string Status);
 
+public record RsvpAttendeeDto(Guid UserId, string DisplayName, string Status);
+
 public record GroupSessionDto(
     Guid GroupSessionId,
     Guid GroupId,
@@ -67,7 +69,8 @@ public record GroupSessionDto(
     string CreatedByDisplayName,
     int GoingCount,
     int MaybeCount,
-    string? UserRsvp);
+    string? UserRsvp,
+    List<RsvpAttendeeDto>? Attendees = null);
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
 

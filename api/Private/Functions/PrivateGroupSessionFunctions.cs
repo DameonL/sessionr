@@ -43,7 +43,7 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
             .AsNoTracking()
             .Where(gs => gs.GroupId == groupId)
             .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps)
+            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .OrderBy(gs => gs.StartsAt)
             .ToListAsync();
 
@@ -123,7 +123,7 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
 
         var session = await db.GroupSessions
             .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps)
+            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .SingleOrDefaultAsync(gs => gs.GroupSessionId == sessionId && gs.GroupId == groupId);
         if (session is null)
         {
@@ -211,7 +211,7 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
 
         var session = await db.GroupSessions
             .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps)
+            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .SingleOrDefaultAsync(gs => gs.GroupSessionId == sessionId && gs.GroupId == groupId);
         if (session is null)
         {
