@@ -338,3 +338,28 @@ public record UpcomingMeetingDto(
     string? ViewerRsvpStatus,
     int GoingCount,
     int MaybeCount);
+
+public record DashboardSummaryDto(
+    int CurrentStreakDays,
+    List<DashboardActivityFeedItemDto> RecentActivity,
+    List<DashboardRustyTuneDto> TopRustyTunes,
+    List<DashboardPendingRequestDto> PendingGroupRequests);
+
+public record DashboardActivityFeedItemDto(
+    Guid GroupFeedEventId,
+    Guid GroupId,
+    string GroupName,
+    string EventType,
+    string SummaryText,
+    DateTime CreatedAt);
+
+public record DashboardRustyTuneDto(
+    Guid UserTuneId,
+    string Title,
+    string TuneType,
+    DateTime? LastPracticed);
+
+public record DashboardPendingRequestDto(
+    Guid GroupId,
+    string GroupName,
+    int PendingCount);

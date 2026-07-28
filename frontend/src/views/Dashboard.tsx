@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   formatTuneType,
+  getDashboardSummary,
   getPracticeQueue,
   getRepertoireStats,
   getSets,
@@ -30,18 +31,81 @@ export function Dashboard() {
     queryFn: () => getUpcomingMeetings(),
     enabled: !!userId,
   })
+  const summary = useQuery({
+    queryKey: ['dashboard-summary', userId],
+    queryFn: () => getDashboardSummary(),
+    enabled: !!userId,
+  })
 
   const byStatus = stats.data?.byStatus ?? {}
   const byType = stats.data?.byType ?? {}
   const rustyCount = stats.data?.rustyCount ?? 0
 
-  // Queries are gated behind auth resolving (enabled: !!userId), so `isLoading` (which is
-  // false while a query is disabled-and-not-yet-fetching) isn't enough to catch that window —
-  // `isPending` is true any time there's no data yet, whether disabled or actively fetching.
   const statValue = (value: number | undefined, isPending: boolean) => (isPending ? '–' : value ?? 0)
+
+  const streakDays = summary.data?.currentStreakDays ?? 0
+  const pendingRequests = summary.data?.pendingGroupRequests ?? []
+  const recentActivity = summary.data?.recentActivity ?? []
+  const topRustyTunes = summary.data?.topRustyTunes ?? []
 
   return (
     <section>
+      {/* Practice Streak & Quick Start Banner */}
+      <div
+        className="card"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.25rem',
+          background: 'linear-gradient(135deg, rgba(77, 208, 165, 0.15), rgba(59, 130, 246, 0.15))',
+          borderLeft: '4px solid var(--accent)',
+          borderRadius: '8px',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span>🔥</span>
+            <span>{summary.isPending ? '...' : `${streakDays} Day Practice Streak`}</span>
+          </div>
+          <span className="tune-meta" style={{ fontSize: '0.85rem' }}>
+            {streakDays > 0 ? 'Keep the momentum going today!' : 'Start a practice session to build your streak!'}
+          </span>
+        </div>
+        <Link href="/practice" prefetch={false} className="primary" style={{ textDecoration: 'none', padding: '0.4rem 0.9rem', fontSize: '0.9rem' }}>
+          ⚡ Open Practice Room
+        </Link>
+      </div>
+
+      {/* Pending Group Join Requests Alert */}
+      {pendingRequests.length > 0 && (
+        <div
+          className="card"
+          style={{
+            padding: '0.85rem 1rem',
+            marginBottom: '1.25rem',
+            background: 'rgba(234, 179, 8, 0.15)',
+            borderLeft: '4px solid var(--learning)',
+            borderRadius: '8px',
+          }}
+        >
+          <strong style={{ fontSize: '0.95rem' }}>🔔 Pending Group Join Requests:</strong>
+          <ul style={{ margin: '0.35rem 0 0 0', paddingLeft: '1.25rem', fontSize: '0.85rem' }}>
+            {pendingRequests.map((req) => (
+              <li key={req.groupId}>
+                <Link href={`/group/${req.groupId}`} prefetch={false} style={{ fontWeight: 600, color: 'var(--text)' }}>
+                  {req.groupName}
+                </Link>{' '}
+                has <strong>{req.pendingCount}</strong> membership request{req.pendingCount > 1 ? 's' : ''} awaiting approval.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <h1>Dashboard</h1>
 
       {stats.isError && (
@@ -90,6 +154,7 @@ export function Dashboard() {
         </>
       )}
 
+      {/* Upcoming Group Meetings */}
       <h2>📅 Upcoming Group Meetings (Next 7 Days)</h2>
       {upcomingMeetings.isPending && <p>Loading upcoming meetings…</p>}
       {!upcomingMeetings.isPending && (upcomingMeetings.data ?? []).length === 0 && (
@@ -127,6 +192,55 @@ export function Dashboard() {
           </div>
         )
       })}
+
+      {/* Grid for Recent Group Activity & Top Rusty Tunes */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
+        {/* Recent Group Activity Feed */}
+        <div>
+          <h2>📢 Recent Group Activity</h2>
+          {summary.isPending && <p>Loading activity…</p>}
+          {!summary.isPending && recentActivity.length === 0 && (
+            <p className="tune-meta italic">No recent activity in your groups.</p>
+          )}
+          {recentActivity.map((act) => (
+            <div key={act.groupFeedEventId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
+              <Link href={`/group/${act.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                {act.groupName}
+              </Link>
+              <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.85rem', lineHeight: 1.3 }}>{act.summaryText}</p>
+              <span className="tune-meta" style={{ fontSize: '0.75rem', marginTop: '0.2rem', display: 'block' }}>
+                {new Date(act.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Top Rusty Tunes */}
+        <div>
+          <h2>⚠️ Tunes Needing Practice</h2>
+          {summary.isPending && <p>Loading tunes…</p>}
+          {!summary.isPending && topRustyTunes.length === 0 && (
+            <p className="tune-meta italic">Great job! No tunes are currently going rusty.</p>
+          )}
+          {topRustyTunes.map((tune) => (
+            <div key={tune.userTuneId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Link href={`/tune/${tune.userTuneId}`} prefetch={false} style={{ fontWeight: 600, textDecoration: 'none', color: 'var(--text)' }}>
+                  {tune.title} <span className="tune-meta" style={{ fontSize: '0.75rem' }}>({formatTuneType(tune.tuneType)})</span>
+                </Link>
+              </div>
+              <span className="tune-meta" style={{ fontSize: '0.75rem', display: 'block', marginTop: '0.2rem' }}>
+                Last practiced: {tune.lastPracticed ? new Date(tune.lastPracticed).toLocaleDateString() : 'Never'}
+              </span>
+            </div>
+          ))}
+          {topRustyTunes.length > 0 && (
+            <Link href="/repertoire?status=Active" prefetch={false} style={{ fontSize: '0.85rem', display: 'inline-block', marginTop: '0.25rem' }}>
+              View all rusty tunes →
+            </Link>
+          )}
+        </div>
+      </div>
 
       <h2>Today's practice queue</h2>
       {queue.isPending && <p>Loading…</p>}

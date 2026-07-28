@@ -481,4 +481,89 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         result = result.OrderBy(m => m.StartsAt).ToList();
         return new OkObjectResult(result);
     }
+
+    /// <summary>GET /api/me/dashboard-summary — consolidated lightweight query for practice streak, group feed events, top rusty tunes, and pending group requests.</summary>
+    [Function("GetDashboardSummary")]
+    public async Task<IActionResult> GetDashboardSummary(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "me/dashboard-summary")] HttpRequest req)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+        var userId = callerUserId.Value;
+
+        // 1. Practice Streak
+        var user = await db.Users.AsNoTracking().Where(u => u.UserId == userId).Select(u => new { u.CurrentStreak }).FirstOrDefaultAsync();
+        var currentStreakDays = user?.CurrentStreak ?? 0;
+
+        // 2. Active group IDs for user
+        var userGroupMemberships = await db.GroupMemberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active)
+            .Select(m => new { m.GroupId, m.Role })
+            .ToListAsync();
+
+        var activeGroupIds = userGroupMemberships.Select(m => m.GroupId).ToList();
+
+        // 3. Recent Group Activity Feed (top 5)
+        var recentActivity = new List<DashboardActivityFeedItemDto>();
+        if (activeGroupIds.Count > 0)
+        {
+            var recentActivityEvents = await db.GroupFeedEvents
+                .AsNoTracking()
+                .Where(fe => activeGroupIds.Contains(fe.GroupId))
+                .OrderByDescending(fe => fe.CreatedAt)
+                .Take(5)
+                .Select(fe => new {
+                    fe.GroupFeedEventId,
+                    fe.GroupId,
+                    GroupName = fe.Group.Name,
+                    EventType = fe.EventType,
+                    MemberName = fe.User.DisplayName,
+                    fe.CreatedAt
+                })
+                .ToListAsync();
+
+            recentActivity = recentActivityEvents.Select(fe => new DashboardActivityFeedItemDto(
+                fe.GroupFeedEventId,
+                fe.GroupId,
+                fe.GroupName,
+                fe.EventType.ToString(),
+                fe.EventType == GroupFeedEventType.MemberJoined ? $"{fe.MemberName} joined the group" : $"{fe.MemberName} updated group tunes",
+                fe.CreatedAt)).ToList();
+        }
+
+        // 4. Top Rusty Tunes (top 3)
+        var rustyCutoff = DateTime.UtcNow.AddDays(-14);
+        var topRustyTunes = await db.UserTunes
+            .AsNoTracking()
+            .Where(ut => ut.UserId == userId && ut.Status == TuneStatus.Active && (ut.LastPracticed == null || ut.LastPracticed < rustyCutoff))
+            .OrderBy(ut => ut.LastPracticed ?? DateTime.MinValue)
+            .Take(3)
+            .Select(ut => new DashboardRustyTuneDto(
+                ut.UserTuneId,
+                ut.Tune.Title,
+                ut.Tune.TuneType.ToString(),
+                ut.LastPracticed))
+            .ToListAsync();
+
+        // 5. Pending Group Join Requests for groups where caller is Owner or Administrator
+        var adminGroupIds = userGroupMemberships
+            .Where(m => m.Role == GroupRole.Owner || m.Role == GroupRole.Administrator)
+            .Select(m => m.GroupId)
+            .ToList();
+
+        var pendingGroupRequests = adminGroupIds.Count > 0
+            ? await db.GroupMemberships
+                .AsNoTracking()
+                .Where(m => adminGroupIds.Contains(m.GroupId) && m.Status == GroupMembershipStatus.Pending)
+                .GroupBy(m => new { m.GroupId, m.Group.Name })
+                .Select(g => new DashboardPendingRequestDto(g.Key.GroupId, g.Key.Name, g.Count()))
+                .ToListAsync()
+            : new List<DashboardPendingRequestDto>();
+
+        return new OkObjectResult(new DashboardSummaryDto(currentStreakDays, recentActivity, topRustyTunes, pendingGroupRequests));
+    }
 }

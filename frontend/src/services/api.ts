@@ -1123,6 +1123,37 @@ export interface UpcomingMeetingData {
 
 export const getUpcomingMeetings = () => apiFetch<UpcomingMeetingData[]>('/me/upcoming-meetings')
 
+export interface DashboardActivityFeedItem {
+  groupFeedEventId: string
+  groupId: string
+  groupName: string
+  eventType: string
+  summaryText: string
+  createdAt: string
+}
+
+export interface DashboardRustyTune {
+  userTuneId: string
+  title: string
+  tuneType: string
+  lastPracticed: string | null
+}
+
+export interface DashboardPendingRequest {
+  groupId: string
+  groupName: string
+  pendingCount: number
+}
+
+export interface DashboardSummaryData {
+  currentStreakDays: number
+  recentActivity: DashboardActivityFeedItem[]
+  topRustyTunes: DashboardRustyTune[]
+  pendingGroupRequests: DashboardPendingRequest[]
+}
+
+export const getDashboardSummary = () => apiFetch<DashboardSummaryData>('/me/dashboard-summary')
+
 export interface UserProfile {
   userId: string
   displayName: string
