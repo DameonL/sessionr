@@ -231,6 +231,22 @@ export function GroupCalendar({
     return parseServerDate(startsAtIso) < new Date()
   }
 
+  // Deduplicate schedules: if a GroupSession already exists for a schedule on the selected date,
+  // hide the un-materialized schedule template card so the user sees only ONE card for the meeting.
+  const displayDaySchedules = selectedDaySchedules.filter((sch) => {
+    if (sch.exception) return true
+    const hasMatchingSession = selectedDaySessions.some((s) => {
+      if (!sch.time) return true
+      const sDate = parseServerDate(s.startsAt)
+      const [h, m] = sch.time.split(':').map(Number)
+      if (!isNaN(h) && !isNaN(m)) {
+        return sDate.getHours() === h && sDate.getMinutes() === m
+      }
+      return true
+    })
+    return !hasMatchingSession
+  })
+
   return (
     <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -278,9 +294,18 @@ export function GroupCalendar({
           }
 
           const daySchedules = getMatchingSchedulesForDay(day)
-          const isRecurring = daySchedules.some((s) => !s.exception)
-          const allCancelled = daySchedules.length > 0 && daySchedules.every((s) => s.exception)
           const specificSessions = getSessionsForDay(day)
+          const unmaterializedSchedules = daySchedules.filter((sch) => {
+            if (sch.exception) return false
+            return !specificSessions.some((s) => {
+              if (!sch.time) return true
+              const sDate = parseServerDate(s.startsAt)
+              const [h, m] = sch.time.split(':').map(Number)
+              return !isNaN(h) && !isNaN(m) ? sDate.getHours() === h && sDate.getMinutes() === m : true
+            })
+          })
+          const isRecurring = unmaterializedSchedules.length > 0
+          const allCancelled = daySchedules.length > 0 && daySchedules.every((s) => s.exception)
           const hasSpecificSession = specificSessions.length > 0
           const isToday = new Date().toDateString() === new Date(year, month, day).toDateString()
           const isSelected = selectedDate?.getDate() === day
@@ -346,11 +371,11 @@ export function GroupCalendar({
           <h4 style={{ margin: '0 0 0.5rem 0' }}>
             Meeting Details for {selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </h4>
-          {selectedDaySchedules.length === 0 && selectedDaySessions.length === 0 ? (
+          {displayDaySchedules.length === 0 && selectedDaySessions.length === 0 ? (
             <p className="tune-meta italic" style={{ margin: 0 }}>No meeting or session scheduled for this day.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {selectedDaySchedules.map((sch, i) => {
+              {displayDaySchedules.map((sch, i) => {
                 const isPast = isPastScheduleDate(selectedDate, sch.time)
                 const hasExistingSession = selectedDaySessions.length > 0
 
