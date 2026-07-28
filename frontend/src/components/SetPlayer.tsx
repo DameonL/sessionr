@@ -1179,7 +1179,7 @@ export function SetPlayer({
                   </label>
                   {status !== "stopped" && (
                     <span className="tune-meta">
-                      Pass {passCount} · {effectiveBpm} BPM → {trainer.targetBpm} BPM
+                      Pass {passCount} · {currentBpm} BPM → {trainer.targetBpm} BPM
                     </span>
                   )}
                 </>
