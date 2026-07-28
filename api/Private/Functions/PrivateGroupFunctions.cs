@@ -103,7 +103,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         {
             return new OkObjectResult(new GroupDetailsDto(
                 group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
-                [], [], [], [], [], [], []));
+                [], [], [], [], [], [], [], group.TimeZone ?? "UTC"));
         }
 
 
@@ -228,7 +228,8 @@ public class PrivateGroupFunctions(AppDbContext db)
             commonTunes,
             feed,
             updates,
-            schedules
+            schedules,
+            group.TimeZone ?? "UTC"
         ));
     }
 
@@ -265,6 +266,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             Description = body.Description.Trim(),
             City = string.IsNullOrWhiteSpace(body.City) ? null : body.City.Trim(),
             IsPrivate = body.IsPrivate,
+            TimeZone = string.IsNullOrWhiteSpace(body.TimeZone) ? "UTC" : body.TimeZone.Trim(),
             InviteCode = GenerateInviteCode()
         };
 
@@ -551,6 +553,11 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new BadRequestObjectResult("Request body is required.");
         }
 
+        if (body.ExceptionDate.Date < DateTime.UtcNow.Date)
+        {
+            return new BadRequestObjectResult("Cannot cancel meeting schedule occurrences in the past.");
+        }
+
         var scheduleExists = await db.GroupMeetingSchedules.AnyAsync(s => s.GroupMeetingScheduleId == scheduleId && s.GroupId == groupId);
         if (!scheduleExists)
         {
@@ -607,6 +614,11 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
+        if (exception.ExceptionDate.Date < DateTime.UtcNow.Date)
+        {
+            return new BadRequestObjectResult("Cannot modify schedule cancellations in the past.");
+        }
+
         db.GroupScheduleExceptions.Remove(exception);
         await db.SaveChangesAsync();
 
@@ -647,6 +659,10 @@ public class PrivateGroupFunctions(AppDbContext db)
         group.Description = body.Description.Trim();
         group.City = string.IsNullOrWhiteSpace(body.City) ? null : body.City.Trim();
         group.IsPrivate = body.IsPrivate;
+        if (body.TimeZone is not null)
+        {
+            group.TimeZone = string.IsNullOrWhiteSpace(body.TimeZone) ? "UTC" : body.TimeZone.Trim();
+        }
 
         await db.SaveChangesAsync();
 

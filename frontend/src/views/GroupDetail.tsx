@@ -435,6 +435,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
             isMember={isMember}
             schedules={details.schedules ?? []}
             sessions={sessionsQuery.data ?? []}
+            timeZone={details.timeZone}
           />
 
           <div style={{ marginTop: '2rem' }}>

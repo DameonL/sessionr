@@ -273,6 +273,7 @@ function SessionCard({
 }) {
   const goingAttendees = (session.attendees ?? []).filter((a) => a.status === 'Going')
   const maybeAttendees = (session.attendees ?? []).filter((a) => a.status === 'Maybe')
+  const isPast = parseServerDate(session.startsAt) < new Date()
 
   return (
     <div className="card" style={{ padding: '1rem', marginTop: '0.75rem' }}>
@@ -313,7 +314,13 @@ function SessionCard({
       )}
 
       {!session.isCancelled && (
-        isMember ? (
+        isPast ? (
+          <div style={{ marginTop: '0.65rem' }}>
+            <span className="tune-meta italic" style={{ fontSize: '0.85rem' }}>
+              ⏳ Past event — RSVPs closed
+            </span>
+          </div>
+        ) : isMember ? (
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
             {(['Going', 'Maybe', 'NotGoing'] as RsvpStatus[]).map((status) => (
               <button
@@ -339,7 +346,7 @@ function SessionCard({
           <button className="secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.85rem' }} onClick={onEdit}>
             Edit
           </button>
-          {!session.isCancelled && (
+          {!session.isCancelled && !isPast && (
             <button className="secondary" style={{ padding: '0.25rem 0.6rem', fontSize: '0.85rem' }} onClick={onCancel}>
               Cancel
             </button>

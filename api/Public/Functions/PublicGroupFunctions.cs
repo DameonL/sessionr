@@ -94,7 +94,7 @@ public class PublicGroupFunctions(AppDbContext db)
         {
             return new OkObjectResult(new GroupDetailsDto(
                 group.GroupId, group.Name, null, group.City, true, null, viewerMembership?.Status.ToString(),
-                [], [], [], [], [], [], []));
+                [], [], [], [], [], [], [], group.TimeZone ?? "UTC"));
         }
 
         var isViewerAdmin = viewerIsActive && viewerMembership!.Role.IsAdminOrOwner();
@@ -218,7 +218,8 @@ public class PublicGroupFunctions(AppDbContext db)
             commonTunes,
             feed,
             updates,
-            schedules
+            schedules,
+            group.TimeZone ?? "UTC"
         ));
     }
 }

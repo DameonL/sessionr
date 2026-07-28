@@ -709,6 +709,7 @@ export interface GroupSummary {
   isMember: boolean
   isPrivate: boolean
   isPending: boolean
+  timeZone?: string | null
 }
 
 export type GroupRole = 'Member' | 'Administrator' | 'Owner'
@@ -763,6 +764,7 @@ export interface GroupDetails {
   feed: GroupFeedEventData[]
   updates: GroupUpdateData[]
   schedules: GroupMeetingScheduleData[]
+  timeZone?: string | null
 }
 
 export interface JoinResult {
@@ -787,6 +789,7 @@ export interface CreateGroupParams {
   description: string
   city?: string
   isPrivate?: boolean
+  timeZone?: string
   recurrencePattern?: RecurrencePattern
   recurrenceDayOfWeek?: number | null
   recurrenceWeekOfMonth?: number | null
@@ -813,7 +816,7 @@ export const createGroup = (params: CreateGroupParams) =>
 
 export const updateGroupInfo = (
   groupId: string,
-  info: { name: string; description: string; city?: string; isPrivate: boolean },
+  info: { name: string; description: string; city?: string; isPrivate: boolean; timeZone?: string },
 ) =>
   apiFetch<void>(`/groups/${groupId}/info`, {
     method: 'POST',
@@ -1096,6 +1099,12 @@ export const rsvpToGroupSession = (groupId: string, sessionId: string, status: R
   apiFetch<GroupSessionData>(`/groups/${groupId}/sessions/${sessionId}/rsvp`, {
     method: 'POST',
     body: JSON.stringify({ status }),
+  })
+
+export const rsvpToGroupScheduleDate = (groupId: string, scheduleId: string, date: string, status: RsvpStatus) =>
+  apiFetch<GroupSessionData>(`/groups/${groupId}/schedules/${scheduleId}/rsvp`, {
+    method: 'POST',
+    body: JSON.stringify({ date, status }),
   })
 
 export interface UserProfile {

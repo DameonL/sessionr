@@ -113,6 +113,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Group>(entity =>
         {
             entity.HasIndex(g => g.InviteCode).IsUnique();
+            entity.Property(g => g.TimeZone).HasMaxLength(64);
         });
 
         modelBuilder.Entity<GroupUpdate>(entity =>

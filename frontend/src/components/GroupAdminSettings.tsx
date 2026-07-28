@@ -24,6 +24,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
   const [description, setDescription] = useState(details.description ?? '')
   const [city, setCity] = useState(details.city ?? '')
   const [isPrivate, setIsPrivate] = useState(details.isPrivate)
+  const [timeZone, setTimeZone] = useState(details.timeZone || 'UTC')
   const [infoSaving, setInfoSaving] = useState(false)
   const [infoError, setInfoError] = useState<string | null>(null)
 
@@ -70,6 +71,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
         description: description.trim(),
         city: city.trim() || undefined,
         isPrivate,
+        timeZone: timeZone.trim() || 'UTC',
       })
       showToast('Group details updated successfully!')
       onSaved()
@@ -139,16 +141,43 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>City / Location</label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="e.g. Dublin, Ireland or Boston, MA"
-              style={{ width: '100%' }}
-              disabled={infoSaving}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>City / Location</label>
+              <input
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="e.g. Dublin, Ireland or Boston, MA"
+                style={{ width: '100%' }}
+                disabled={infoSaving}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Group Time Zone</label>
+              <input
+                type="text"
+                list="timezone-options"
+                value={timeZone}
+                onChange={(e) => setTimeZone(e.target.value)}
+                placeholder="e.g. America/New_York or UTC"
+                style={{ width: '100%' }}
+                disabled={infoSaving}
+              />
+              <datalist id="timezone-options">
+                <option value="UTC" />
+                <option value="America/New_York" />
+                <option value="America/Chicago" />
+                <option value="America/Denver" />
+                <option value="America/Los_Angeles" />
+                <option value="Europe/London" />
+                <option value="Europe/Dublin" />
+                <option value="Europe/Paris" />
+                <option value="Asia/Tokyo" />
+                <option value="Australia/Sydney" />
+              </datalist>
+            </div>
           </div>
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>

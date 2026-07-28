@@ -9,6 +9,7 @@ public class Group
     public string? City { get; set; }
     public bool IsPrivate { get; set; }
     public string? InviteCode { get; set; }
+    public string? TimeZone { get; set; } = "UTC";
     public bool IsReviewed { get; set; } = false;
     public DateTime? ReviewedAt { get; set; }
     public string? ReviewedBy { get; set; }

@@ -55,6 +55,8 @@ public record UpdateSessionRequest(string? Title, string? Location, DateTime? St
 
 public record RsvpRequest(string Status);
 
+public record RsvpScheduleDateRequest(string Date, string Status);
+
 public record RsvpAttendeeDto(Guid UserId, string DisplayName, string Status);
 
 public record GroupSessionDto(
@@ -195,13 +197,15 @@ public record GroupSummary(
     int MemberCount,
     bool IsMember,
     bool IsPrivate,
-    bool IsPending);
+    bool IsPending,
+    string? TimeZone = "UTC");
 
 public record CreateGroupRequest(
     string Name,
     string Description,
     string? City = null,
     bool IsPrivate = false,
+    string? TimeZone = "UTC",
     RecurrencePattern RecurrencePattern = RecurrencePattern.None,
     DayOfWeek? RecurrenceDayOfWeek = null,
     int? RecurrenceWeekOfMonth = null,
@@ -249,7 +253,8 @@ public record UpdateGroupInfoRequest(
     string Name,
     string Description,
     string? City,
-    bool IsPrivate);
+    bool IsPrivate,
+    string? TimeZone = "UTC");
 
 public record ReplaceGroupSchedulesRequest(
     List<CreateGroupScheduleRequest> Schedules);
@@ -311,7 +316,8 @@ public record GroupDetailsDto(
     List<GroupCommonTuneDto> CommonTunes,
     List<GroupFeedEventDto> Feed,
     List<GroupUpdateDto> Updates,
-    List<GroupMeetingScheduleDto> Schedules);
+    List<GroupMeetingScheduleDto> Schedules,
+    string? TimeZone = "UTC");
 
 public record PagedResult<T>(
     List<T> Items,

@@ -85,6 +85,8 @@ public static class DbSchemaMigrator
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'CreatedAt')
                     ALTER TABLE Tunes ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
 
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'TimeZone')
+                    ALTER TABLE Groups ADD TimeZone NVARCHAR(64) NULL;
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'IsReviewed')
                     ALTER TABLE Groups ADD IsReviewed BIT NOT NULL DEFAULT 1;
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'ReviewedAt')
@@ -166,6 +168,7 @@ public static class DbSchemaMigrator
             ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN ReviewedBy TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';");
 
+            ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN TimeZone TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN IsReviewed INTEGER NOT NULL DEFAULT 1;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedAt TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedBy TEXT NULL;");
