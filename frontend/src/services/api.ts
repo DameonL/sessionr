@@ -1107,6 +1107,22 @@ export const rsvpToGroupScheduleDate = (groupId: string, scheduleId: string, dat
     body: JSON.stringify({ date, status }),
   })
 
+export interface UpcomingMeetingData {
+  groupId: string
+  groupName: string
+  groupSessionId: string | null
+  groupMeetingScheduleId: string | null
+  title: string
+  location: string | null
+  startsAt: string
+  isCancelled: boolean
+  viewerRsvpStatus: RsvpStatus | null
+  goingCount: number
+  maybeCount: number
+}
+
+export const getUpcomingMeetings = () => apiFetch<UpcomingMeetingData[]>('/me/upcoming-meetings')
+
 export interface UserProfile {
   userId: string
   displayName: string

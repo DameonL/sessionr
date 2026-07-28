@@ -7,6 +7,7 @@ import {
   getPracticeQueue,
   getRepertoireStats,
   getSets,
+  getUpcomingMeetings,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 
@@ -24,6 +25,11 @@ export function Dashboard() {
     enabled: !!userId,
   })
   const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
+  const upcomingMeetings = useQuery({
+    queryKey: ['upcoming-meetings', userId],
+    queryFn: () => getUpcomingMeetings(),
+    enabled: !!userId,
+  })
 
   const byStatus = stats.data?.byStatus ?? {}
   const byType = stats.data?.byType ?? {}
@@ -83,6 +89,44 @@ export function Dashboard() {
           </p>
         </>
       )}
+
+      <h2>📅 Upcoming Group Meetings (Next 7 Days)</h2>
+      {upcomingMeetings.isPending && <p>Loading upcoming meetings…</p>}
+      {!upcomingMeetings.isPending && (upcomingMeetings.data ?? []).length === 0 && (
+        <p className="tune-meta italic">No group meetings scheduled in the next 7 days.</p>
+      )}
+      {(upcomingMeetings.data ?? []).map((m, idx) => {
+        const meetingDate = new Date(m.startsAt)
+        return (
+          <div key={m.groupSessionId || `${m.groupId}-${m.startsAt}-${idx}`} className="card" style={{ padding: '0.85rem 1rem', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <Link href={`/group/${m.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                  👥 {m.groupName}
+                </Link>
+                <div style={{ marginTop: '0.2rem', fontWeight: 600 }}>
+                  {m.title} {m.location ? `· ${m.location}` : ''}
+                </div>
+                <div className="tune-meta" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
+                  🕒 {meetingDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} at {meetingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+              <div>
+                {m.viewerRsvpStatus && (
+                  <span className="tune-meta" style={{ padding: '0.25rem 0.5rem', background: 'var(--surface-3)', borderRadius: '4px', fontSize: '0.8rem' }}>
+                    RSVP: <strong>{m.viewerRsvpStatus}</strong>
+                  </span>
+                )}
+                {m.goingCount > 0 && (
+                  <span className="tune-meta" style={{ fontSize: '0.8rem', marginLeft: '0.5rem' }}>
+                    ✅ {m.goingCount} going
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
 
       <h2>Today's practice queue</h2>
       {queue.isPending && <p>Loading…</p>}

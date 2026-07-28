@@ -325,3 +325,16 @@ public record PagedResult<T>(
     int Page,
     int PageSize,
     bool HasMore);
+
+public record UpcomingMeetingDto(
+    Guid GroupId,
+    string GroupName,
+    Guid? GroupSessionId,
+    Guid? GroupMeetingScheduleId,
+    string Title,
+    string? Location,
+    DateTime StartsAt,
+    bool IsCancelled,
+    string? ViewerRsvpStatus,
+    int GoingCount,
+    int MaybeCount);
