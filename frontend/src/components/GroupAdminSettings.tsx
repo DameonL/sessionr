@@ -7,6 +7,7 @@ import { GroupDetails, updateGroupInfo, replaceGroupSchedules, deleteGroup } fro
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from './GroupScheduleBuilder'
 import { GroupUpdates } from './GroupUpdates'
 import { showToast } from '../state/appState'
+import { getTimeZoneList } from '../utils/timezones'
 
 interface GroupAdminSettingsProps {
   details: GroupDetails
@@ -27,6 +28,9 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
   const [timeZone, setTimeZone] = useState(details.timeZone || 'UTC')
   const [infoSaving, setInfoSaving] = useState(false)
   const [infoError, setInfoError] = useState<string | null>(null)
+
+  const timeZoneOptions = getTimeZoneList()
+  const hasCurrentZone = timeZoneOptions.some((tz) => tz.id === timeZone)
 
   // Schedules State
   const [schedules, setSchedules] = useState<ScheduleDraft[]>(() =>
@@ -156,27 +160,23 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
 
             <div>
               <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 600 }}>Group Time Zone</label>
-              <input
-                type="text"
-                list="timezone-options"
+              <select
                 value={timeZone}
                 onChange={(e) => setTimeZone(e.target.value)}
-                placeholder="e.g. America/New_York or UTC"
                 style={{ width: '100%' }}
                 disabled={infoSaving}
-              />
-              <datalist id="timezone-options">
-                <option value="UTC" />
-                <option value="America/New_York" />
-                <option value="America/Chicago" />
-                <option value="America/Denver" />
-                <option value="America/Los_Angeles" />
-                <option value="Europe/London" />
-                <option value="Europe/Dublin" />
-                <option value="Europe/Paris" />
-                <option value="Asia/Tokyo" />
-                <option value="Australia/Sydney" />
-              </datalist>
+              >
+                {!hasCurrentZone && timeZone && (
+                  <option key={timeZone} value={timeZone}>
+                    {timeZone}
+                  </option>
+                )}
+                {timeZoneOptions.map((tz) => (
+                  <option key={tz.id} value={tz.id}>
+                    {tz.displayName}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
