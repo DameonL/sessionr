@@ -13,10 +13,13 @@ export const msalConfig: Configuration = {
     authority,
     redirectUri: typeof window !== "undefined"
       ? (process.env.MSAL_REDIRECT_URI || window.location.origin + "/")
-      : "http://localhost:5173/",
+      : (process.env.MSAL_REDIRECT_URI || "/"),
     knownAuthorities: [
       `${tenantSubdomain}.ciamlogin.com`
     ]
+    // NB: navigateToLoginRequestUrl is no longer an `auth` config option in
+    // msal-browser v5 — it moved onto handleRedirectPromise({ navigateToLoginRequestUrl })
+    // (see AuthProvider.tsx). Don't re-add it here; it would be silently ignored.
   },
   cache: {
     cacheLocation: "localStorage"

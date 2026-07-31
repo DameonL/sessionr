@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
+import { InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser } from '../services/api'
 import { loginRequest } from '../services/authConfig'
@@ -36,6 +36,27 @@ function isJwtExpired(token: string, bufferSeconds = 30): boolean {
   }
 }
 
+// Fetches the runtime MSAL config with a hard timeout + one retry. A *hung*
+// (as opposed to rejected) fetch would otherwise leave pcaInstance null forever
+// and freeze the whole app on blank 'pending' screens.
+async function fetchMsalConfig(): Promise<any> {
+  const attempt = async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    try {
+      const res = await fetch('/api/config', { signal: controller.signal })
+      return await res.json()
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  try {
+    return await attempt()
+  } catch {
+    return await attempt()
+  }
+}
+
 let cachedToken: string | null = null
 
 export default function AuthProvider({ children }: AuthProviderProps) {
@@ -44,80 +65,161 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [syncingUser, setSyncingUser] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/config')
-      .then((res) => res.json())
-      .then((config) => {
-        if (config.clientId && config.clientId !== 'MOCK_CLIENT_ID') {
-          const authority = config.tenantId
-            ? `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantId}/`
-            : `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantSubdomain}.onmicrosoft.com/`;
+    let cancelled = false;
 
-          const msalConfigObj = {
-            auth: {
-              clientId: config.clientId,
-              authority,
-              redirectUri: config.redirectUri || window.location.origin + "/",
-              knownAuthorities: [`${config.tenantSubdomain}.ciamlogin.com`]
-            },
-            cache: {
-              cacheLocation: "localStorage"
-            }
-          };
+    // Safety net: if the MSAL bootstrap never settles (hung config fetch, a
+    // wedged interaction), don't leave the whole app frozen on blank 'pending'
+    // screens — fall back to anonymous and invite a retry.
+    const pendingSafetyTimer = setTimeout(() => {
+      if (authStatus.value === 'pending') {
+        authStatus.value = 'anonymous';
+        showToast('Sign-in is taking longer than expected. Please try again.', 'info');
+      }
+    }, 15000);
 
-          const pca = new PublicClientApplication(msalConfigObj);
-          pca.initialize().then(() => {
-            setPcaInstance(pca);
-            let redirectInProgress = false;
+    const registerTokenHelper = (pca: PublicClientApplication) => {
+      let redirectInProgress = false;
 
-            setTokenAcquisitionHelper(async (forceRefresh = false) => {
-              const accounts = pca.getAllAccounts();
-              if (accounts.length === 0) {
-                cachedToken = null;
-                return null;
-              }
-
-              if (!forceRefresh && cachedToken && !isJwtExpired(cachedToken, 30)) {
-                return cachedToken;
-              }
-
-              const activeAccount = pca.getActiveAccount() || accounts[0];
-              if (!forceRefresh && activeAccount?.idToken && !isJwtExpired(activeAccount.idToken, 30)) {
-                cachedToken = activeAccount.idToken;
-                return activeAccount.idToken;
-              }
-
-              cachedToken = null;
-              if (!redirectInProgress) {
-                const isInIframe = typeof window !== 'undefined' && window.parent !== window;
-                if (!isInIframe) {
-                  redirectInProgress = true;
-                  try {
-                    await pca.acquireTokenRedirect({
-                      ...loginRequest,
-                      account: activeAccount,
-                    });
-                  } catch (redirectErr) {
-                    console.error('acquireTokenRedirect failed:', redirectErr);
-                    redirectInProgress = false;
-                  }
-                }
-              }
-              return null;
-            });
-          }).catch((err) => {
-            console.error('MSAL initialization failed:', err);
-            authStatus.value = 'anonymous';
-          });
-        } else {
-          authStatus.value = 'anonymous';
-          setConfigError(true);
+      setTokenAcquisitionHelper(async (forceRefresh = false) => {
+        const accounts = pca.getAllAccounts();
+        if (accounts.length === 0) {
+          cachedToken = null;
+          return null;
         }
-      })
-      .catch((err) => {
+
+        if (!forceRefresh && cachedToken && !isJwtExpired(cachedToken, 30)) {
+          return cachedToken;
+        }
+
+        const activeAccount = pca.getActiveAccount() || accounts[0];
+
+        // Try a silent refresh first. With a refresh token in the cache this is
+        // a direct POST to the token endpoint (no iframe, no cookie, no popup);
+        // the hidden-iframe fallback only kicks in once the refresh token is
+        // gone. We race it against a short timeout so a blocked/stalled iframe
+        // can never hang the UI — it just falls through to the interactive
+        // redirect below. We return the freshly-refreshed id token to keep the
+        // backend contract (oid/email/name/group claims) byte-for-byte identical.
+        try {
+          const SILENT_TIMEOUT_MS = 4000;
+          const result = await Promise.race([
+            pca.acquireTokenSilent({
+              scopes: loginRequest.scopes,
+              account: activeAccount,
+              forceRefresh,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('acquireTokenSilent timed out')), SILENT_TIMEOUT_MS)
+            ),
+          ]);
+
+          if (result?.idToken && !isJwtExpired(result.idToken, 30)) {
+            cachedToken = result.idToken;
+            return result.idToken;
+          }
+        } catch (silentErr) {
+          // InteractionRequiredAuthError, the timeout, or a blocked iframe all
+          // land here — fall through to the interactive redirect below.
+          if (!(silentErr instanceof InteractionRequiredAuthError)) {
+            console.warn('Silent token acquisition failed, falling back to redirect:', silentErr);
+          }
+        }
+
+        cachedToken = null;
+        if (!redirectInProgress) {
+          const isInIframe = typeof window !== 'undefined' && window.parent !== window;
+          if (!isInIframe) {
+            redirectInProgress = true;
+            try {
+              await pca.acquireTokenRedirect({
+                ...loginRequest,
+                account: activeAccount,
+              });
+            } catch (redirectErr) {
+              console.error('acquireTokenRedirect failed:', redirectErr);
+              redirectInProgress = false;
+            }
+          }
+        }
+        return null;
+      });
+    };
+
+    const bootstrap = async () => {
+      let config: any;
+      try {
+        config = await fetchMsalConfig();
+      } catch (err) {
         console.error('Failed to fetch MSAL config:', err);
+        if (cancelled) return;
         authStatus.value = 'anonymous';
         setConfigError(true);
-      });
+        return;
+      }
+
+      if (cancelled) return;
+
+      if (!config?.clientId || config.clientId === 'MOCK_CLIENT_ID') {
+        authStatus.value = 'anonymous';
+        setConfigError(true);
+        return;
+      }
+
+      const authority = config.tenantId
+        ? `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantId}/`
+        : `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantSubdomain}.onmicrosoft.com/`;
+
+      const msalConfigObj = {
+        auth: {
+          clientId: config.clientId,
+          authority,
+          redirectUri: config.redirectUri || window.location.origin + "/",
+          knownAuthorities: [`${config.tenantSubdomain}.ciamlogin.com`],
+        },
+        cache: {
+          cacheLocation: "localStorage"
+        }
+      };
+
+      const pca = new PublicClientApplication(msalConfigObj);
+      try {
+        await pca.initialize();
+        // Consume any pending redirect response BEFORE rendering MSAL-aware UI,
+        // so the account is in the cache and MsalBackgroundSync never briefly
+        // reads "no accounts" and flips to anonymous — the "sign in twice" /
+        // "forgot my session" symptom.
+        //
+        // navigateToLoginRequestUrl: false — the sign-in button lives on /login
+        // but redirectUri is "/", so the default (true) makes MSAL do a *second*
+        // full navigation back to /login on every return. In msal-browser v5 this
+        // option moved out of the `auth` config and onto handleRedirectPromise
+        // (see the v4→v5 migration guide), which is why it belongs here.
+        const redirectResult = await pca.handleRedirectPromise({ navigateToLoginRequestUrl: false });
+        if (redirectResult?.account) {
+          pca.setActiveAccount(redirectResult.account);
+        } else if (!pca.getActiveAccount()) {
+          const existing = pca.getAllAccounts()[0];
+          if (existing) pca.setActiveAccount(existing);
+        }
+      } catch (err) {
+        console.error('MSAL initialization failed:', err);
+        if (cancelled) return;
+        authStatus.value = 'anonymous';
+        return;
+      }
+
+      if (cancelled) return;
+
+      registerTokenHelper(pca);
+      setPcaInstance(pca);
+    };
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(pendingSafetyTimer);
+    };
   }, []);
 
   if (configError) {

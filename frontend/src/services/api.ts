@@ -18,6 +18,12 @@ import { triggerSync } from './syncManager'
 const API_BASE = 'https://api-private.sessionr.org/api/'
 const PUBLIC_API_BASE = 'https://api-public.sessionr.org/api/'
 
+// Hard ceiling on any single request. Without it a stalled connection (e.g. a
+// slow /users/me) leaves callers — including the "Completing sign-in" modal —
+// hanging indefinitely. A timed-out request is routed through the same
+// unreachable/offline path as a dropped connection.
+const REQUEST_TIMEOUT_MS = 20000
+
 export const isApiOffline = new Signal(false)
 
 let usersMeRetryTimer: ReturnType<typeof setInterval> | null = null
@@ -115,18 +121,24 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
 
   let res: Response
   if (!isOffline) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
-      res = await fetch(url, { headers, ...init })
+      res = await fetch(url, { headers, ...init, signal: controller.signal })
     } catch (err) {
       // A thrown fetch means the request never reached a server (DNS/CORS/
       // dropped connection) — as opposed to an HTTP error status below,
       // which the backend actually responded to and shouldn't be treated
-      // as "offline".
-      if (!(err instanceof TypeError)) throw err
+      // as "offline". An AbortError is our own timeout firing: treat a stalled
+      // request the same as unreachable so callers can't hang forever.
+      const isTimeout = err instanceof DOMException && err.name === 'AbortError'
+      if (!isTimeout && !(err instanceof TypeError)) throw err
       if (isPrivateApi) {
         void checkUsersMeHealth()
       }
       return handleUnreachable<T>(method, url, path, init)
+    } finally {
+      clearTimeout(timer)
     }
   } else {
     return handleUnreachable<T>(method, url, path, init)

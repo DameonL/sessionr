@@ -3,11 +3,12 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMsal } from '@azure/msal-react'
+import { InteractionStatus } from '@azure/msal-browser'
 import { loginRequest } from '../services/authConfig'
 import { useAuthStatus } from '../state/appState'
 
 export function MsalLoginPanel() {
-  const { instance } = useMsal()
+  const { instance, inProgress } = useMsal()
   const status = useAuthStatus()
   const router = useRouter()
 
@@ -16,6 +17,19 @@ export function MsalLoginPanel() {
       router.push('/')
     }
   }, [status, router])
+
+  // While MSAL is mid-interaction (processing a redirect response, acquiring a
+  // token), showing the sign-in button would let the user click it again before
+  // the in-flight sign-in resolves — the "have to click twice" symptom. Show a
+  // finishing-up spinner instead.
+  if (inProgress !== InteractionStatus.None) {
+    return (
+      <div style={{ minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="signin-loader-ring" />
+        <span style={{ marginLeft: '0.75rem' }}>Finishing sign-in…</span>
+      </div>
+    )
+  }
 
   // Covers both "still resolving" (pending) and "authenticated, redirect
   // about to take effect" — either way, showing the sign-in button here
