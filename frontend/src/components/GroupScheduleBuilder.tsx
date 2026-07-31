@@ -43,9 +43,6 @@ export function generateScheduleText(s: ScheduleDraft): string {
     patternText = `Specific date: ${s.startDate || 'Unspecified'}${timeStr}`
   }
 
-  if (s.name && s.name.trim()) {
-    return `${s.name.trim()} (${patternText})`
-  }
   return patternText
 }
 
@@ -109,7 +106,7 @@ export function GroupScheduleBuilder({ schedules, onChange, disabled }: GroupSch
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)' }}>
-                  🔄 Schedule #{idx + 1}: {summaryText}
+                  🔄 Schedule #{idx + 1}: {s.name ? `${s.name} (${summaryText})` : summaryText}
                 </span>
                 <button
                   type="button"

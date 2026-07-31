@@ -53,6 +53,7 @@ export function Groups() {
   const createMutation = useMutation({
     mutationFn: () => {
       const formattedSchedules = schedules.map((s) => ({
+        name: s.name.trim() || undefined,
         recurrencePattern: s.recurrencePattern,
         recurrenceDayOfWeek: s.recurrencePattern !== 'SpecificDate' ? s.recurrenceDayOfWeek : undefined,
         recurrenceWeekOfMonth: s.recurrencePattern === 'MonthlyNthDay' ? s.recurrenceWeekOfMonth : undefined,
