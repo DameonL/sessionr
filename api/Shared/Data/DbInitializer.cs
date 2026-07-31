@@ -12,7 +12,6 @@ public static class DbInitializer
     public static void InitializeDevDatabase(AppDbContext db)
     {
         db.Database.EnsureCreated();
-        DbSchemaMigrator.EnsureSchemaUpToDate(db, true);
 
         if (db.Tunes.Any())
         {
