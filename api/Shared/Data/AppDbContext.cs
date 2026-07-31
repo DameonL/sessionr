@@ -29,6 +29,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GroupScheduleException> GroupScheduleExceptions => Set<GroupScheduleException>();
     public DbSet<PointsTransaction> PointsTransactions => Set<PointsTransaction>();
     public DbSet<UserBadge> UserBadges => Set<UserBadge>();
+    public DbSet<Friendship> Friendships => Set<Friendship>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -346,6 +347,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             // A badge is earned by a user at most once.
             entity.HasIndex(b => new { b.UserId, b.BadgeKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<Friendship>(entity =>
+        {
+            entity.HasOne(f => f.Requester)
+                .WithMany()
+                .HasForeignKey(f => f.RequesterId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(f => f.Receiver)
+                .WithMany()
+                .HasForeignKey(f => f.ReceiverId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(f => new { f.RequesterId, f.ReceiverId }).IsUnique();
+            entity.HasIndex(f => new { f.ReceiverId, f.Status });
+            entity.HasIndex(f => new { f.RequesterId, f.Status });
+
+            entity.Property(f => f.Status).HasConversion<string>().HasMaxLength(20);
         });
 
         // All primary keys are client-generated UUID v7 values (see each model's

@@ -2,8 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { checkUsernameAvailable, getCurrentUser, getMyGamificationSummary, getPracticeStats, updateCurrentUser, type UserBadge } from '../services/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  acceptFriendRequest,
+  checkUsernameAvailable,
+  declineFriendRequest,
+  getCurrentUser,
+  getFriendsList,
+  getMyGamificationSummary,
+  getPendingFriendRequests,
+  getPracticeStats,
+  removeFriend,
+  updateCurrentUser,
+  type FriendDto,
+  type FriendRequestDto,
+  type UserBadge,
+} from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
 import { BadgeModal } from '../components/BadgeModal'
@@ -17,6 +31,36 @@ export function Profile() {
   const profileQuery = useQuery({ queryKey: ['current-user'], queryFn: getCurrentUser })
   const gamificationQuery = useQuery({ queryKey: ['my-gamification'], queryFn: getMyGamificationSummary })
   const practiceStatsQuery = useQuery({ queryKey: ['practice-stats', userId], queryFn: getPracticeStats })
+  const friendsQuery = useQuery({ queryKey: ['friends-list'], queryFn: getFriendsList })
+  const pendingRequestsQuery = useQuery({ queryKey: ['pending-friends'], queryFn: getPendingFriendRequests })
+
+  const acceptMutation = useMutation({
+    mutationFn: (friendshipId: string) => acceptFriendRequest(friendshipId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friends-list'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-friends'] })
+      showToast('Friend request accepted!', 'success')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to accept friend request.', 'error'),
+  })
+
+  const declineMutation = useMutation({
+    mutationFn: (friendshipId: string) => declineFriendRequest(friendshipId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-friends'] })
+      showToast('Friend request declined.')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to decline friend request.', 'error'),
+  })
+
+  const removeFriendMutation = useMutation({
+    mutationFn: (targetUserId: string) => removeFriend(targetUserId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friends-list'] })
+      showToast('Friend removed.')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to remove friend.', 'error'),
+  })
 
   const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
   const [isEditing, setIsEditing] = useState(false)
@@ -278,6 +322,99 @@ export function Profile() {
           </div>
         </form>
       )}
+
+      {/* Friends & Friend Requests Section */}
+      <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+        <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          👥 Friends {friendsQuery.data && `(${friendsQuery.data.length})`}
+        </h2>
+
+        {/* Pending Requests Sub-section */}
+        {pendingRequestsQuery.data && pendingRequestsQuery.data.length > 0 && (
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(77, 208, 165, 0.1)', borderRadius: '8px', border: '1px solid rgba(77, 208, 165, 0.3)' }}>
+            <h3 style={{ marginTop: 0, fontSize: '1.05rem', color: '#4dd0a5' }}>
+              📩 Pending Friend Requests ({pendingRequestsQuery.data.length})
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {pendingRequestsQuery.data.map((req) => (
+                <div key={req.friendshipId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <strong>{req.requesterDisplayName}</strong>
+                    {req.requesterUsername && (
+                      <Link href={`/profile/${req.requesterUsername}`} prefetch={false} className="quiet-link" style={{ marginLeft: '0.5rem', fontSize: '0.85rem' }}>
+                        @{req.requesterUsername} ↗
+                      </Link>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      className="primary btn-sm"
+                      onClick={() => acceptMutation.mutate(req.friendshipId)}
+                      disabled={acceptMutation.isPending}
+                    >
+                      ✓ Accept
+                    </button>
+                    <button
+                      className="secondary btn-sm"
+                      onClick={() => declineMutation.mutate(req.friendshipId)}
+                      disabled={declineMutation.isPending}
+                    >
+                      ✕ Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Friends List */}
+        {friendsQuery.isLoading ? (
+          <p className="tune-meta">Loading friends…</p>
+        ) : friendsQuery.data && friendsQuery.data.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+            {friendsQuery.data.map((friend) => (
+              <div key={friend.userId} className="card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1.05rem' }}>
+                    {friend.username ? (
+                      <Link href={`/profile/${friend.username}`} prefetch={false} className="quiet-link">
+                        {friend.displayName}
+                      </Link>
+                    ) : (
+                      friend.displayName
+                    )}
+                  </h4>
+                  {friend.username && <div className="tune-meta" style={{ fontSize: '0.8rem' }}>@{friend.username}</div>}
+                  {friend.location && <div className="tune-meta" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>📍 {friend.location}</div>}
+                  {friend.instruments && <div className="tune-meta" style={{ fontSize: '0.85rem' }}>🎻 {friend.instruments}</div>}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
+                  {friend.username ? (
+                    <Link href={`/profile/${friend.username}`} prefetch={false} className="quiet-link" style={{ fontSize: '0.85rem' }}>
+                      View Profile ↗
+                    </Link>
+                  ) : (
+                    <div />
+                  )}
+                  <button
+                    className="secondary btn-sm"
+                    onClick={() => removeFriendMutation.mutate(friend.userId)}
+                    disabled={removeFriendMutation.isPending}
+                    style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#f87171' }}
+                  >
+                    Unfriend
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="tune-meta" style={{ margin: 0 }}>
+            You haven't added any friends yet. Visit another musician's public profile page to send a friend request!
+          </p>
+        )}
+      </div>
     </section>
   )
 }

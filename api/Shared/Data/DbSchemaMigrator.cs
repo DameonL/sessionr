@@ -125,6 +125,19 @@ public static class DbSchemaMigrator
                         CONSTRAINT UQ_SessionRsvps_GroupSession_User UNIQUE (GroupSessionId, UserId)
                     );
 
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Friendships')
+                    CREATE TABLE Friendships (
+                        FriendshipId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        RequesterId UNIQUEIDENTIFIER NOT NULL,
+                        ReceiverId UNIQUEIDENTIFIER NOT NULL,
+                        Status NVARCHAR(20) NOT NULL,
+                        CreatedAt DATETIME2 NOT NULL,
+                        UpdatedAt DATETIME2 NOT NULL,
+                        CONSTRAINT FK_Friendships_Requester FOREIGN KEY (RequesterId) REFERENCES Users(UserId) ON DELETE CASCADE,
+                        CONSTRAINT FK_Friendships_Receiver FOREIGN KEY (ReceiverId) REFERENCES Users(UserId),
+                        CONSTRAINT UQ_Friendships_Requester_Receiver UNIQUE (RequesterId, ReceiverId)
+                    );
+
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_Status' AND object_id = OBJECT_ID('UserTunes'))
                     CREATE INDEX IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_UserTunes_UserId_LastPracticed' AND object_id = OBJECT_ID('UserTunes'))
@@ -133,6 +146,12 @@ public static class DbSchemaMigrator
                     CREATE INDEX IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);
                 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_SessionRsvps_GroupSessionId_UserId' AND object_id = OBJECT_ID('SessionRsvps'))
                     CREATE UNIQUE INDEX IX_SessionRsvps_GroupSessionId_UserId ON SessionRsvps(GroupSessionId, UserId);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_SessionRsvps_UserId' AND object_id = OBJECT_ID('SessionRsvps'))
+                    CREATE INDEX IX_SessionRsvps_UserId ON SessionRsvps(UserId);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Friendships_RequesterId_Status' AND object_id = OBJECT_ID('Friendships'))
+                    CREATE INDEX IX_Friendships_RequesterId_Status ON Friendships(RequesterId, Status);
+                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Friendships_ReceiverId_Status' AND object_id = OBJECT_ID('Friendships'))
+                    CREATE INDEX IX_Friendships_ReceiverId_Status ON Friendships(ReceiverId, Status);
             """);
         }
         else
@@ -221,11 +240,28 @@ public static class DbSchemaMigrator
                 );
             """);
 
+            ExecuteSqlSafe(db, """
+                CREATE TABLE IF NOT EXISTS Friendships (
+                    FriendshipId TEXT NOT NULL PRIMARY KEY,
+                    RequesterId TEXT NOT NULL,
+                    ReceiverId TEXT NOT NULL,
+                    Status TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL,
+                    CONSTRAINT UQ_Friendships_Requester_Receiver UNIQUE (RequesterId, ReceiverId),
+                    FOREIGN KEY (RequesterId) REFERENCES Users(UserId) ON DELETE CASCADE,
+                    FOREIGN KEY (ReceiverId) REFERENCES Users(UserId) ON DELETE CASCADE
+                );
+            """);
+
             ExecuteSqlSafe(db, "DROP INDEX IF EXISTS IX_GroupSessions_StartsAt;");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_Status ON UserTunes(UserId, Status);");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_UserTunes_UserId_LastPracticed ON UserTunes(UserId, LastPracticed);");
             ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_GroupSessions_GroupId_StartsAt ON GroupSessions(GroupId, StartsAt);");
             ExecuteSqlSafe(db, "CREATE UNIQUE INDEX IF NOT EXISTS IX_SessionRsvps_GroupSessionId_UserId ON SessionRsvps(GroupSessionId, UserId);");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_SessionRsvps_UserId ON SessionRsvps(UserId);");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_Friendships_RequesterId_Status ON Friendships(RequesterId, Status);");
+            ExecuteSqlSafe(db, "CREATE INDEX IF NOT EXISTS IX_Friendships_ReceiverId_Status ON Friendships(ReceiverId, Status);");
         }
 
         if (addedStreakColumns)

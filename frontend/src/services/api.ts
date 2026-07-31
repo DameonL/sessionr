@@ -1160,11 +1160,23 @@ export interface DashboardPendingRequest {
   pendingCount: number
 }
 
+export interface DashboardFriendActivity {
+  activityId: string
+  friendUserId: string
+  friendDisplayName: string
+  friendUsername: string | null
+  activityType: 'SessionRsvp' | 'TuneLearned' | 'BadgeEarned' | 'NewFriend'
+  summaryText: string
+  createdAt: string
+  targetUrl?: string | null
+}
+
 export interface DashboardSummaryData {
   currentStreakDays: number
   recentActivity: DashboardActivityFeedItem[]
   topRustyTunes: DashboardRustyTune[]
   pendingGroupRequests: DashboardPendingRequest[]
+  recentFriendActivity?: DashboardFriendActivity[]
 }
 
 export const getDashboardSummary = () => apiFetch<DashboardSummaryData>('/me/dashboard-summary')
@@ -1288,4 +1300,52 @@ export const getModeratorUserDetails = (userId: string) =>
 
 export const sanitizeUserProfile = (userId: string, payload: { displayName?: string; bio?: string; location?: string; instruments?: string }) =>
   apiFetch<{ success: boolean; userId: string; displayName: string }>(`/moderator/users/${userId}/sanitize`, { method: 'POST', body: JSON.stringify(payload) })
+
+export interface FriendDto {
+  userId: string
+  displayName: string
+  username: string | null
+  bio: string | null
+  location: string | null
+  instruments: string | null
+  friendsSince: string
+}
+
+export interface FriendRequestDto {
+  friendshipId: string
+  requesterId: string
+  requesterDisplayName: string
+  requesterUsername: string | null
+  requestedAt: string
+}
+
+export interface FriendshipStatusDto {
+  status: 'Self' | 'None' | 'PendingSent' | 'PendingReceived' | 'Accepted'
+  friendshipId: string | null
+}
+
+export const getFriendshipStatus = (targetUserId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/status/${targetUserId}`)
+
+export const sendFriendRequest = (targetUserId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/request/${targetUserId}`, { method: 'POST' })
+
+export const acceptFriendRequest = (friendshipId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/accept/${friendshipId}`, { method: 'POST' })
+
+export const declineFriendRequest = (friendshipId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/decline/${friendshipId}`, { method: 'POST' })
+
+export const cancelFriendRequest = (friendshipId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/cancel/${friendshipId}`, { method: 'POST' })
+
+export const removeFriend = (targetUserId: string) =>
+  apiFetch<FriendshipStatusDto>(`/friends/${targetUserId}`, { method: 'DELETE' })
+
+export const getFriendsList = () =>
+  apiFetch<FriendDto[]>('/friends')
+
+export const getPendingFriendRequests = () =>
+  apiFetch<FriendRequestDto[]>('/friends/requests')
+
 

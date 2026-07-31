@@ -354,11 +354,22 @@ public record UpcomingMeetingDto(
     int GoingCount,
     int MaybeCount);
 
+public record DashboardFriendActivityDto(
+    Guid ActivityId,
+    Guid FriendUserId,
+    string FriendDisplayName,
+    string? FriendUsername,
+    string ActivityType,
+    string SummaryText,
+    DateTime CreatedAt,
+    string? TargetUrl = null);
+
 public record DashboardSummaryDto(
     int CurrentStreakDays,
     List<DashboardActivityFeedItemDto> RecentActivity,
     List<DashboardRustyTuneDto> TopRustyTunes,
-    List<DashboardPendingRequestDto> PendingGroupRequests);
+    List<DashboardPendingRequestDto> PendingGroupRequests,
+    List<DashboardFriendActivityDto>? RecentFriendActivity = null);
 
 public record DashboardActivityFeedItemDto(
     Guid GroupFeedEventId,
@@ -378,3 +389,24 @@ public record DashboardPendingRequestDto(
     Guid GroupId,
     string GroupName,
     int PendingCount);
+
+public record FriendDto(
+    Guid UserId,
+    string DisplayName,
+    string? Username,
+    string? Bio,
+    string? Location,
+    string? Instruments,
+    DateTime FriendsSince);
+
+public record FriendRequestDto(
+    Guid FriendshipId,
+    Guid RequesterId,
+    string RequesterDisplayName,
+    string? RequesterUsername,
+    DateTime RequestedAt);
+
+public record FriendshipStatusDto(
+    string Status, // "None" | "PendingSent" | "PendingReceived" | "Accepted"
+    Guid? FriendshipId);
+
