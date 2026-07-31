@@ -15,6 +15,9 @@ export function TuneLibrary() {
   const router = useRouter()
   const authStatus = useAuthStatus()
 
+  // Tab state: 'search' | 'popular' | 'newest'
+  const [activeTab, setActiveTab] = useState<'search' | 'popular' | 'newest'>('search')
+
   // Input states for form
   const [searchInput, setSearchInput] = useState('')
   const [filterTypeInput, setFilterTypeInput] = useState('')
@@ -31,14 +34,23 @@ export function TuneLibrary() {
   const [addKeyOverride, setAddKeyOverride] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
 
+  const isBrowseMode = activeTab === 'popular' || activeTab === 'newest'
   const hasSearchQuery = submittedSearch.length > 0 || submittedType !== ''
+  const isEnabled = isBrowseMode || hasSearchQuery
 
   const libraryQuery = useInfiniteQuery({
-    queryKey: ['tune-library', submittedSearch, submittedType],
-    queryFn: ({ pageParam = 1 }) => searchTunes(submittedSearch, submittedType, pageParam, 20),
+    queryKey: ['tune-library', activeTab, isBrowseMode ? '' : submittedSearch, isBrowseMode ? '' : submittedType],
+    queryFn: ({ pageParam = 1 }) =>
+      searchTunes(
+        isBrowseMode ? '' : submittedSearch,
+        isBrowseMode ? '' : submittedType,
+        activeTab === 'search' ? 'alphabetical' : activeTab,
+        pageParam,
+        20
+      ),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
-    enabled: hasSearchQuery,
+    enabled: isEnabled,
   })
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -111,50 +123,79 @@ export function TuneLibrary() {
         </button>
       </div>
 
-      <form onSubmit={handleSearchSubmit} className="detail-controls" style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: '220px' }}>
-          <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Search by name</label>
-          <input
-            className="search-box"
-            type="search"
-            placeholder="Type tune name or alternate name…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            style={{ width: '100%' }}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Filter by type</label>
-          <select value={filterTypeInput} onChange={(e) => setFilterTypeInput(e.target.value)}>
-            <option value="">All types</option>
-            {TUNE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {formatTuneType(type)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border, #333)', paddingBottom: '0.5rem' }}>
+        <button
+          type="button"
+          className={activeTab === 'search' ? '' : 'secondary'}
+          onClick={() => setActiveTab('search')}
+          style={{ padding: '0.4rem 1rem' }}
+        >
           🔍 Search
         </button>
-        {(hasSearchQuery || searchInput || filterTypeInput) && (
-          <button
-            type="button"
-            className="secondary"
-            style={{ padding: '0.45rem 1rem', whiteSpace: 'nowrap' }}
-            onClick={() => {
-              setSearchInput('')
-              setFilterTypeInput('')
-              setSubmittedSearch('')
-              setSubmittedType('')
-            }}
-          >
-            ✕ Clear
-          </button>
-        )}
-      </form>
+        <button
+          type="button"
+          className={activeTab === 'popular' ? '' : 'secondary'}
+          onClick={() => setActiveTab('popular')}
+          style={{ padding: '0.4rem 1rem' }}
+        >
+          🔥 Most Popular
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'newest' ? '' : 'secondary'}
+          onClick={() => setActiveTab('newest')}
+          style={{ padding: '0.4rem 1rem' }}
+        >
+          ✨ Newest
+        </button>
+      </div>
 
-      {!hasSearchQuery && (
+      {activeTab === 'search' && (
+        <form onSubmit={handleSearchSubmit} className="detail-controls" style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <div style={{ flex: 1, minWidth: '220px' }}>
+            <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Search by name</label>
+            <input
+              className="search-box"
+              type="search"
+              placeholder="Type tune name or alternate name…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Filter by type</label>
+            <select value={filterTypeInput} onChange={(e) => setFilterTypeInput(e.target.value)}>
+              <option value="">All types</option>
+              {TUNE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {formatTuneType(type)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap' }}>
+            🔍 Search
+          </button>
+          {(hasSearchQuery || searchInput || filterTypeInput) && (
+            <button
+              type="button"
+              className="secondary"
+              style={{ padding: '0.45rem 1rem', whiteSpace: 'nowrap' }}
+              onClick={() => {
+                setSearchInput('')
+                setFilterTypeInput('')
+                setSubmittedSearch('')
+                setSubmittedType('')
+              }}
+            >
+              ✕ Clear
+            </button>
+          )}
+        </form>
+      )}
+
+      {activeTab === 'search' && !hasSearchQuery && (
         <div className="card" style={{ padding: '2.5rem', textAlign: 'center', marginTop: '1.5rem', background: 'var(--surface-2)' }}>
           <p style={{ fontSize: '1.1rem', margin: 0, color: 'var(--muted)' }}>
             🔍 Search for a tune above by name or alternate name
@@ -162,10 +203,10 @@ export function TuneLibrary() {
         </div>
       )}
 
-      {hasSearchQuery && libraryQuery.isLoading && <p style={{ marginTop: '1rem' }}>Searching tunes…</p>}
-      {hasSearchQuery && libraryQuery.isError && <p className="error" style={{ marginTop: '1rem' }}>Could not search the tune library.</p>}
+      {isEnabled && libraryQuery.isLoading && <p style={{ marginTop: '1rem' }}>Loading tunes…</p>}
+      {isEnabled && libraryQuery.isError && <p className="error" style={{ marginTop: '1rem' }}>Could not load tunes.</p>}
 
-      {hasSearchQuery && (
+      {isEnabled && (
         <ul className="tune-list">
           {allTunes.map((tune) => (
             <li key={tune.tuneId} className="card tune-row">
@@ -180,17 +221,18 @@ export function TuneLibrary() {
         </ul>
       )}
 
-      {hasSearchQuery && !libraryQuery.isLoading && allTunes.length === 0 && (
+      {isEnabled && !libraryQuery.isLoading && allTunes.length === 0 && (
         <p className="tune-meta italic" style={{ marginTop: '1rem' }}>No tunes found.</p>
       )}
 
-      {hasSearchQuery && (
+      {isEnabled && (
         <InfiniteScrollSentinel
           hasMore={libraryQuery.hasNextPage}
           isLoadingMore={libraryQuery.isFetchingNextPage}
           onLoadMore={() => libraryQuery.fetchNextPage()}
         />
       )}
+
 
       {/* Add Tune Modal */}
       <Dialog isOpen={showAddModal} title="Add a New Tune" onClose={() => setShowAddModal(false)} maxWidth="540px">

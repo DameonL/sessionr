@@ -15,6 +15,8 @@ public class Tune
     public DateTime? ReviewedAt { get; set; }
     public string? ReviewedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public int RepertoireCount { get; set; } = 0;
+
 
 
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();

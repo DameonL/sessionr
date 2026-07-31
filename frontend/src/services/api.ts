@@ -447,14 +447,16 @@ export interface PagedResult<T> {
   hasMore: boolean
 }
 
-export const searchTunes = (search: string, type?: string, page = 1, pageSize = 20) => {
+export const searchTunes = (search: string, type?: string, sort?: string, page = 1, pageSize = 20) => {
   const params = new URLSearchParams()
   if (search) params.set('search', search)
   if (type) params.set('type', type)
+  if (sort) params.set('sort', sort)
   params.set('page', page.toString())
   params.set('pageSize', pageSize.toString())
   return apiFetchPublic<PagedResult<TuneSummary>>(`/tunes?${params}`)
 }
+
 
 export const createTune = (tune: { title: string; tuneType: string; key: string; abc: string }) =>
   apiFetch<TuneSummary>('/tunes', { method: 'POST', body: JSON.stringify(tune) })

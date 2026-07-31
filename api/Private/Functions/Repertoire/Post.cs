@@ -59,7 +59,9 @@ public class Post(AppDbContext db)
             TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
         };
         db.UserTunes.Add(userTune);
+        tune.RepertoireCount++;
         await db.SaveChangesAsync();
+
 
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : tune.Key;
         var effectiveAbc = userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : tune.MasterAbcText;

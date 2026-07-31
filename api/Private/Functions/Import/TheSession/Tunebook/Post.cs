@@ -88,7 +88,9 @@ public class Post(AppDbContext db, TheSessionImportService importService, ILogge
                         Status = TuneStatus.Learning,
                         TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
                     });
+                    tune.RepertoireCount++;
                     await db.SaveChangesAsync();
+
                     added++;
                 }
             }

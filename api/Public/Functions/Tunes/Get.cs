@@ -37,6 +37,8 @@ public class Get(AppDbContext db)
             query = query.Where(t => t.Key == key);
         }
 
+        var sort = req.Query["sort"].ToString().ToLower();
+
         int.TryParse(req.Query["page"], out var page);
         if (page < 1) page = 1;
 
@@ -46,14 +48,33 @@ public class Get(AppDbContext db)
 
         var totalCount = await query.CountAsync();
 
-        var results = await query
-            .OrderBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
+        if (sort == "popular")
+        {
+            query = query.OrderByDescending(t => t.RepertoireCount)
+                .ThenBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
+                    : t.Title.StartsWith("A ") ? t.Title.Substring(2)
+                    : t.Title);
+        }
+        else if (sort == "newest")
+        {
+            query = query.OrderByDescending(t => t.CreatedAt)
+                .ThenBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
+                    : t.Title.StartsWith("A ") ? t.Title.Substring(2)
+                    : t.Title);
+        }
+        else
+        {
+            query = query.OrderBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
                 : t.Title.StartsWith("A ") ? t.Title.Substring(2)
-                : t.Title)
+                : t.Title);
+        }
+
+        var results = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key))
             .ToListAsync();
+
 
         var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<TuneDto>(results, totalCount, page, pageSize, hasMore));

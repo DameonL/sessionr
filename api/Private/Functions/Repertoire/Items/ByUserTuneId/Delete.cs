@@ -37,8 +37,15 @@ public class Delete(AppDbContext db)
             return new ConflictObjectResult("Tune is used in one or more sets. Remove it from those sets first.");
         }
 
+        var tune = await db.Tunes.SingleOrDefaultAsync(t => t.TuneId == userTune.TuneId);
+        if (tune != null && tune.RepertoireCount > 0)
+        {
+            tune.RepertoireCount--;
+        }
+
         db.UserTunes.Remove(userTune);
         await db.SaveChangesAsync();
+
         return new NoContentResult();
     }
 }

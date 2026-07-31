@@ -18,9 +18,20 @@ public static class DbSchemaMigrator
     {
         bool addedStreakColumns = false;
         bool addedUsernameColumn = false;
+        bool addedRepertoireCountColumn = false;
 
         if (!useSqlite)
         {
+            var repCountColExists = db.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('Tunes') AND name = 'RepertoireCount'")
+                .AsEnumerable().FirstOrDefault() > 0;
+
+            if (!repCountColExists)
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE Tunes ADD RepertoireCount INT NOT NULL DEFAULT 0;");
+                addedRepertoireCountColumn = true;
+            }
+
             var colExists = db.Database.SqlQueryRaw<int>(
                 "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'CurrentStreak'")
                 .AsEnumerable().FirstOrDefault() > 0;
@@ -158,7 +169,20 @@ public static class DbSchemaMigrator
         }
         else
         {
+
+            var repCountColExistsSq = db.Database.SqlQueryRaw<string>(
+
+                "SELECT name FROM pragma_table_info('Tunes') WHERE name = 'RepertoireCount'")
+                .AsEnumerable().Any();
+
+            if (!repCountColExistsSq)
+            {
+                ExecuteSqlSafe(db, "ALTER TABLE Tunes ADD COLUMN RepertoireCount INTEGER NOT NULL DEFAULT 0;");
+                addedRepertoireCountColumn = true;
+            }
+
             var colExists = db.Database.SqlQueryRaw<string>(
+
                 "SELECT name FROM pragma_table_info('Users') WHERE name = 'CurrentStreak'")
                 .AsEnumerable().Any();
 
@@ -280,6 +304,7 @@ public static class DbSchemaMigrator
         }
 
         if (addedUsernameColumn)
+
         {
             try
             {
@@ -290,7 +315,33 @@ public static class DbSchemaMigrator
                 Console.Error.WriteLine($"EnsureSchemaUpToDate: PerformUsernameBackfill warning/error: {ex.Message}");
             }
         }
+
+        if (addedRepertoireCountColumn)
+
+        {
+            try
+            {
+                PerformRepertoireCountBackfill(db);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"EnsureSchemaUpToDate: PerformRepertoireCountBackfill warning/error: {ex.Message}");
+            }
+        }
     }
+
+    private static void PerformRepertoireCountBackfill(AppDbContext db)
+    {
+        db.Database.ExecuteSqlRaw("""
+            UPDATE Tunes 
+            SET RepertoireCount = (
+                SELECT COUNT(*) 
+                FROM UserTunes 
+                WHERE UserTunes.TuneId = Tunes.TuneId
+            );
+        """);
+    }
+
 
     /// <summary>
     /// Assigns every existing usernameless user a slug derived from their DisplayName,
