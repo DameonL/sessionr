@@ -1,10 +1,13 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 
 namespace SessionApp.Api.Functions;
 
@@ -39,6 +42,40 @@ public static class SessionGroupAuthorization
     public static ObjectResult Forbidden(string message) => new(message) { StatusCode = 403 };
 
     public static ObjectResult Unauthorized(string message) => new(message) { StatusCode = 401 };
+
+    public static async Task<IActionResult?> AuthorizeGroupRoleAsync(this HttpRequest req, AppDbContext db, Guid groupId, params GroupRole[] allowedRoles)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var actorRole = await db.GetRoleAsync(groupId, callerUserId.Value);
+        if (!actorRole.HasValue || !allowedRoles.Contains(actorRole.Value))
+        {
+            if (!req.IsCallerModerator())
+            {
+                return Forbidden("You do not have permission to perform this action.");
+            }
+        }
+
+        return null;
+    }
+
+    public static string? NormalizeTimeZoneId(string? timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId)) return null;
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId.Trim());
+            return tz.Id;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     public static string GenerateInviteCode()
     {

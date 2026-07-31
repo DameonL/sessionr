@@ -1,0 +1,92 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
+using SessionApp.Api.Data;
+using SessionApp.Api.Models;
+using static SessionApp.Api.Functions.SessionGroupAuthorization;
+
+namespace SessionApp.Api.Functions.Tunes.Settings.BySettingId.Vote;
+
+public class Post(AppDbContext db)
+{
+    /// <summary>POST /api/tunes/settings/{settingId}/vote — cast an upvote or downvote on a setting.</summary>
+    [Function("VoteTuneSetting")]
+    public async Task<IActionResult> VoteTuneSetting(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "tunes/settings/{settingId:guid}/vote")] HttpRequest req,
+        Guid settingId)
+    {
+        var callerUserId = await req.GetCallerUserIdAsync(db);
+        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        {
+            return Unauthorized("Authentication credentials are required.");
+        }
+
+        var body = await req.ReadFromJsonAsync<VoteSettingRequest>();
+        if (body is null)
+        {
+            return new BadRequestObjectResult("Value is required.");
+        }
+
+        var setting = await db.TuneSettings
+            .SingleOrDefaultAsync(s => s.TuneSettingId == settingId);
+
+        if (setting is null)
+        {
+            return new NotFoundResult();
+        }
+
+        var userExists = await db.Users.AnyAsync(u => u.UserId == callerUserId.Value);
+        if (!userExists)
+        {
+            return new BadRequestObjectResult("User does not exist.");
+        }
+
+        var hasVotedOnOtherSetting = await db.TuneSettingVotes
+            .AnyAsync(v => v.UserId == callerUserId.Value 
+                        && v.TuneSetting.TuneId == setting.TuneId 
+                        && v.TuneSettingId != settingId);
+        if (hasVotedOnOtherSetting)
+        {
+            return new BadRequestObjectResult("You can only vote on a given tune once.");
+        }
+
+        var val = body.Value;
+        if (val < -1) val = -1;
+        if (val > 1) val = 1;
+
+        var existingVote = await db.TuneSettingVotes
+            .SingleOrDefaultAsync(v => v.TuneSettingId == settingId && v.UserId == callerUserId.Value);
+        var previousValue = existingVote?.Value ?? 0;
+
+        if (existingVote is not null)
+        {
+            if (val == 0)
+            {
+                db.TuneSettingVotes.Remove(existingVote);
+            }
+            else
+            {
+                existingVote.Value = val;
+            }
+        }
+        else if (val != 0)
+        {
+            var vote = new TuneSettingVote
+            {
+                TuneSettingId = settingId,
+                UserId = callerUserId.Value,
+                Value = val
+            };
+            db.TuneSettingVotes.Add(vote);
+        }
+
+        setting.VoteScore += val - previousValue;
+
+        await db.SaveChangesAsync();
+
+        return new OkObjectResult(new { voteScore = setting.VoteScore });
+    }
+}

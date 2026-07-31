@@ -46,11 +46,18 @@ public static class GroupFeedSupport
         catch { return default; }
     }
 
-    public static async Task<List<GroupFeedEventDto>> BuildGroupFeedAsync(AppDbContext db, Guid groupId)
+    public static async Task<List<GroupFeedEventDto>> BuildGroupFeedAsync(AppDbContext db, Guid groupId, Guid? excludeUserId = null)
     {
-        var events = await db.GroupFeedEvents
+        var query = db.GroupFeedEvents
             .AsNoTracking()
-            .Where(e => e.GroupId == groupId)
+            .Where(e => e.GroupId == groupId);
+
+        if (excludeUserId.HasValue)
+        {
+            query = query.Where(e => e.UserId != excludeUserId.Value);
+        }
+
+        var events = await query
             .OrderByDescending(e => e.CreatedAt)
             .Take(25)
             .Select(e => new { e.EventType, e.Payload, e.CreatedAt, MemberName = e.User.DisplayName })
