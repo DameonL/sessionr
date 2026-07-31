@@ -48,7 +48,15 @@ public enum RecurrencePattern
 public enum GroupFeedEventType
 {
     TuneLearned,
-    MemberJoined
+    MemberJoined,
+    GroupTuneAdded,
+    GroupTuneRemoved,
+    SessionScheduled,
+    SessionCancelled,
+    AnnouncementPosted,
+    GroupSetCreated,
+    StreakMilestone,
+    BadgeEarned
 }
 
 /// <summary>What a gamification points award was for.</summary>

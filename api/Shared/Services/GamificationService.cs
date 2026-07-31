@@ -1,3 +1,4 @@
+using System;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
@@ -26,6 +27,28 @@ public class GamificationService(AppDbContext db)
 
     private const int ActiveTunesForFirstBadge = 5;
     private const int ActiveTunesForSecondBadge = 20;
+
+    /// <summary>Human-readable label for a badge key, for display in feeds/notifications. Badge labels live
+    /// only in code (there is no badge table), so this is the single source of truth for them.</summary>
+    public static string BadgeLabel(string badgeKey) => badgeKey switch
+    {
+        "first-practice" => "First Practice",
+        "active-5" => "5 Active Tunes",
+        "active-20" => "20 Active Tunes",
+        "streak-7" => "7-Day Streak",
+        "streak-30" => "30-Day Streak",
+        "streak-100" => "100-Day Streak",
+        "streak-365" => "365-Day Streak",
+        _ => badgeKey,
+    };
+
+    /// <summary>True if the badge key is a streak milestone (e.g. "streak-30"), yielding the day count.</summary>
+    public static bool TryGetStreakDays(string badgeKey, out int days)
+    {
+        days = 0;
+        return badgeKey.StartsWith("streak-", StringComparison.Ordinal)
+            && int.TryParse(badgeKey.AsSpan(7), out days);
+    }
 
     /// <summary>
     /// Awards points for a qualifying action, unless the same (user, reason, sourceId) has
