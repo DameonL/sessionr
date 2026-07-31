@@ -12,7 +12,7 @@ namespace SessionApp.Api.Functions.Groups.ByGroupId.Leave;
 
 public class Post(AppDbContext db)
 {
-    /// <summary>POST /api/groups/{groupId}/leave — leave a group. The sole Owner cannot leave without transferring ownership first.</summary>
+    /// <summary>POST /api/groups/{groupId}/leave — leave a group. The Owner cannot leave; they must transfer ownership or delete the group.</summary>
     [Function("LeaveGroup")]
     public async Task<IActionResult> LeaveGroup(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "groups/{groupId:guid}/leave")] HttpRequest req,
@@ -34,12 +34,7 @@ public class Post(AppDbContext db)
 
         if (membership.Role == GroupRole.Owner)
         {
-            var otherMembersCount = await db.GroupMemberships
-                .CountAsync(m => m.GroupId == groupId && m.UserId != callerUserId.Value && m.Status == GroupMembershipStatus.Active);
-            if (otherMembersCount > 0)
-            {
-                return new BadRequestObjectResult("As the Owner, you must transfer ownership to another member before leaving the group.");
-            }
+            return new BadRequestObjectResult("As the Owner, you must transfer ownership to another member or delete the group — you cannot leave it directly.");
         }
 
         db.GroupMemberships.Remove(membership);

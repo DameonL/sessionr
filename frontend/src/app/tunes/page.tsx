@@ -1,6 +1,11 @@
 "use client";
-import { TuneLibrary } from '../../views/TuneLibrary';
+import { TuneLibraryFrame } from '../../views/tuneLibrary/TuneLibraryFrame';
+import { TuneSearchView } from '../../views/tuneLibrary/TuneSearchView';
 
 export default function Page() {
-  return <TuneLibrary />;
+  return (
+    <TuneLibraryFrame active="search">
+      <TuneSearchView />
+    </TuneLibraryFrame>
+  );
 }
