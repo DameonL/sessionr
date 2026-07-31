@@ -48,6 +48,18 @@ export function Dashboard() {
   const recentActivity = summary.data?.recentActivity ?? []
   const topRustyTunes = summary.data?.topRustyTunes ?? []
 
+  const recentFriendActivity = summary.data?.recentFriendActivity ?? []
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'SessionRsvp': return '📅'
+      case 'TuneLearned': return '🎻'
+      case 'BadgeEarned': return '🏆'
+      case 'NewFriend': return '🤝'
+      default: return '📢'
+    }
+  }
+
   return (
     <section>
       {/* Practice Streak & Quick Start Banner */}
@@ -193,8 +205,43 @@ export function Dashboard() {
         )
       })}
 
-      {/* Grid for Recent Group Activity & Top Rusty Tunes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
+      {/* Grid for Recent Group Activity, Friend Activity & Top Rusty Tunes */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
+        {/* Friend Activity Feed */}
+        <div>
+          <h2>🤝 Friend Activity</h2>
+          {summary.isPending && <p>Loading friend activity…</p>}
+          {!summary.isPending && recentFriendActivity.length === 0 && (
+            <p className="tune-meta italic">No recent activity from your friends yet.</p>
+          )}
+          {recentFriendActivity.map((act) => (
+            <div key={act.activityId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '1rem' }}>{getActivityIcon(act.activityType)}</span>
+                {act.friendUsername ? (
+                  <Link href={`/profile/${act.friendUsername}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                    {act.friendDisplayName}
+                  </Link>
+                ) : (
+                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{act.friendDisplayName}</span>
+                )}
+              </div>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', lineHeight: 1.3 }}>
+                {act.targetUrl ? (
+                  <Link href={act.targetUrl} prefetch={false} className="quiet-link">
+                    {act.summaryText}
+                  </Link>
+                ) : (
+                  act.summaryText
+                )}
+              </p>
+              <span className="tune-meta" style={{ fontSize: '0.75rem', marginTop: '0.2rem', display: 'block' }}>
+                {new Date(act.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+
         {/* Recent Group Activity Feed */}
         <div>
           <h2>📢 Recent Group Activity</h2>

@@ -5,12 +5,18 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
+  acceptFriendRequest,
+  cancelFriendRequest,
+  declineFriendRequest,
   formatTuneType,
+  getFriendshipStatus,
+  getModeratorUserDetails,
   getPublicActiveTunes,
   getPublicGamificationSummary,
   getPublicUserProfile,
-  getModeratorUserDetails,
+  removeFriend,
   sanitizeUserProfile,
+  sendFriendRequest,
   type UserBadge,
 } from '../services/api'
 import { getBadgeInfo } from '../services/badges'
@@ -38,6 +44,62 @@ export function PublicProfile({ username }: { username?: string }) {
   })
 
   const resolvedUserId = profile.data?.userId
+
+  const friendshipStatusQuery = useQuery({
+    queryKey: ['friendship-status', resolvedUserId],
+    queryFn: () => getFriendshipStatus(resolvedUserId!),
+    enabled: !!resolvedUserId && !!viewerProfile && viewerProfile.userId !== resolvedUserId,
+    retry: false,
+  })
+
+  const sendRequestMutation = useMutation({
+    mutationFn: () => sendFriendRequest(resolvedUserId!),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['friendship-status', resolvedUserId], data)
+      showToast('Friend request sent!', 'success')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to send friend request.', 'error'),
+  })
+
+  const acceptRequestMutation = useMutation({
+    mutationFn: (friendshipId: string) => acceptFriendRequest(friendshipId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['friendship-status', resolvedUserId], data)
+      queryClient.invalidateQueries({ queryKey: ['friends-list'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-friends'] })
+      showToast('Friend request accepted!', 'success')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to accept friend request.', 'error'),
+  })
+
+  const declineRequestMutation = useMutation({
+    mutationFn: (friendshipId: string) => declineFriendRequest(friendshipId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['friendship-status', resolvedUserId], data)
+      queryClient.invalidateQueries({ queryKey: ['pending-friends'] })
+      showToast('Friend request declined.')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to decline friend request.', 'error'),
+  })
+
+  const cancelRequestMutation = useMutation({
+    mutationFn: (friendshipId: string) => cancelFriendRequest(friendshipId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['friendship-status', resolvedUserId], data)
+      showToast('Friend request cancelled.')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to cancel request.', 'error'),
+  })
+
+  const removeFriendMutation = useMutation({
+    mutationFn: () => removeFriend(resolvedUserId!),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['friendship-status', resolvedUserId], data)
+      queryClient.invalidateQueries({ queryKey: ['friends-list'] })
+      showToast('Friend removed.')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to remove friend.', 'error'),
+  })
 
   const moderatorDetails = useQuery({
     queryKey: ['moderator-user-details', resolvedUserId],
@@ -100,6 +162,9 @@ export function PublicProfile({ username }: { username?: string }) {
     setShowSanitizeModal(true)
   }
 
+  const friendshipStatus = friendshipStatusQuery.data?.status
+  const friendshipId = friendshipStatusQuery.data?.friendshipId
+
   return (
     <section>
       <div className="card" style={{ padding: '1.5rem' }}>
@@ -112,11 +177,68 @@ export function PublicProfile({ username }: { username?: string }) {
             {instruments && <p className="tune-meta">🎻 {instruments}</p>}
           </div>
 
-          {isViewerModerator && (
-            <button className="secondary" onClick={handleOpenSanitize}>
-              🛡️ Edit Profile
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {viewerProfile && viewerProfile.userId !== resolvedUserId && friendshipStatus && (
+              <>
+                {friendshipStatus === 'None' && (
+                  <button
+                    className="primary"
+                    onClick={() => sendRequestMutation.mutate()}
+                    disabled={sendRequestMutation.isPending}
+                  >
+                    {sendRequestMutation.isPending ? 'Sending…' : '➕ Add Friend'}
+                  </button>
+                )}
+
+                {friendshipStatus === 'PendingSent' && (
+                  <button
+                    className="secondary"
+                    onClick={() => friendshipId && cancelRequestMutation.mutate(friendshipId)}
+                    disabled={cancelRequestMutation.isPending}
+                    title="Click to cancel pending request"
+                  >
+                    {cancelRequestMutation.isPending ? 'Cancelling…' : '⏳ Request Sent (Cancel)'}
+                  </button>
+                )}
+
+                {friendshipStatus === 'PendingReceived' && (
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button
+                      className="primary btn-sm"
+                      onClick={() => friendshipId && acceptRequestMutation.mutate(friendshipId)}
+                      disabled={acceptRequestMutation.isPending}
+                    >
+                      {acceptRequestMutation.isPending ? 'Accepting…' : '✓ Accept Request'}
+                    </button>
+                    <button
+                      className="secondary btn-sm"
+                      onClick={() => friendshipId && declineRequestMutation.mutate(friendshipId)}
+                      disabled={declineRequestMutation.isPending}
+                    >
+                      {declineRequestMutation.isPending ? 'Declining…' : '✕ Decline'}
+                    </button>
+                  </div>
+                )}
+
+                {friendshipStatus === 'Accepted' && (
+                  <button
+                    className="secondary"
+                    onClick={() => removeFriendMutation.mutate()}
+                    disabled={removeFriendMutation.isPending}
+                    style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171' }}
+                  >
+                    {removeFriendMutation.isPending ? 'Removing…' : '✓ Friends (Unfriend)'}
+                  </button>
+                )}
+              </>
+            )}
+
+            {isViewerModerator && (
+              <button className="secondary" onClick={handleOpenSanitize}>
+                🛡️ Edit Profile
+              </button>
+            )}
+          </div>
         </div>
 
         {isViewerModerator && moderatorDetails.data && (
