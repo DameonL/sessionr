@@ -692,6 +692,7 @@ export interface GroupScheduleExceptionData {
 export interface GroupMeetingScheduleData {
   groupMeetingScheduleId: string
   groupId: string
+  name?: string | null
   recurrencePattern: RecurrencePattern
   recurrenceDayOfWeek: number | null
   recurrenceWeekOfMonth: number | null
@@ -813,6 +814,7 @@ export interface CreateGroupParams {
   meetingScheduleText?: string
   meetingDescription?: string
   schedules?: Array<{
+    name?: string
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
     recurrenceWeekOfMonth?: number | null
@@ -841,6 +843,7 @@ export const updateGroupInfo = (
 export const replaceGroupSchedules = (
   groupId: string,
   schedules: Array<{
+    name?: string
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
     recurrenceWeekOfMonth?: number | null
@@ -869,6 +872,7 @@ export const deleteGroupUpdate = (groupId: string, updateId: string) =>
 export const updateGroupSchedule = (
   groupId: string,
   scheduleConfig: {
+    name?: string
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
     recurrenceWeekOfMonth?: number | null
@@ -886,6 +890,7 @@ export const updateGroupSchedule = (
 export const addGroupSchedule = (
   groupId: string,
   scheduleConfig: {
+    name?: string
     recurrencePattern: RecurrencePattern
     recurrenceDayOfWeek?: number | null
     recurrenceWeekOfMonth?: number | null

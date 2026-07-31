@@ -37,6 +37,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
   const [schedules, setSchedules] = useState<ScheduleDraft[]>(() =>
     (details.schedules ?? []).map((s) => ({
       id: s.groupMeetingScheduleId,
+      name: s.name ?? '',
       recurrencePattern: s.recurrencePattern,
       recurrenceDayOfWeek: s.recurrenceDayOfWeek ?? 3,
       recurrenceWeekOfMonth: s.recurrenceWeekOfMonth ?? 1,
@@ -94,6 +95,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
 
     try {
       const formattedSchedules = schedules.map((s) => ({
+        name: s.name.trim() || undefined,
         recurrencePattern: s.recurrencePattern,
         recurrenceDayOfWeek: s.recurrencePattern !== 'SpecificDate' ? s.recurrenceDayOfWeek : undefined,
         recurrenceWeekOfMonth: s.recurrencePattern === 'MonthlyNthDay' ? s.recurrenceWeekOfMonth : undefined,

@@ -1466,5 +1466,20 @@ a.stat:hover {
   50% { transform: scale(1.2); opacity: 0.9; }
 }
 
+/* Group Detail Navigation */
+.mobile-tab-select {
+  display: block;
+}
+
+.group-tabs-pills {
+  display: flex;
+}
+
+@media (min-width: 640px) {
+  .mobile-tab-select {
+    display: none;
+  }
+}
+
 
 

@@ -8,6 +8,7 @@ public class GroupMeetingSchedule
 {
     public Guid GroupMeetingScheduleId { get; set; } = Guid.CreateVersion7();
     public Guid GroupId { get; set; }
+    public string? Name { get; set; }
     public RecurrencePattern RecurrencePattern { get; set; } = RecurrencePattern.None;
     public DayOfWeek? RecurrenceDayOfWeek { get; set; }
     public int? RecurrenceWeekOfMonth { get; set; }

@@ -201,7 +201,8 @@ public class PublicGroupFunctions(AppDbContext db)
                 gms.MeetingDescription,
                 gms.Exceptions
                     .Select(ex => new GroupScheduleExceptionDto(ex.GroupScheduleExceptionId, ex.GroupMeetingScheduleId, ex.ExceptionDate))
-                    .ToList()))
+                    .ToList(),
+                gms.Name))
             .ToListAsync();
 
         return new OkObjectResult(new GroupDetailsDto(

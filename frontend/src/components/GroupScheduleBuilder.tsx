@@ -4,6 +4,7 @@ import { type RecurrencePattern } from '../services/api'
 
 export interface ScheduleDraft {
   id: string
+  name: string
   recurrencePattern: RecurrencePattern
   recurrenceDayOfWeek: number
   recurrenceWeekOfMonth: number
@@ -29,27 +30,30 @@ const WEEKS_OF_MONTH = [
 
 export function generateScheduleText(s: ScheduleDraft): string {
   const timeStr = s.meetingTime ? ` at ${s.meetingTime}` : ''
+  let patternText = 'No recurring meeting'
   if (s.recurrencePattern === 'Weekly') {
-    return `Every ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]}${timeStr}`
-  }
-  if (s.recurrencePattern === 'Biweekly') {
+    patternText = `Every ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]}${timeStr}`
+  } else if (s.recurrencePattern === 'Biweekly') {
     const startStr = s.startDate ? ` starting ${s.startDate}` : ''
-    return `Every other ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]}${startStr}${timeStr}`
-  }
-  if (s.recurrencePattern === 'MonthlyNthDay') {
+    patternText = `Every other ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]}${startStr}${timeStr}`
+  } else if (s.recurrencePattern === 'MonthlyNthDay') {
     const weekLabel = WEEKS_OF_MONTH.find((w) => w.val === s.recurrenceWeekOfMonth)?.label ?? `${s.recurrenceWeekOfMonth}`
-    return `${weekLabel} ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]} of every month${timeStr}`
+    patternText = `${weekLabel} ${DAYS_OF_WEEK[s.recurrenceDayOfWeek]} of every month${timeStr}`
+  } else if (s.recurrencePattern === 'SpecificDate') {
+    patternText = `Specific date: ${s.startDate || 'Unspecified'}${timeStr}`
   }
-  if (s.recurrencePattern === 'SpecificDate') {
-    return `Specific date: ${s.startDate || 'Unspecified'}${timeStr}`
+
+  if (s.name && s.name.trim()) {
+    return `${s.name.trim()} (${patternText})`
   }
-  return 'No recurring meeting'
+  return patternText
 }
 
 export function GroupScheduleBuilder({ schedules, onChange, disabled }: GroupScheduleBuilderProps) {
   const addSchedule = () => {
     const newSchedule: ScheduleDraft = {
       id: Math.random().toString(36).substring(2, 9),
+      name: '',
       recurrencePattern: 'Weekly',
       recurrenceDayOfWeek: 3, // Wednesday
       recurrenceWeekOfMonth: 1,
@@ -116,6 +120,18 @@ export function GroupScheduleBuilder({ schedules, onChange, disabled }: GroupSch
                 >
                   🗑️ Remove
                 </button>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', marginBottom: '0.2rem', color: 'var(--muted)' }}>Meeting Name (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Wednesday Pub Session, Beginners Circle, or Sunday Workshop"
+                  value={s.name ?? ''}
+                  onChange={(e) => updateSchedule(s.id, { name: e.target.value })}
+                  disabled={disabled}
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>

@@ -95,6 +95,8 @@ public static class DbSchemaMigrator
                     ALTER TABLE Groups ADD ReviewedBy NVARCHAR(256) NULL;
                 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Groups') AND name = 'CreatedAt')
                     ALTER TABLE Groups ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+                IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('GroupMeetingSchedules') AND name = 'Name')
+                    ALTER TABLE GroupMeetingSchedules ADD Name NVARCHAR(200) NULL;
 
                 IF EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_GroupSessions_StartsAt' AND object_id = OBJECT_ID('GroupSessions'))
                     DROP INDEX IX_GroupSessions_StartsAt ON GroupSessions;
@@ -192,6 +194,7 @@ public static class DbSchemaMigrator
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedAt TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN ReviewedBy TEXT NULL;");
             ExecuteSqlSafe(db, "ALTER TABLE Groups ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z';");
+            ExecuteSqlSafe(db, "ALTER TABLE GroupMeetingSchedules ADD COLUMN Name TEXT NULL;");
 
             ExecuteSqlSafe(db, """
                 CREATE TABLE IF NOT EXISTS PointsTransactions (

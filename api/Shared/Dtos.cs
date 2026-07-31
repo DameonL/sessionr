@@ -225,7 +225,8 @@ public record GroupMeetingScheduleDto(
     string? MeetingTime,
     string? MeetingScheduleText,
     string? MeetingDescription,
-    List<GroupScheduleExceptionDto> Exceptions);
+    List<GroupScheduleExceptionDto> Exceptions,
+    string? Name = null);
 
 public record CreateGroupScheduleRequest(
     RecurrencePattern RecurrencePattern,
@@ -234,7 +235,8 @@ public record CreateGroupScheduleRequest(
     DateTime? StartDate = null,
     string? MeetingTime = null,
     string? MeetingScheduleText = null,
-    string? MeetingDescription = null);
+    string? MeetingDescription = null,
+    string? Name = null);
 
 public record UpdateGroupScheduleRequest(
     RecurrencePattern RecurrencePattern,
@@ -243,7 +245,8 @@ public record UpdateGroupScheduleRequest(
     DateTime? StartDate,
     string? MeetingTime,
     string? MeetingScheduleText,
-    string? MeetingDescription);
+    string? MeetingDescription,
+    string? Name = null);
 
 public record JoinGroupRequest(string? InviteCode);
 

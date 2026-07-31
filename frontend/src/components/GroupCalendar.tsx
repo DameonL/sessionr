@@ -120,6 +120,7 @@ export function GroupCalendar({
     .filter((s) => s.recurrencePattern !== 'None')
     .map((s) => ({
       id: s.groupMeetingScheduleId,
+      name: s.name,
       pattern: s.recurrencePattern,
       dayOfWeek: s.recurrenceDayOfWeek,
       weekOfMonth: s.recurrenceWeekOfMonth,
@@ -272,7 +273,7 @@ export function GroupCalendar({
           <ul style={{ margin: '0.35rem 0 0 0', paddingLeft: '1.25rem', fontSize: '0.85rem' }}>
             {allSchedules.map((sch, i) => (
               <li key={i} style={{ marginBottom: '0.2rem' }}>
-                <strong>{sch.text || 'Regular meetup'}</strong> {sch.desc ? `— ${sch.desc}` : ''}
+                <strong>{sch.name ? `${sch.name} — ${sch.text || 'Regular meetup'}` : (sch.text || 'Regular meetup')}</strong> {sch.desc ? `— ${sch.desc}` : ''}
               </li>
             ))}
           </ul>
@@ -396,7 +397,8 @@ export function GroupCalendar({
                         <span>
                           <strong>{sch.exception ? 'Cancelled: ' : 'Group Meeting: '}</strong>
                           <span style={{ textDecoration: sch.exception ? 'line-through' : 'none' }}>
-                            {sch.text || 'Regular meetup'} {sch.time ? `(${sch.time})` : ''}
+                            {sch.name ? <strong>{sch.name} </strong> : null}
+                            ({sch.text || 'Regular meetup'}{sch.time ? ` at ${sch.time}` : ''})
                           </span>
                         </span>
                       </div>

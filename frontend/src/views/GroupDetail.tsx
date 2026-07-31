@@ -338,7 +338,7 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.35rem', fontSize: '0.85rem', color: 'var(--muted)', flexWrap: 'wrap' }}>
             <span>{details.members.length} {details.members.length === 1 ? 'member' : 'members'}</span>
             {details.schedules && details.schedules.length > 0 && (
-              <span>🕒 {details.schedules.map((s) => s.meetingScheduleText || 'Regular meetup').join(' • ')}</span>
+              <span>🕒 {details.schedules.map((s) => (s.name ? `${s.name} (${s.meetingScheduleText || 'Regular meetup'})` : (s.meetingScheduleText || 'Regular meetup'))).join(' • ')}</span>
             )}
           </div>
         </div>
@@ -390,32 +390,103 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         </div>
       )}
 
-      {/* Tabs Menu */}
-      <div className="tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', overflowX: 'auto' }}>
-        <button className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')} style={tabStyle(activeTab === 'overview')}>
-          Overview & Calendar
-        </button>
-        <button className={`tab-btn ${activeTab === 'tunes' ? 'active' : ''}`} onClick={() => setActiveTab('tunes')} style={tabStyle(activeTab === 'tunes')}>
-          Master Tune List
-        </button>
-        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => setActiveTab('sets')} style={tabStyle(activeTab === 'sets')}>
-          Set Lists
-        </button>
-        <button className={`tab-btn ${activeTab === 'repertoire' ? 'active' : ''}`} onClick={() => setActiveTab('repertoire')} style={tabStyle(activeTab === 'repertoire')}>
-          Shared Repertoire
-        </button>
-        <button className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')} style={tabStyle(activeTab === 'activity')}>
-          Activity
-        </button>
-        <button className={`tab-btn ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')} style={tabStyle(activeTab === 'members')}>
-          Members ({details.members.length})
-        </button>
-        {isAdmin && (
-          <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')} style={tabStyle(activeTab === 'settings')}>
-            ⚙️ Settings
-          </button>
-        )}
-      </div>
+      {/* Responsive Group Navigation Menu */}
+      <nav className="group-detail-nav" aria-label="Group Details Section Navigation" style={{ marginBottom: '1.75rem' }}>
+        {/* Mobile Section Picker Dropdown */}
+        <div className="mobile-tab-select" style={{ marginBottom: '0.75rem' }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '0.35rem' }}>
+            Jump to section:
+          </label>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as any)}
+            style={{
+              width: '100%',
+              padding: '0.6rem 0.85rem',
+              fontSize: '0.95rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+            }}
+          >
+            <option value="overview">📅 Overview &amp; Calendar</option>
+            <option value="tunes">🎵 Master Tune List ({details.masterTunes.length})</option>
+            <option value="sets">🎼 Set Lists</option>
+            <option value="repertoire">🎶 Shared Repertoire</option>
+            <option value="activity">⚡ Activity</option>
+            <option value="members">👥 Members ({details.members.length})</option>
+            {isAdmin && <option value="settings">⚙️ Settings</option>}
+          </select>
+        </div>
+
+        {/* Desktop / Responsive Segmented Pill Navigation Bar */}
+        <div
+          className="group-tabs-pills"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.4rem',
+            padding: '0.35rem',
+            background: 'var(--surface-2)',
+            borderRadius: '10px',
+            border: '1px solid var(--border)',
+          }}
+        >
+          {[
+            { id: 'overview', label: 'Overview & Calendar', icon: '📅' },
+            { id: 'tunes', label: 'Master Tune List', icon: '🎵', badge: details.masterTunes.length },
+            { id: 'sets', label: 'Set Lists', icon: '🎼' },
+            { id: 'repertoire', label: 'Shared Repertoire', icon: '🎶' },
+            { id: 'activity', label: 'Activity', icon: '⚡' },
+            { id: 'members', label: 'Members', icon: '👥', badge: details.members.length },
+            ...(isAdmin ? [{ id: 'settings', label: 'Settings', icon: '⚙️' }] : []),
+          ].map((tab) => {
+            const active = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as any)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.5rem 0.85rem',
+                  fontSize: '0.9rem',
+                  fontWeight: active ? 600 : 400,
+                  borderRadius: '7px',
+                  border: 'none',
+                  background: active ? 'var(--surface)' : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--muted)',
+                  cursor: 'pointer',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                  outline: active ? '1px solid var(--accent)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+                {tab.badge !== undefined && (
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      padding: '0.1rem 0.45rem',
+                      borderRadius: '999px',
+                      background: active ? 'var(--accent)' : 'var(--border)',
+                      color: active ? '#000' : 'var(--text)',
+                    }}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </nav>
 
       {/* Tab Panels */}
       {activeTab === 'settings' && isAdmin && (

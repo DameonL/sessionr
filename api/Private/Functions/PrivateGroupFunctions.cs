@@ -211,7 +211,8 @@ public class PrivateGroupFunctions(AppDbContext db)
                 gms.MeetingDescription,
                 gms.Exceptions
                     .Select(ex => new GroupScheduleExceptionDto(ex.GroupScheduleExceptionId, ex.GroupMeetingScheduleId, ex.ExceptionDate))
-                    .ToList()))
+                    .ToList(),
+                gms.Name))
             .ToListAsync();
 
         return new OkObjectResult(new GroupDetailsDto(
@@ -279,6 +280,7 @@ public class PrivateGroupFunctions(AppDbContext db)
                     group.Schedules.Add(new GroupMeetingSchedule
                     {
                         Group = group,
+                        Name = s.Name?.Trim(),
                         RecurrencePattern = s.RecurrencePattern,
                         RecurrenceDayOfWeek = s.RecurrenceDayOfWeek,
                         RecurrenceWeekOfMonth = s.RecurrenceWeekOfMonth,
@@ -437,6 +439,7 @@ public class PrivateGroupFunctions(AppDbContext db)
             db.GroupMeetingSchedules.Add(schedule);
         }
 
+        schedule.Name = body.Name?.Trim();
         schedule.RecurrencePattern = body.RecurrencePattern;
         schedule.RecurrenceDayOfWeek = body.RecurrenceDayOfWeek;
         schedule.RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth;
@@ -477,6 +480,7 @@ public class PrivateGroupFunctions(AppDbContext db)
         var schedule = new GroupMeetingSchedule
         {
             GroupId = groupId,
+            Name = body.Name?.Trim(),
             RecurrencePattern = body.RecurrencePattern,
             RecurrenceDayOfWeek = body.RecurrenceDayOfWeek,
             RecurrenceWeekOfMonth = body.RecurrenceWeekOfMonth,
@@ -499,7 +503,8 @@ public class PrivateGroupFunctions(AppDbContext db)
             schedule.MeetingTime,
             schedule.MeetingScheduleText,
             schedule.MeetingDescription,
-            []));
+            [],
+            schedule.Name));
     }
 
     /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId} — admins/owner delete a schedule.</summary>
@@ -708,6 +713,7 @@ public class PrivateGroupFunctions(AppDbContext db)
                     db.GroupMeetingSchedules.Add(new GroupMeetingSchedule
                     {
                         GroupId = groupId,
+                        Name = s.Name?.Trim(),
                         RecurrencePattern = s.RecurrencePattern,
                         RecurrenceDayOfWeek = s.RecurrenceDayOfWeek,
                         RecurrenceWeekOfMonth = s.RecurrenceWeekOfMonth,

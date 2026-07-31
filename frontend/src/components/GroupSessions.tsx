@@ -134,12 +134,12 @@ export function GroupSessions({
         >
           <h3 style={{ marginTop: 0 }}>{form.sessionId === null ? 'Schedule a Session' : 'Edit Session'}</h3>
           <label>
-            Title
+            Meeting / Session Name *
             <input
               type="text"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="e.g. Weekly Session"
+              placeholder="e.g. Weekly Session, Album Launch Night, or Workshop"
               required
               style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
             />
