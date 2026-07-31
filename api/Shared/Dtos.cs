@@ -413,3 +413,16 @@ public record FriendshipStatusDto(
     string Status, // "None" | "PendingSent" | "PendingReceived" | "Accepted"
     Guid? FriendshipId);
 
+public record DashboardActivityItemDto(
+    Guid ActivityId,
+    string Source, // "Group" | "Friend"
+    string ActivityType,
+    string SummaryText,
+    DateTime CreatedAt,
+    string? AuthorDisplayName = null,
+    string? AuthorUsername = null,
+    Guid? GroupId = null,
+    string? GroupName = null,
+    string? TargetUrl = null);
+
+

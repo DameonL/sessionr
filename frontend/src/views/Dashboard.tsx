@@ -1,39 +1,51 @@
 "use client";
 
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   formatTuneType,
+  getActivityFeed,
   getDashboardSummary,
   getPracticeQueue,
   getRepertoireStats,
   getSets,
   getUpcomingMeetings,
+  type DashboardActivityItemData,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
+import { Spinner } from '../components/Spinner'
 
 export function Dashboard() {
   const userId = useSignal(currentUserId)
+  const [filter, setFilter] = useState<'all' | 'groups' | 'friends'>('all')
 
   const stats = useQuery({
     queryKey: ['repertoire-stats', userId],
     queryFn: () => getRepertoireStats(),
     enabled: !!userId,
   })
-  const queue = useQuery({
-    queryKey: ['practice-queue', userId],
-    queryFn: () => getPracticeQueue(),
-    enabled: !!userId,
-  })
+
   const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
+
   const upcomingMeetings = useQuery({
     queryKey: ['upcoming-meetings', userId],
     queryFn: () => getUpcomingMeetings(),
     enabled: !!userId,
   })
+
   const summary = useQuery({
     queryKey: ['dashboard-summary', userId],
     queryFn: () => getDashboardSummary(),
+    enabled: !!userId,
+  })
+
+  const activityFeedQuery = useInfiniteQuery({
+    queryKey: ['dashboard-activity-feed', userId, filter],
+    queryFn: ({ pageParam = 1 }) => getActivityFeed(filter, pageParam as number, 20),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
     enabled: !!userId,
   })
 
@@ -45,13 +57,12 @@ export function Dashboard() {
 
   const streakDays = summary.data?.currentStreakDays ?? 0
   const pendingRequests = summary.data?.pendingGroupRequests ?? []
-  const recentActivity = summary.data?.recentActivity ?? []
-  const topRustyTunes = summary.data?.topRustyTunes ?? []
 
-  const recentFriendActivity = summary.data?.recentFriendActivity ?? []
+  const allActivities = activityFeedQuery.data?.pages.flatMap((p) => p.items) ?? []
 
-  const getActivityIcon = (type: string) => {
-    switch (type) {
+  const getActivityIcon = (act: DashboardActivityItemData) => {
+    if (act.source === 'Group') return '👥'
+    switch (act.activityType) {
       case 'SessionRsvp': return '📅'
       case 'TuneLearned': return '🎻'
       case 'BadgeEarned': return '🏆'
@@ -124,7 +135,8 @@ export function Dashboard() {
         <p className="error">Could not reach the API (is the Functions host running?).</p>
       )}
 
-      <div className="stat-grid">
+      {/* Quick Repertoire & Sets Summary Bar */}
+      <div className="stat-grid" style={{ marginBottom: '1.5rem' }}>
         <Link className="card stat quiet-link" href="/repertoire" prefetch={false}>
           <strong>{statValue(stats.data?.totalCount, stats.isPending)}</strong>
           <span>tunes</span>
@@ -147,86 +159,101 @@ export function Dashboard() {
         </Link>
       </div>
 
-      {Object.keys(byType).length > 0 && (
-        <>
-          <h2>By type</h2>
-          <p className="tune-meta">
-            {Object.entries(byType)
-              .sort((a, b) => b[1] - a[1])
-              .map(([type, count], index) => (
-                <span key={type}>
-                  {index > 0 && ' · '}
-                  <Link href={`/repertoire?type=${type}`} prefetch={false}>
-                    {count} {formatTuneType(type).toLowerCase()}
-                    {count > 1 ? 's' : ''}
-                  </Link>
-                </span>
-              ))}
-          </p>
-        </>
-      )}
-
       {/* Upcoming Group Meetings */}
-      <h2>📅 Upcoming Group Meetings (Next 7 Days)</h2>
-      {upcomingMeetings.isPending && <p>Loading upcoming meetings…</p>}
-      {!upcomingMeetings.isPending && (upcomingMeetings.data ?? []).length === 0 && (
-        <p className="tune-meta italic">No group meetings scheduled in the next 7 days.</p>
+      {(upcomingMeetings.data ?? []).length > 0 && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <h2>📅 Upcoming Group Meetings</h2>
+          {(upcomingMeetings.data ?? []).map((m, idx) => {
+            const meetingDate = new Date(m.startsAt)
+            return (
+              <div key={m.groupSessionId || `${m.groupId}-${m.startsAt}-${idx}`} className="card" style={{ padding: '0.85rem 1rem', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <Link href={`/group/${m.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                      👥 {m.groupName}
+                    </Link>
+                    <div style={{ marginTop: '0.2rem', fontWeight: 600 }}>
+                      {m.title} {m.location ? `· ${m.location}` : ''}
+                    </div>
+                    <div className="tune-meta" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
+                      🕒 {meetingDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} at {meetingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div>
+                    {m.viewerRsvpStatus && (
+                      <span className="tune-meta" style={{ padding: '0.25rem 0.5rem', background: 'var(--surface-3)', borderRadius: '4px', fontSize: '0.8rem' }}>
+                        RSVP: <strong>{m.viewerRsvpStatus}</strong>
+                      </span>
+                    )}
+                    {m.goingCount > 0 && (
+                      <span className="tune-meta" style={{ fontSize: '0.8rem', marginLeft: '0.5rem' }}>
+                        ✅ {m.goingCount} going
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
-      {(upcomingMeetings.data ?? []).map((m, idx) => {
-        const meetingDate = new Date(m.startsAt)
-        return (
-          <div key={m.groupSessionId || `${m.groupId}-${m.startsAt}-${idx}`} className="card" style={{ padding: '0.85rem 1rem', marginBottom: '0.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <div>
-                <Link href={`/group/${m.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--accent)', textDecoration: 'none' }}>
-                  👥 {m.groupName}
-                </Link>
-                <div style={{ marginTop: '0.2rem', fontWeight: 600 }}>
-                  {m.title} {m.location ? `· ${m.location}` : ''}
-                </div>
-                <div className="tune-meta" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
-                  🕒 {meetingDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} at {meetingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
-              <div>
-                {m.viewerRsvpStatus && (
-                  <span className="tune-meta" style={{ padding: '0.25rem 0.5rem', background: 'var(--surface-3)', borderRadius: '4px', fontSize: '0.8rem' }}>
-                    RSVP: <strong>{m.viewerRsvpStatus}</strong>
-                  </span>
-                )}
-                {m.goingCount > 0 && (
-                  <span className="tune-meta" style={{ fontSize: '0.8rem', marginLeft: '0.5rem' }}>
-                    ✅ {m.goingCount} going
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        )
-      })}
 
-      {/* Grid for Recent Group Activity, Friend Activity & Top Rusty Tunes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
-        {/* Friend Activity Feed */}
-        <div>
-          <h2>🤝 Friend Activity</h2>
-          {summary.isPending && <p>Loading friend activity…</p>}
-          {!summary.isPending && recentFriendActivity.length === 0 && (
-            <p className="tune-meta italic">No recent activity from your friends yet.</p>
-          )}
-          {recentFriendActivity.map((act) => (
-            <div key={act.activityId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '1rem' }}>{getActivityIcon(act.activityType)}</span>
-                {act.friendUsername ? (
-                  <Link href={`/profile/${act.friendUsername}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', textDecoration: 'none' }}>
-                    {act.friendDisplayName}
-                  </Link>
-                ) : (
-                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{act.friendDisplayName}</span>
-                )}
+      {/* Unified Lazy-Loaded Activity Feed */}
+      <div style={{ marginTop: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+          <h2 style={{ margin: 0 }}>⚡ Activity Feed</h2>
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            {(['all', 'groups', 'friends'] as const).map((f) => (
+              <button
+                key={f}
+                className={filter === f ? '' : 'secondary'}
+                style={{ padding: '0.25rem 0.65rem', fontSize: '0.8rem', textTransform: 'capitalize' }}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'all' ? 'All Activity' : f === 'groups' ? '👥 Groups' : '🤝 Friends'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activityFeedQuery.isPending && (
+          <div className="spinner-row" style={{ padding: '2rem' }}>
+            <Spinner size={28} />
+          </div>
+        )}
+
+        {!activityFeedQuery.isPending && allActivities.length === 0 && (
+          <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+            <p className="tune-meta italic" style={{ margin: 0, fontSize: '0.95rem' }}>
+              No recent activity yet. Join groups or add friends to see your feed update!
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+          {allActivities.map((act) => (
+            <div key={act.activityId} className="card" style={{ padding: '0.85rem 1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <span style={{ fontSize: '1rem' }}>{getActivityIcon(act)}</span>
+                  {act.source === 'Group' && act.groupId ? (
+                    <Link href={`/group/${act.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                      {act.groupName || 'Group'}
+                    </Link>
+                  ) : act.authorUsername ? (
+                    <Link href={`/profile/${act.authorUsername}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                      {act.authorDisplayName || act.authorUsername}
+                    </Link>
+                  ) : (
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{act.authorDisplayName || 'Friend'}</span>
+                  )}
+                </div>
+                <span className="tune-meta" style={{ fontSize: '0.75rem' }}>
+                  {new Date(act.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
-              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', lineHeight: 1.3 }}>
+
+              <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.9rem', lineHeight: 1.4 }}>
                 {act.targetUrl ? (
                   <Link href={act.targetUrl} prefetch={false} className="quiet-link">
                     {act.summaryText}
@@ -235,71 +262,17 @@ export function Dashboard() {
                   act.summaryText
                 )}
               </p>
-              <span className="tune-meta" style={{ fontSize: '0.75rem', marginTop: '0.2rem', display: 'block' }}>
-                {new Date(act.createdAt).toLocaleDateString()}
-              </span>
             </div>
           ))}
         </div>
 
-        {/* Recent Group Activity Feed */}
-        <div>
-          <h2>📢 Recent Group Activity</h2>
-          {summary.isPending && <p>Loading activity…</p>}
-          {!summary.isPending && recentActivity.length === 0 && (
-            <p className="tune-meta italic">No recent activity in your groups.</p>
-          )}
-          {recentActivity.map((act) => (
-            <div key={act.groupFeedEventId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
-              <Link href={`/group/${act.groupId}`} prefetch={false} style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', textDecoration: 'none' }}>
-                {act.groupName}
-              </Link>
-              <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.85rem', lineHeight: 1.3 }}>{act.summaryText}</p>
-              <span className="tune-meta" style={{ fontSize: '0.75rem', marginTop: '0.2rem', display: 'block' }}>
-                {new Date(act.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Top Rusty Tunes */}
-        <div>
-          <h2>⚠️ Tunes Needing Practice</h2>
-          {summary.isPending && <p>Loading tunes…</p>}
-          {!summary.isPending && topRustyTunes.length === 0 && (
-            <p className="tune-meta italic">Great job! No tunes are currently going rusty.</p>
-          )}
-          {topRustyTunes.map((tune) => (
-            <div key={tune.userTuneId} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Link href={`/tune/${tune.userTuneId}`} prefetch={false} style={{ fontWeight: 600, textDecoration: 'none', color: 'var(--text)' }}>
-                  {tune.title} <span className="tune-meta" style={{ fontSize: '0.75rem' }}>({formatTuneType(tune.tuneType)})</span>
-                </Link>
-              </div>
-              <span className="tune-meta" style={{ fontSize: '0.75rem', display: 'block', marginTop: '0.2rem' }}>
-                Last practiced: {tune.lastPracticed ? new Date(tune.lastPracticed).toLocaleDateString() : 'Never'}
-              </span>
-            </div>
-          ))}
-          {topRustyTunes.length > 0 && (
-            <Link href="/repertoire?status=Active" prefetch={false} style={{ fontSize: '0.85rem', display: 'inline-block', marginTop: '0.25rem' }}>
-              View all rusty tunes →
-            </Link>
-          )}
-        </div>
+        {/* Infinite Scroll Sentinel */}
+        <InfiniteScrollSentinel
+          hasMore={activityFeedQuery.hasNextPage}
+          isLoadingMore={activityFeedQuery.isFetchingNextPage}
+          onLoadMore={() => activityFeedQuery.fetchNextPage()}
+        />
       </div>
-
-      <h2>Today's practice queue</h2>
-      {queue.isPending && <p>Loading…</p>}
-      {(queue.data ?? []).slice(0, 3).map((item) => (
-        <div key={item.userTuneId} className="card">
-          <Link className="tune-row" href={`/tune/${item.userTuneId}`} prefetch={false}>
-            <span className="tune-title">{item.title}</span>
-            <span className="tune-meta">{item.reason}</span>
-          </Link>
-        </div>
-      ))}
-      {(queue.data ?? []).length > 0 && <Link href="/practice" prefetch={false}>Open the Practice Room →</Link>}
     </section>
   )
 }

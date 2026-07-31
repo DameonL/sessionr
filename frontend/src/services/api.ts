@@ -1353,4 +1353,21 @@ export const getFriendsList = () =>
 export const getPendingFriendRequests = () =>
   apiFetch<FriendRequestDto[]>('/friends/requests')
 
+export interface DashboardActivityItemData {
+  activityId: string
+  source: 'Group' | 'Friend'
+  activityType: string
+  summaryText: string
+  createdAt: string
+  authorDisplayName?: string | null
+  authorUsername?: string | null
+  groupId?: string | null
+  groupName?: string | null
+  targetUrl?: string | null
+}
+
+export const getActivityFeed = (filter = 'all', page = 1, pageSize = 20) =>
+  apiFetch<PagedResult<DashboardActivityItemData>>(`/me/activity-feed?filter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`)
+
+
 
