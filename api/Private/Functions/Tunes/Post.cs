@@ -53,6 +53,6 @@ public class Post(AppDbContext db)
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key));
+        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount));
     }
 }

@@ -76,7 +76,7 @@ public record GroupSessionDto(
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
 
-public record TuneDto(Guid TuneId, string Title, string TuneType, string Key);
+public record TuneDto(Guid TuneId, string Title, string TuneType, string Key, int RepertoireCount);
 
 public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue);
 

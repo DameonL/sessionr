@@ -97,6 +97,14 @@ public static class DbInitializer
         db.UserTunes.AddRange(userTunes);
         db.SaveChanges();
 
+        // Keep the denormalized RepertoireCount in sync with the seeded repertoire so the
+        // "Most Popular" library sort has real numbers to show in dev.
+        foreach (var group in userTunes.GroupBy(ut => ut.TuneId))
+        {
+            tunes.First(t => t.TuneId == group.Key).RepertoireCount = group.Count();
+        }
+        db.SaveChanges();
+
         // Practice history: a 3-day streak ending today plus scattered earlier
         // sessions, so the dashboard streak and chart have something to show.
         var today = now.Date;

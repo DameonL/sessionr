@@ -214,6 +214,9 @@ export function TuneLibrary() {
                 <span className="tune-title">{tune.title}</span>
                 <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
                   {formatTuneType(tune.tuneType)} · {tune.key}
+                  {activeTab === 'popular' && (
+                    <> · 🔥 In {tune.repertoireCount} {tune.repertoireCount === 1 ? 'repertoire' : 'repertoires'}</>
+                  )}
                 </span>
               </Link>
             </li>
@@ -261,17 +264,6 @@ export function TuneLibrary() {
                   <option key={t} value={t}>{formatTuneType(t)}</option>
                 ))}
               </select>
-            </label>
-
-            <label style={{ flex: 1 }}>
-              Key (Auto-detected)
-              <input
-                type="text"
-                placeholder="Auto-detected from K:"
-                value={addKeyOverride || extractKeyFromAbc(addAbc)}
-                onChange={(e) => setAddKeyOverride(e.target.value)}
-                style={{ display: 'block', width: '100%', marginTop: '0.35rem' }}
-              />
             </label>
           </div>
 

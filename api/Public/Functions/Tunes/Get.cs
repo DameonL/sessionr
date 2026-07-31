@@ -72,7 +72,7 @@ public class Get(AppDbContext db)
         var results = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key))
+            .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key, t.RepertoireCount))
             .ToListAsync();
 
 

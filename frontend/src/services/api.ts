@@ -291,6 +291,7 @@ export interface TuneSummary {
   title: string
   tuneType: string
   key: string
+  repertoireCount: number
 }
 
 export interface TuneSetting {

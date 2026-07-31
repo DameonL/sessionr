@@ -45,6 +45,6 @@ public class Post(TheSessionImportService importService, ILogger<Post> logger)
 
         logger.LogInformation("Imported thesession.org tune {Id} as '{Title}'", body.TheSessionId, tune.Title);
 
-        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key));
+        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount));
     }
 }
