@@ -151,8 +151,8 @@ export function TuneLibrary() {
       </div>
 
       {activeTab === 'search' && (
-        <form onSubmit={handleSearchSubmit} className="detail-controls" style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          <div style={{ flex: 1, minWidth: '220px' }}>
+        <form onSubmit={handleSearchSubmit} className="detail-controls" style={{ display: 'block', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div style={{ minWidth: '220px' }}>
             <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Search by name</label>
             <input
               className="search-box"
@@ -163,35 +163,37 @@ export function TuneLibrary() {
               style={{ width: '100%' }}
             />
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Filter by type</label>
-            <select value={filterTypeInput} onChange={(e) => setFilterTypeInput(e.target.value)}>
-              <option value="">All types</option>
-              {TUNE_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {formatTuneType(type)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap' }}>
-            🔍 Search
-          </button>
-          {(hasSearchQuery || searchInput || filterTypeInput) && (
-            <button
-              type="button"
-              className="secondary"
-              style={{ padding: '0.45rem 1rem', whiteSpace: 'nowrap' }}
-              onClick={() => {
-                setSearchInput('')
-                setFilterTypeInput('')
-                setSubmittedSearch('')
-                setSubmittedType('')
-              }}
-            >
-              ✕ Clear
+          <div style={{ display: "flex", columnGap: "1rem" }}>
+            <span>
+              <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.85rem' }}>Filter by type</label>
+              <select value={filterTypeInput} onChange={(e) => setFilterTypeInput(e.target.value)}>
+                <option value="">All types</option>
+                {TUNE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {formatTuneType(type)}
+                  </option>
+                ))}
+              </select>
+            </span>
+            <button type="submit" style={{ padding: '0.45rem 1.25rem', whiteSpace: 'nowrap', marginTop: "auto" }}>
+              🔍 Search
             </button>
-          )}
+            {(hasSearchQuery || searchInput || filterTypeInput) && (
+              <button
+                type="button"
+                className="secondary"
+                style={{ padding: '0.45rem 1rem', whiteSpace: 'nowrap', marginTop: "auto" }}
+                onClick={() => {
+                  setSearchInput('')
+                  setFilterTypeInput('')
+                  setSubmittedSearch('')
+                  setSubmittedType('')
+                }}
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
         </form>
       )}
 
@@ -215,7 +217,7 @@ export function TuneLibrary() {
                 <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
                   {formatTuneType(tune.tuneType)} · {tune.key}
                   {activeTab === 'popular' && (
-                    <> · 🔥 In {tune.repertoireCount} {tune.repertoireCount === 1 ? 'repertoire' : 'repertoires'}</>
+                    <> · In {tune.repertoireCount} {tune.repertoireCount === 1 ? 'repertoire' : 'repertoires'}</>
                   )}
                 </span>
               </Link>
