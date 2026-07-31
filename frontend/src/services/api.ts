@@ -741,13 +741,16 @@ export interface GroupCommonTune {
   totalMembersInGroup: number
 }
 
-export type GroupFeedEventType = 'TuneLearned' | 'MemberJoined'
+export type GroupFeedEventType = 'TuneLearned' | 'MemberJoined' | 'GroupTuneAdded' | 'GroupTuneRemoved'
+  | 'SessionScheduled' | 'SessionCancelled' | 'AnnouncementPosted' | 'GroupSetCreated' | 'StreakMilestone' | 'BadgeEarned'
 
 export interface GroupFeedEventData {
   memberName: string
   eventType: GroupFeedEventType
   tuneTitles: string[]
   createdAt: string
+  /** Pre-built action clause for event types that aren't rendered from tuneTitles (sessions, announcements, sets, milestones). */
+  detail?: string
 }
 
 export interface GroupTuneListItem {

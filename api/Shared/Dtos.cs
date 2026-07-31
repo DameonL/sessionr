@@ -267,9 +267,24 @@ public record GroupMemberDto(Guid UserId, string DisplayName, string Role);
 
 public record GroupCommonTuneDto(Guid TuneId, string Title, string TuneType, string Key, int MemberCount, int TotalMembersInGroup);
 
-public record GroupFeedEventDto(string MemberName, string EventType, List<string> TuneTitles, DateTime CreatedAt);
+public record GroupFeedEventDto(string MemberName, string EventType, List<string> TuneTitles, DateTime CreatedAt, string? Detail = null);
 
 public record TuneLearnedPayload(List<Guid> TuneIds);
+
+/// <summary>Payload for GroupTuneAdded / GroupTuneRemoved feed events — the tune(s) an admin added to or removed from the group's master list.</summary>
+public record GroupTuneChangePayload(List<Guid> TuneIds);
+
+/// <summary>Payload for SessionScheduled / SessionCancelled feed events. WhenText is the session start pre-formatted in the group's timezone; Count is how many sessions the create produced (weekly repeats).</summary>
+public record GroupSessionFeedPayload(string Title, string WhenText, int Count = 1);
+
+/// <summary>Payload for AnnouncementPosted / GroupSetCreated feed events — the title of the announcement or set.</summary>
+public record GroupFeedTitlePayload(string Title);
+
+/// <summary>Payload for StreakMilestone feed events — the streak length crossed (7/30/100/365).</summary>
+public record StreakMilestonePayload(int Days);
+
+/// <summary>Payload for BadgeEarned feed events. Label is the display name resolved at write time (badge labels live in code, not the DB).</summary>
+public record BadgeEarnedPayload(string BadgeKey, string Label);
 
 public record GroupScheduleExceptionDto(Guid GroupScheduleExceptionId, Guid GroupMeetingScheduleId, DateTime ExceptionDate);
 

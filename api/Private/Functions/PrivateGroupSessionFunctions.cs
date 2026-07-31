@@ -93,6 +93,10 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         db.GroupSessions.AddRange(sessions);
         await db.SaveChangesAsync();
 
+        var groupTimeZone = await db.Groups.Where(g => g.GroupId == groupId).Select(g => g.TimeZone).FirstOrDefaultAsync();
+        await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.SessionScheduled,
+            new GroupSessionFeedPayload(sessions[0].Title, FormatInGroupTimeZone(sessions[0].StartsAt, groupTimeZone), sessions.Count));
+
         var createdByUser = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.UserId == callerUserId.Value);
         return new OkObjectResult(sessions.Select(gs => GroupSessionSupport.ToDto(gs, callerUserId.Value, createdByUser?.DisplayName ?? "Member")).ToList());
     }
@@ -130,6 +134,8 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
+        var wasCancelled = session.IsCancelled;
+
         if (!string.IsNullOrWhiteSpace(body.Title))
         {
             session.Title = body.Title.Trim();
@@ -156,6 +162,13 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         }
 
         await db.SaveChangesAsync();
+
+        if (body.IsCancelled == true && !wasCancelled)
+        {
+            var groupTimeZone = await db.Groups.Where(g => g.GroupId == groupId).Select(g => g.TimeZone).FirstOrDefaultAsync();
+            await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.SessionCancelled,
+                new GroupSessionFeedPayload(session.Title, FormatInGroupTimeZone(session.StartsAt, groupTimeZone)));
+        }
 
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
@@ -346,6 +359,23 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
         return TimeZoneInfo.ConvertTimeToUtc(unspecified, tz);
     }
 
+    /// <summary>Formats a UTC session start in the group's timezone for a human-readable feed line (falls back to UTC on an unknown zone id).</summary>
+    private static string FormatInGroupTimeZone(DateTime startsAtUtc, string? timeZoneId)
+    {
+        TimeZoneInfo tz;
+        try
+        {
+            tz = string.IsNullOrWhiteSpace(timeZoneId) ? TimeZoneInfo.Utc : TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch
+        {
+            tz = TimeZoneInfo.Utc;
+        }
+
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(startsAtUtc, DateTimeKind.Utc), tz);
+        return local.ToString("ddd, MMM d, h:mm tt");
+    }
+
     /// <summary>GET /api/me/upcoming-meetings — lightweight query of upcoming group meetings in the next 7 days for the caller's active groups.</summary>
     [Function("GetUpcomingMeetings")]
     public async Task<IActionResult> GetUpcomingMeetings(
@@ -521,17 +551,20 @@ public class PrivateGroupSessionFunctions(AppDbContext db)
                     fe.GroupId,
                     GroupName = fe.Group.Name,
                     EventType = fe.EventType,
+                    fe.Payload,
                     MemberName = fe.User.DisplayName,
                     fe.CreatedAt
                 })
                 .ToListAsync();
+
+            var activityTuneTitles = await GroupFeedSupport.ResolveTuneTitlesAsync(db, recentActivityEvents.Select(fe => fe.Payload));
 
             recentActivity = recentActivityEvents.Select(fe => new DashboardActivityFeedItemDto(
                 fe.GroupFeedEventId,
                 fe.GroupId,
                 fe.GroupName,
                 fe.EventType.ToString(),
-                fe.EventType == GroupFeedEventType.MemberJoined ? $"{fe.MemberName} joined the group" : $"{fe.MemberName} updated group tunes",
+                GroupFeedSupport.BuildSummaryText(fe.EventType, fe.MemberName, fe.Payload, GroupFeedSupport.TitlesForEvent(fe.EventType, fe.Payload, activityTuneTitles)),
                 fe.CreatedAt)).ToList();
         }
 

@@ -475,6 +475,20 @@ public class UserTuneFunctions(AppDbContext db, ILogger<UserTuneFunctions> logge
 
         await db.SaveChangesAsync();
 
+        // Surface newly-earned milestones to the user's groups. newBadges only ever contains genuinely new
+        // badges, so these fire once per milestone — streak badges become StreakMilestone, the rest BadgeEarned.
+        foreach (var badgeKey in newBadges)
+        {
+            if (GamificationService.TryGetStreakDays(badgeKey, out var days))
+            {
+                await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.StreakMilestone, new StreakMilestonePayload(days));
+            }
+            else
+            {
+                await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.BadgeEarned, new BadgeEarnedPayload(badgeKey, GamificationService.BadgeLabel(badgeKey)));
+            }
+        }
+
         return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
     }
 

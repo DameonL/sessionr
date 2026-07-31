@@ -360,6 +360,9 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupUpdates.Add(update);
         await db.SaveChangesAsync();
 
+        await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.AnnouncementPosted,
+            new GroupFeedTitlePayload(update.Title));
+
         var user = await db.Users.FindAsync(callerUserId.Value);
 
         return new OkObjectResult(new GroupUpdateDto(
@@ -1195,6 +1198,8 @@ public class PrivateGroupFunctions(AppDbContext db)
         db.GroupTunes.Add(groupTune);
         await db.SaveChangesAsync();
 
+        await GroupFeedSupport.RecordGroupTuneChangeAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupTuneAdded, body.TuneId);
+
         return new OkObjectResult(await GetGroupTuneAsync(groupTune.GroupTuneId));
     }
 
@@ -1263,8 +1268,11 @@ public class PrivateGroupFunctions(AppDbContext db)
             return new NotFoundResult();
         }
 
+        var removedTuneId = groupTune.TuneId;
         db.GroupTunes.Remove(groupTune);
         await db.SaveChangesAsync();
+
+        await GroupFeedSupport.RecordGroupTuneChangeAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupTuneRemoved, removedTuneId);
 
         return new NoContentResult();
     }

@@ -631,10 +631,17 @@ export function GroupDetail({ groupId }: { groupId: string }) {
                     <strong>{event.memberName}</strong>{' '}
                     {event.eventType === 'MemberJoined' ? (
                       'joined the group'
-                    ) : event.tuneTitles.length === 1 ? (
-                      <>learned <em>{event.tuneTitles[0]}</em></>
+                    ) : event.detail ? (
+                      event.detail
                     ) : (
-                      <>learned {event.tuneTitles.length} tunes: <em>{event.tuneTitles.join(', ')}</em></>
+                      <>
+                        {event.eventType === 'GroupTuneAdded' ? 'added' : event.eventType === 'GroupTuneRemoved' ? 'removed' : 'learned'}{' '}
+                        {event.tuneTitles.length === 1 ? (
+                          <em>{event.tuneTitles[0]}</em>
+                        ) : (
+                          <>{event.tuneTitles.length} tunes: <em>{event.tuneTitles.join(', ')}</em></>
+                        )}
+                      </>
                     )}
                   </p>
                   <span className="tune-meta" style={{ fontSize: '0.8rem', display: 'block', marginTop: '0.25rem' }}>

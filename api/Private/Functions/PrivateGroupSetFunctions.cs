@@ -111,6 +111,9 @@ public class PrivateGroupSetFunctions(AppDbContext db, SetAnalyzer analyzer)
         ApplyItems(groupSet, body.Items);
         await db.SaveChangesAsync();
 
+        await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupSetCreated,
+            new GroupFeedTitlePayload(groupSet.Title));
+
         return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSet.GroupSetId, callerUserId.Value);
     }
 
