@@ -11,6 +11,7 @@ import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran"
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
+import { applyCustomTripletSwing, isDupleMeter } from "../services/swing";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
 import {
   MetronomeControls,
@@ -579,14 +580,18 @@ export function SetPlayer({
     if (bandMode && voicesToUse.length === 0) return null;
 
     try {
+      const meter = visualObj.getMeterFraction();
+      const duple = isDupleMeter(meter);
+      const swingPercent = swingPercentRef.current;
+
       if (voicesToUse.length > 0) {
-        const meter = visualObj.getMeterFraction();
         const meterSize = meter.den ? meter.num / meter.den : 1;
         const tempoMultiplierSec = msPerMeasure / 1000 / meterSize;
         return await Promise.all(
           voicesToUse.map((voice) =>
             createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
-              swing: toAbcjsSwing(swingPercentRef.current),
+              swing: duple ? toAbcjsSwing(swingPercent) : undefined,
+              swingPercent,
               bodhran: useBodhran,
             }),
           ),
@@ -595,17 +600,20 @@ export function SetPlayer({
 
       const synth = new abcjs.synth.CreateSynth();
       const currentInst = instrumentsRef.current;
-      const bodhranPattern = useBodhran ? getBodhranDrumOption(visualObj.getMeterFraction()) : undefined;
+      const bodhranPattern = useBodhran ? getBodhranDrumOption(meter) : undefined;
 
       await synth.init({
         visualObj,
         millisecondsPerMeasure: msPerMeasure,
         options: {
           ...synthInstrumentOptions(currentInst),
-          swing: toAbcjsSwing(swingPercentRef.current),
+          swing: duple ? toAbcjsSwing(swingPercent) : undefined,
           drum: bodhranPattern,
           drumBars: bodhranPattern ? 1 : undefined,
           sequenceCallback: (tracks) => {
+            if (!duple && swingPercent > 0) {
+              tracks = applyCustomTripletSwing(tracks, swingPercent);
+            }
             return tracks.map((track, trackIdx) => {
               let prog: number | string = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
               if (track.length > 0 && track[0].instrument) {

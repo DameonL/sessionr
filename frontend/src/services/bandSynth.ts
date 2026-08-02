@@ -1,10 +1,12 @@
 import abcjs from 'abcjs'
 import { humanizeBackerTracks, type BandVoice } from './band'
 import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
-import { generateBodhranTrack, getBodhranDrumOption } from './bodhran'
+import { getBodhranDrumOption } from './bodhran'
+import { applyCustomTripletSwing, isDupleMeter } from './swing'
 
 export interface BandSynthOptions extends abcjs.SynthOptions {
   bodhran?: boolean
+  swingPercent?: number
 }
 
 /**
@@ -33,30 +35,34 @@ export async function createBandSynth(
   const isBacker = voice.role === 'backer'
   const isBodhran = !!extraOptions?.bodhran && voice.role === 'leader'
   const bodhranPattern = isBodhran ? getBodhranDrumOption(visualObj.getMeterFraction()) : undefined
+  const meter = visualObj.getMeterFraction()
+  const duple = isDupleMeter(meter)
+  const swingPercent = extraOptions?.swingPercent ?? 0
 
   await synth.init({
     visualObj,
     millisecondsPerMeasure: msPerMeasure,
     options: {
       ...extraOptions,
+      swing: duple ? extraOptions?.swing : undefined,
       program: voice.program,
       chordprog: voice.program,
       bassprog: voice.program,
       pan: [voice.pan, voice.pan, voice.pan],
       drum: bodhranPattern || extraOptions?.drum,
       drumBars: bodhranPattern ? 1 : extraOptions?.drumBars,
-      sequenceCallback:
-        isSubdivided || isBacker
-          ? (tracks: abcjs.NoteMapTrack[]) => {
-              if (isSubdivided) {
-                tracks = tracks.map((track) => subdivideLongNotes(track))
-              }
-              if (isBacker) {
-                humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
-              }
-              return tracks
-            }
-          : undefined,
+      sequenceCallback: (tracks: abcjs.NoteMapTrack[]) => {
+        if (!duple && swingPercent > 0) {
+          tracks = applyCustomTripletSwing(tracks, swingPercent)
+        }
+        if (isSubdivided) {
+          tracks = tracks.map((track) => subdivideLongNotes(track))
+        }
+        if (isBacker) {
+          humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
+        }
+        return tracks
+      },
     },
   })
   await synth.prime()
