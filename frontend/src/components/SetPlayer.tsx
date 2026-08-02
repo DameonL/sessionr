@@ -696,10 +696,10 @@ export function SetPlayer({
         targetFraction = oldTuneDuration > 0 ? remaining / oldTuneDuration : 0;
       }
 
-      const voices = await buildSynthsForTune(targetIndex, effectiveBpm);
+      const synthResults = await Promise.all(items.map((_, idx) => buildSynthsForTune(idx, effectiveBpm)));
       if (playSessionRef.current !== mySession) return;
-      if (!voices) throw new Error("Could not build synths for tune.");
-      synthsRef.current[targetIndex] = voices;
+      if (synthResults.some((v) => !v)) throw new Error("Could not build synths for set.");
+      synthsRef.current = synthResults as abcjs.MidiBuffer[][];
 
       setStatus("playing");
       setCurrentBpm(effectiveBpm);
@@ -810,7 +810,12 @@ export function SetPlayer({
           timer.start(0);
           return "continue";
         } else if (index + 1 < items.length) {
-          advanceToTune(index + 1, bpm);
+          const nextIndex = index + 1;
+          if (synthsRef.current[nextIndex] && synthsRef.current[nextIndex].length > 0) {
+            startTune(nextIndex, bpm);
+            return "continue";
+          }
+          advanceToTune(nextIndex, bpm);
         } else {
           // Reached end of entire tune/set. Check Speed Trainer.
           const activeTrainer = trainerRef.current;
@@ -831,6 +836,10 @@ export function SetPlayer({
           if (repeatRef.current) {
             if (repeatLimitRef.current === null || setPassRef.current < repeatLimitRef.current) {
               setPassRef.current++;
+              if (synthsRef.current[0] && synthsRef.current[0].length > 0) {
+                startTune(0, bpm);
+                return "continue";
+              }
               advanceToTune(0, bpm);
             } else {
               stop();

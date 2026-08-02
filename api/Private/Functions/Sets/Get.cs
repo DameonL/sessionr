@@ -41,7 +41,7 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
                         i.Repetitions,
                         i.UserTune.Tune.Title,
                         i.UserTune.Tune.TuneType,
-                        i.UserTune.Tune.Key
+                        Key = i.UserTune.TuneSetting != null ? i.UserTune.TuneSetting.Key : i.UserTune.Tune.Key
                     })
                     .ToList()
             })

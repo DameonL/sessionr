@@ -27,6 +27,11 @@ interface Draft {
   groupSetId: string | null
   title: string
   items: DraftItem[]
+  isCustomTitle?: boolean
+}
+
+function generateDefaultSetTitle(items: { title: string }[]): string {
+  return items.map((i) => i.title).join(' / ')
 }
 
 const DEFAULT_REPETITIONS = 3
@@ -75,18 +80,22 @@ export function GroupSetBuilder({
     },
   })
 
-  const startEdit = (set: GroupSetSummaryData) =>
+  const startEdit = (set: GroupSetSummaryData) => {
+    const items = set.items.map(({ groupTuneId, title, tuneType, key, repetitions }) => ({
+      groupTuneId,
+      title,
+      tuneType,
+      key,
+      repetitions,
+    }))
+    const defaultTitle = generateDefaultSetTitle(items)
     setDraft({
       groupSetId: set.groupSetId,
       title: set.title,
-      items: set.items.map(({ groupTuneId, title, tuneType, key, repetitions }) => ({
-        groupTuneId,
-        title,
-        tuneType,
-        key,
-        repetitions,
-      })),
+      items,
+      isCustomTitle: set.title !== defaultTitle,
     })
+  }
 
   if (draft) {
     return (
@@ -113,7 +122,7 @@ export function GroupSetBuilder({
       </p>
 
       {isAdmin && (
-        <button onClick={() => setDraft({ groupSetId: null, title: '', items: [] })}>+ New Set</button>
+        <button onClick={() => setDraft({ groupSetId: null, title: '', items: [], isCustomTitle: false })}>+ New Set</button>
       )}
 
       {sets.isPending && <p>Loading…</p>}
@@ -187,18 +196,30 @@ function GroupSetEditor({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
-  const addItem = (item: Omit<DraftItem, 'repetitions'>) =>
+  const updateDraftItems = (newItems: DraftItem[]) => {
+    const nextTitle = draft.isCustomTitle
+      ? draft.title
+      : generateDefaultSetTitle(newItems)
     setDraft({
       ...draft,
-      items: [...draft.items, { ...item, repetitions: DEFAULT_REPETITIONS }],
+      title: nextTitle,
+      items: newItems,
     })
+  }
+
+  const addItem = (item: Omit<DraftItem, 'repetitions'>) =>
+    updateDraftItems([...draft.items, { ...item, repetitions: DEFAULT_REPETITIONS }])
 
   const move = (from: number, to: number) => {
     if (to < 0 || to >= draft.items.length) return
     const items = [...draft.items]
     const [moved] = items.splice(from, 1)
     items.splice(to, 0, moved)
-    setDraft({ ...draft, items })
+    updateDraftItems(items)
+  }
+
+  const removeItem = (index: number) => {
+    updateDraftItems(draft.items.filter((_, i) => i !== index))
   }
 
   const setRepetitions = (index: number, repetitions: number) => {
@@ -216,7 +237,7 @@ function GroupSetEditor({
         type="text"
         placeholder="Set title"
         value={draft.title}
-        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+        onChange={(e) => setDraft({ ...draft, title: e.target.value, isCustomTitle: true })}
       />
 
       <h3>Tunes in this set</h3>
@@ -259,7 +280,7 @@ function GroupSetEditor({
               <button onClick={() => move(index, index + 1)} aria-label="Move down">▼</button>
               <button
                 className="danger"
-                onClick={() => setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })}
+                onClick={() => removeItem(index)}
                 aria-label="Remove"
               >
                 ✕

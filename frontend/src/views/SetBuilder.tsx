@@ -33,6 +33,11 @@ interface Draft {
   setId: string | null
   title: string
   items: DraftItem[]
+  isCustomTitle?: boolean
+}
+
+function generateDefaultSetTitle(items: { title: string }[]): string {
+  return items.map((i) => i.title).join(' / ')
 }
 
 const DEFAULT_REPETITIONS = 3
@@ -70,18 +75,22 @@ export function SetBuilder() {
     },
   })
 
-  const startEdit = (set: TuneSetSummary) =>
+  const startEdit = (set: TuneSetSummary) => {
+    const items = set.items.map(({ userTuneId, title, tuneType, key, repetitions }) => ({
+      userTuneId,
+      title,
+      tuneType,
+      key,
+      repetitions,
+    }))
+    const defaultTitle = generateDefaultSetTitle(items)
     setDraft({
       setId: set.setId,
       title: set.title,
-      items: set.items.map(({ userTuneId, title, tuneType, key, repetitions }) => ({
-        userTuneId,
-        title,
-        tuneType,
-        key,
-        repetitions,
-      })),
+      items,
+      isCustomTitle: set.title !== defaultTitle,
     })
+  }
 
   if (draft) {
     return (
@@ -103,7 +112,7 @@ export function SetBuilder() {
   return (
     <section>
       <h1>Set Builder</h1>
-      <button onClick={() => setDraft({ setId: null, title: '', items: [] })}>+ New set</button>
+      <button onClick={() => setDraft({ setId: null, title: '', items: [], isCustomTitle: false })}>+ New set</button>
 
       {sets.isPending && <p>Loading…</p>}
       {(sets.data ?? []).map((set) => (
@@ -180,11 +189,19 @@ function SetEditor({
     enabled: !!userId,
   })
 
-  const addItem = (item: Omit<DraftItem, 'repetitions'>) =>
+  const updateDraftItems = (newItems: DraftItem[]) => {
+    const nextTitle = draft.isCustomTitle
+      ? draft.title
+      : generateDefaultSetTitle(newItems)
     setDraft({
       ...draft,
-      items: [...draft.items, { ...item, repetitions: DEFAULT_REPETITIONS }],
+      title: nextTitle,
+      items: newItems,
     })
+  }
+
+  const addItem = (item: Omit<DraftItem, 'repetitions'>) =>
+    updateDraftItems([...draft.items, { ...item, repetitions: DEFAULT_REPETITIONS }])
 
   const previewItems = draft.items
     .map((item) => ({
@@ -200,7 +217,11 @@ function SetEditor({
     const items = [...draft.items]
     const [moved] = items.splice(from, 1)
     items.splice(to, 0, moved)
-    setDraft({ ...draft, items })
+    updateDraftItems(items)
+  }
+
+  const removeItem = (index: number) => {
+    updateDraftItems(draft.items.filter((_, i) => i !== index))
   }
 
   const setRepetitions = (index: number, repetitions: number) => {
@@ -235,7 +256,7 @@ function SetEditor({
         type="text"
         placeholder="Set title"
         value={draft.title}
-        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+        onChange={(e) => setDraft({ ...draft, title: e.target.value, isCustomTitle: true })}
       />
 
       <h2>Tunes in this set</h2>
@@ -280,9 +301,7 @@ function SetEditor({
               <button onClick={() => move(index, index + 1)} aria-label="Move down">▼</button>
               <button
                 className="danger"
-                onClick={() =>
-                  setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })
-                }
+                onClick={() => removeItem(index)}
                 aria-label="Remove"
               >
                 ✕

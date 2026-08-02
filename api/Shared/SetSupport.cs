@@ -34,7 +34,11 @@ public static class SetSupport
     {
         var ordered = set.Items.OrderBy(i => i.SequenceNumber).ToList();
         var analysis = analyzer.Analyze(ordered
-            .Select(i => (i.UserTune.Tune.Title, i.UserTune.Tune.TuneType, i.UserTune.Tune.Key, i.Repetitions))
+            .Select(i => (
+                i.UserTune.Tune.Title,
+                i.UserTune.Tune.TuneType,
+                i.UserTune.TuneSetting?.Key ?? i.UserTune.Tune.Key,
+                i.Repetitions))
             .ToList());
 
         return new
@@ -42,9 +46,14 @@ public static class SetSupport
             set.SetId,
             set.Title,
             Items = ordered.Select(i => new SetItemDto(
-                i.UserTuneId, i.SequenceNumber, i.Repetitions, i.UserTune.Tune.Title,
-                i.UserTune.Tune.TuneType.ToString(), i.UserTune.Tune.Key,
-                i.UserTune.CustomAbcText ?? i.UserTune.Tune.MasterAbcText)).ToList(),
+                i.UserTuneId,
+                i.SequenceNumber,
+                i.Repetitions,
+                i.UserTune.Tune.Title,
+                i.UserTune.Tune.TuneType.ToString(),
+                i.UserTune.TuneSetting?.Key ?? i.UserTune.Tune.Key,
+                i.UserTune.CustomAbcText ?? (i.UserTune.TuneSetting != null ? i.UserTune.TuneSetting.AbcText : i.UserTune.Tune.MasterAbcText)
+            )).ToList(),
             Analysis = analysis,
         };
     }
@@ -56,6 +65,9 @@ public static class SetSupport
             .Include(s => s.Items.OrderBy(i => i.SequenceNumber))
             .ThenInclude(i => i.UserTune)
             .ThenInclude(ut => ut.Tune)
+            .Include(s => s.Items)
+            .ThenInclude(i => i.UserTune)
+            .ThenInclude(ut => ut.TuneSetting)
             .SingleOrDefaultAsync(s => s.SetId == setId);
 
         return set is null ? new NotFoundResult() : new OkObjectResult(ToDto(set, analyzer));
