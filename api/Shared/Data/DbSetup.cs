@@ -76,21 +76,25 @@ public static class DbSetup
         }
         else
         {
-            // EnsureCreated is the first time we actually reach Cosmos. It runs in Program.Main
-            // before app.Run(), so any exception here kills the isolated worker at startup and the
-            // Functions host only reports "worker exited" with no detail. Log the real cause first.
+            // EnsureCreated is the first time we actually reach Cosmos, and it runs in Program.Main
+            // BEFORE app.Run(). Two consequences:
+            //   1. An unhandled throw here kills the isolated worker before it can serve function
+            //      metadata, so the host only reports "worker exited" (WorkerProcessExitException).
+            //   2. ILogger output before app.Run() never reaches the host's gRPC log channel, so it
+            //      is lost. We write the real exception to stderr, which the host DOES capture.
+            // So: never let DB provisioning take down the worker — log and continue. Containers get
+            // (re)created lazily on first use if this initial attempt failed.
             try
             {
                 db.Database.EnsureCreated();
             }
             catch (Exception ex)
             {
+                Console.Error.WriteLine("[DbSetup] Cosmos EnsureCreated failed at startup (worker will still " +
+                    "start; database endpoints may be degraded until this is resolved):");
+                Console.Error.WriteLine(ex);
                 var logger = services.GetService<ILoggerFactory>()?.CreateLogger(typeof(DbSetup).FullName!);
-                logger?.LogCritical(ex,
-                    "Cosmos database initialization failed at startup. Verify CosmosConnectionString is a valid " +
-                    "Cosmos DB for NoSQL connection string (AccountEndpoint=...;AccountKey=...) and that the account " +
-                    "is reachable. The worker will now exit.");
-                throw;
+                logger?.LogError(ex, "Cosmos database initialization failed at startup.");
             }
         }
     }
