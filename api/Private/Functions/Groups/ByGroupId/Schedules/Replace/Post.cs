@@ -39,10 +39,18 @@ public class Post(AppDbContext db)
         }
 
         var existingSchedules = await db.GroupMeetingSchedules
-            .Include(s => s.Exceptions)
             .Where(s => s.GroupId == groupId)
             .ToListAsync();
 
+        // Exceptions are separate Cosmos documents, so delete them explicitly (no cascade delete).
+        var existingScheduleIds = existingSchedules.Select(s => s.GroupMeetingScheduleId).ToList();
+        if (existingScheduleIds.Count > 0)
+        {
+            var existingExceptions = await db.GroupScheduleExceptions
+                .Where(e => existingScheduleIds.Contains(e.GroupMeetingScheduleId))
+                .ToListAsync();
+            db.GroupScheduleExceptions.RemoveRange(existingExceptions);
+        }
         db.GroupMeetingSchedules.RemoveRange(existingSchedules);
 
         var newSchedules = new List<GroupMeetingSchedule>();

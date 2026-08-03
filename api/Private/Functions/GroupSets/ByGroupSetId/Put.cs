@@ -24,7 +24,7 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var groupSet = await db.GroupSets.Include(gs => gs.Items).SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
+        var groupSet = await db.GroupSets.SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
         if (groupSet is null)
         {
             return new NotFoundResult();
@@ -38,9 +38,10 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
         }
 
         groupSet.Title = body!.Title.Trim();
-        db.GroupSetItems.RemoveRange(groupSet.Items);
-        groupSet.Items.Clear();
-        Groups.ByGroupId.Sets.Post.ApplyItems(groupSet, body.Items);
+        // Items are separate Cosmos documents; delete the existing ones explicitly, then re-add.
+        var existingItems = await db.GroupSetItems.Where(gsi => gsi.GroupSetId == groupSetId).ToListAsync();
+        db.GroupSetItems.RemoveRange(existingItems);
+        Groups.ByGroupId.Sets.Post.ApplyItems(db, groupSet, body.Items);
         await db.SaveChangesAsync();
 
         return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, callerUserId.Value);

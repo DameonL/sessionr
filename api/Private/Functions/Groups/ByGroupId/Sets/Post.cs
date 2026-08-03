@@ -36,7 +36,7 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
 
         var groupSet = new GroupSet { GroupId = groupId, Title = body!.Title.Trim() };
         db.GroupSets.Add(groupSet);
-        ApplyItems(groupSet, body.Items);
+        ApplyItems(db, groupSet, body.Items);
         await db.SaveChangesAsync();
 
         await RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupSetCreated,
@@ -79,12 +79,15 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         return (null, body);
     }
 
-    internal static void ApplyItems(GroupSet groupSet, List<SaveGroupSetItem> items)
+    // Adds items through the GroupSetItem DbSet keyed by GroupSetId rather than the groupSet.Items
+    // navigation, which Cosmos doesn't persist across documents.
+    internal static void ApplyItems(AppDbContext db, GroupSet groupSet, List<SaveGroupSetItem> items)
     {
         for (var i = 0; i < items.Count; i++)
         {
-            groupSet.Items.Add(new GroupSetItem
+            db.GroupSetItems.Add(new GroupSetItem
             {
+                GroupSetId = groupSet.GroupSetId,
                 GroupTuneId = items[i].GroupTuneId,
                 SequenceNumber = i + 1,
                 Repetitions = Math.Clamp(items[i].Repetitions, 1, 9),

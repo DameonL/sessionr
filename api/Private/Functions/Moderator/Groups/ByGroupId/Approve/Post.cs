@@ -24,7 +24,7 @@ public class Post(AppDbContext db)
             return Forbidden("Moderator access required.");
         }
 
-        var group = await db.Groups.Include(g => g.Memberships).SingleOrDefaultAsync(g => g.GroupId == groupId);
+        var group = await db.Groups.SingleOrDefaultAsync(g => g.GroupId == groupId);
         if (group is null)
         {
             return new NotFoundResult();
@@ -36,6 +36,9 @@ public class Post(AppDbContext db)
         group.ReviewedBy = caller.Email ?? caller.DisplayName ?? caller.UserId?.ToString() ?? "Moderator";
 
         await db.SaveChangesAsync();
-        return new OkObjectResult(new UnreviewedGroups.Get.ModeratorGroupDto(group.GroupId, group.Name, group.Description, group.City, group.IsPrivate, group.InviteCode, group.IsReviewed, group.ReviewedAt, group.ReviewedBy, group.CreatedAt, group.Memberships.Count));
+
+        // Memberships are separate documents; count them directly rather than via an Include.
+        var memberCount = await db.GroupMemberships.CountAsync(m => m.GroupId == groupId);
+        return new OkObjectResult(new UnreviewedGroups.Get.ModeratorGroupDto(group.GroupId, group.Name, group.Description, group.City, group.IsPrivate, group.InviteCode, group.IsReviewed, group.ReviewedAt, group.ReviewedBy, group.CreatedAt, memberCount));
     }
 }

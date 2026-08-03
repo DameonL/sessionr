@@ -1,8 +1,10 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
@@ -23,7 +25,7 @@ public class Delete(AppDbContext db)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var groupSet = await db.GroupSets.FindAsync(groupSetId);
+        var groupSet = await db.GroupSets.SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
         if (groupSet is null)
         {
             return new NotFoundResult();
@@ -35,6 +37,9 @@ public class Delete(AppDbContext db)
             return Forbidden("Only group administrators or moderators can delete set lists.");
         }
 
+        // No cascade delete in Cosmos — remove the set's items (separate documents) explicitly.
+        var items = await db.GroupSetItems.Where(gsi => gsi.GroupSetId == groupSetId).ToListAsync();
+        db.GroupSetItems.RemoveRange(items);
         db.GroupSets.Remove(groupSet);
         await db.SaveChangesAsync();
         return new NoContentResult();

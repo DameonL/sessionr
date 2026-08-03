@@ -29,27 +29,24 @@ public class Get(AppDbContext db)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var userTunes = db.UserTunes.AsNoTracking().Where(ut => ut.UserId == callerUserId.Value);
+        // Cosmos (via EF) doesn't translate GroupBy, and byType needs the referenced Tune document, so
+        // load the user's repertoire once and aggregate in memory. A personal repertoire is bounded.
+        var userTunes = await db.UserTunes.AsNoTracking().Where(ut => ut.UserId == callerUserId.Value).ToListAsync();
 
-        var totalCount = await userTunes.CountAsync();
+        var totalCount = userTunes.Count;
 
-        var byStatusRows = await userTunes
+        var byStatus = userTunes
             .GroupBy(ut => ut.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
-            .ToListAsync();
-        var byStatus = byStatusRows.ToDictionary(x => x.Status.ToString(), x => x.Count);
+            .ToDictionary(g => g.Key.ToString(), g => g.Count());
 
-        var byTypeRows = await userTunes
+        await SetSupport.PopulateTuneAndSettingAsync(db, userTunes);
+        var byType = userTunes
             .GroupBy(ut => ut.Tune.TuneType)
-            .Select(g => new { TuneType = g.Key, Count = g.Count() })
-            .ToListAsync();
-        var byType = byTypeRows.ToDictionary(x => x.TuneType.ToString(), x => x.Count);
+            .ToDictionary(g => g.Key.ToString(), g => g.Count());
 
         var rustyCutoff = DateTime.UtcNow - RustThreshold;
-        var rustyCount = await userTunes
-            .Where(ut => ut.Status == TuneStatus.Active
-                && (ut.LastPracticed == null || ut.LastPracticed < rustyCutoff))
-            .CountAsync();
+        var rustyCount = userTunes.Count(ut => ut.Status == TuneStatus.Active
+            && (ut.LastPracticed == null || ut.LastPracticed < rustyCutoff));
 
         return new OkObjectResult(new RepertoireStatsDto(totalCount, byStatus, byType, rustyCount));
     }

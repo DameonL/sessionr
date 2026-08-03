@@ -35,7 +35,7 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
 
         var set = new Set { UserId = callerUserId.Value, Title = body!.Title.Trim() };
         db.Sets.Add(set);
-        ApplyItems(set, body.Items);
+        ApplyItems(db, set, body.Items);
         await db.SaveChangesAsync();
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, set.SetId);
@@ -67,12 +67,15 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         return null;
     }
 
-    internal static void ApplyItems(Set set, List<SaveSetItem> items)
+    // Adds items through the SetItem DbSet keyed by SetId (client-generated, so available before save)
+    // rather than the set.Items navigation, which Cosmos doesn't persist across documents.
+    internal static void ApplyItems(AppDbContext db, Set set, List<SaveSetItem> items)
     {
         for (var i = 0; i < items.Count; i++)
         {
-            set.Items.Add(new SetItem
+            db.SetItems.Add(new SetItem
             {
+                SetId = set.SetId,
                 UserTuneId = items[i].UserTuneId,
                 SequenceNumber = i + 1,
                 Repetitions = Math.Clamp(items[i].Repetitions, 1, 9),

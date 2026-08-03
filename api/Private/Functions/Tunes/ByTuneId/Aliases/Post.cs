@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
@@ -29,7 +30,7 @@ public class Post(AppDbContext db)
             return new BadRequestObjectResult("Name is required.");
         }
 
-        var tune = await db.Tunes.FindAsync(tuneId);
+        var tune = await db.Tunes.SingleOrDefaultAsync(t => t.TuneId == tuneId);
         if (tune is null)
         {
             return new NotFoundResult();

@@ -51,8 +51,6 @@ public class Post(AppDbContext db)
         }
 
         var session = await db.GroupSessions
-            .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .FirstOrDefaultAsync(gs => gs.GroupId == groupId && gs.StartsAt == utcStartsAt);
 
         if (session is null)
@@ -67,14 +65,11 @@ public class Post(AppDbContext db)
             };
             db.GroupSessions.Add(session);
             await db.SaveChangesAsync();
-
-            session = await db.GroupSessions
-                .Include(gs => gs.CreatedByUser)
-                .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
-                .SingleAsync(gs => gs.GroupSessionId == session.GroupSessionId);
         }
 
-        var rsvp = session.Rsvps.FirstOrDefault(r => r.UserId == callerUserId.Value);
+        // RSVPs are separate documents; fetch this user's directly rather than via session.Rsvps.
+        var rsvp = await db.SessionRsvps
+            .SingleOrDefaultAsync(r => r.GroupSessionId == session.GroupSessionId && r.UserId == callerUserId.Value);
         if (rsvp is null)
         {
             rsvp = new SessionRsvp { GroupSessionId = session.GroupSessionId, UserId = callerUserId.Value };
@@ -85,6 +80,7 @@ public class Post(AppDbContext db)
 
         await db.SaveChangesAsync();
 
+        await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
 }

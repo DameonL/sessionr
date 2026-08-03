@@ -24,18 +24,26 @@ public class Get(AppDbContext db)
             return new UnauthorizedResult();
         }
 
-        var requests = await db.Friendships
+        var pending = await db.Friendships
             .AsNoTracking()
             .Where(f => f.Status == FriendshipStatus.Pending && f.ReceiverId == callerUserId.Value)
-            .Include(f => f.Requester)
             .OrderByDescending(f => f.CreatedAt)
-            .Select(f => new FriendRequestDto(
+            .ToListAsync();
+
+        // The requester is a separate User document — stitch by id.
+        var requesterIds = pending.Select(f => f.RequesterId).Distinct().ToList();
+        var requesters = await db.Users.AsNoTracking().Where(u => requesterIds.Contains(u.UserId)).ToDictionaryByIdAsync(u => u.UserId);
+
+        var requests = pending.Select(f =>
+        {
+            var requester = requesters.GetValueOrDefault(f.RequesterId);
+            return new FriendRequestDto(
                 f.FriendshipId,
                 f.RequesterId,
-                f.Requester.DisplayName,
-                f.Requester.Username,
-                f.CreatedAt))
-            .ToListAsync();
+                requester?.DisplayName ?? "",
+                requester?.Username,
+                f.CreatedAt);
+        }).ToList();
 
         return new OkObjectResult(requests);
     }

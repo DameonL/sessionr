@@ -25,7 +25,7 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var set = await db.Sets.Include(s => s.Items).SingleOrDefaultAsync(s => s.SetId == setId && s.UserId == callerUserId.Value);
+        var set = await db.Sets.SingleOrDefaultAsync(s => s.SetId == setId && s.UserId == callerUserId.Value);
         if (set is null)
         {
             return new NotFoundResult();
@@ -40,9 +40,10 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
         }
 
         set.Title = body!.Title.Trim();
-        db.SetItems.RemoveRange(set.Items);
-        set.Items.Clear();
-        Post.ApplyItems(set, body.Items);
+        // Items are separate Cosmos documents; delete the existing ones explicitly, then re-add.
+        var existingItems = await db.SetItems.Where(si => si.SetId == setId).ToListAsync();
+        db.SetItems.RemoveRange(existingItems);
+        Post.ApplyItems(db, set, body.Items);
         await db.SaveChangesAsync();
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, setId);

@@ -50,31 +50,32 @@ public class Get(AppDbContext db)
                     .Where(fe => activeGroupIds.Contains(fe.GroupId) && fe.UserId != userId)
                     .OrderByDescending(fe => fe.CreatedAt)
                     .Take(150) // fetch upper bound pool to merge
-                    .Select(fe => new {
-                        fe.GroupFeedEventId,
-                        fe.GroupId,
-                        GroupName = fe.Group.Name,
-                        EventType = fe.EventType,
-                        fe.Payload,
-                        MemberName = fe.User.DisplayName,
-                        MemberUsername = fe.User.Username,
-                        fe.CreatedAt
-                    })
+                    .Select(fe => new { fe.GroupFeedEventId, fe.GroupId, fe.EventType, fe.Payload, fe.UserId, fe.CreatedAt })
                     .ToListAsync();
 
+                // Group name + actor name/username are separate documents — resolve by id.
+                var geGroupIds = groupEvents.Select(e => e.GroupId).Distinct().ToList();
+                var geGroupNames = await db.Groups.AsNoTracking().Where(g => geGroupIds.Contains(g.GroupId)).ToDictionaryAsync(g => g.GroupId, g => g.Name);
+                var geUserIds = groupEvents.Select(e => e.UserId).Distinct().ToList();
+                var geUsers = await db.Users.AsNoTracking().Where(u => geUserIds.Contains(u.UserId)).ToDictionaryByIdAsync(u => u.UserId);
                 var activityTuneTitles = await GroupFeedSupport.ResolveTuneTitlesAsync(db, groupEvents.Select(fe => fe.Payload));
 
-                items.AddRange(groupEvents.Select(fe => new DashboardActivityItemDto(
-                    fe.GroupFeedEventId,
-                    "Group",
-                    fe.EventType.ToString(),
-                    GroupFeedSupport.BuildSummaryText(fe.EventType, fe.MemberName, fe.Payload, GroupFeedSupport.TitlesForEvent(fe.EventType, fe.Payload, activityTuneTitles)),
-                    fe.CreatedAt,
-                    fe.MemberName,
-                    fe.MemberUsername,
-                    fe.GroupId,
-                    fe.GroupName,
-                    $"/group/{fe.GroupId}")));
+                items.AddRange(groupEvents.Select(fe =>
+                {
+                    var actor = geUsers.GetValueOrDefault(fe.UserId);
+                    var memberName = actor?.DisplayName ?? "Member";
+                    return new DashboardActivityItemDto(
+                        fe.GroupFeedEventId,
+                        "Group",
+                        fe.EventType.ToString(),
+                        GroupFeedSupport.BuildSummaryText(fe.EventType, memberName, fe.Payload, GroupFeedSupport.TitlesForEvent(fe.EventType, fe.Payload, activityTuneTitles)),
+                        fe.CreatedAt,
+                        memberName,
+                        actor?.Username,
+                        fe.GroupId,
+                        geGroupNames.GetValueOrDefault(fe.GroupId) ?? "",
+                        $"/group/{fe.GroupId}");
+                }));
             }
         }
 
@@ -90,91 +91,106 @@ public class Get(AppDbContext db)
             if (friendUserIds.Count > 0)
             {
                 var cutoff = DateTime.UtcNow.AddDays(-60);
+                var friendUsers = await db.Users.AsNoTracking().Where(u => friendUserIds.Contains(u.UserId)).ToDictionaryByIdAsync(u => u.UserId);
 
-                var rsvps = await db.SessionRsvps
+                var rsvpRows = await db.SessionRsvps
                     .AsNoTracking()
                     .Where(r => friendUserIds.Contains(r.UserId) && r.RespondedAt >= cutoff)
-                    .Include(r => r.User)
-                    .Include(r => r.GroupSession)
-                    .ThenInclude(s => s.Group)
                     .OrderByDescending(r => r.RespondedAt)
                     .Take(50)
-                    .Select(r => new DashboardActivityItemDto(
-                        r.SessionRsvpId,
-                        "Friend",
-                        "SessionRsvp",
-                        $"{r.User.DisplayName} is {(r.Status == RsvpStatus.Going ? "going to" : "a maybe for")} '{r.GroupSession.Title}' in {r.GroupSession.Group.Name}",
-                        r.RespondedAt,
-                        r.User.DisplayName,
-                        r.User.Username,
-                        r.GroupSession.GroupId,
-                        r.GroupSession.Group.Name,
-                        $"/group/{r.GroupSession.GroupId}"))
                     .ToListAsync();
+                var rsvpSessionIds = rsvpRows.Select(r => r.GroupSessionId).Distinct().ToList();
+                var rsvpSessions = (await db.GroupSessions.AsNoTracking().Where(s => rsvpSessionIds.Contains(s.GroupSessionId)).ToListAsync()).ToDictionary(s => s.GroupSessionId);
+                var rsvpGroupIds = rsvpSessions.Values.Select(s => s.GroupId).Distinct().ToList();
+                var rsvpGroupNames = await db.Groups.AsNoTracking().Where(g => rsvpGroupIds.Contains(g.GroupId)).ToDictionaryAsync(g => g.GroupId, g => g.Name);
+                var rsvps = rsvpRows
+                    .Where(r => rsvpSessions.ContainsKey(r.GroupSessionId))
+                    .Select(r =>
+                    {
+                        var s = rsvpSessions[r.GroupSessionId];
+                        var friend = friendUsers.GetValueOrDefault(r.UserId);
+                        var groupName = rsvpGroupNames.GetValueOrDefault(s.GroupId) ?? "";
+                        return new DashboardActivityItemDto(
+                            r.SessionRsvpId,
+                            "Friend",
+                            "SessionRsvp",
+                            $"{friend?.DisplayName} is {(r.Status == RsvpStatus.Going ? "going to" : "a maybe for")} '{s.Title}' in {groupName}",
+                            r.RespondedAt,
+                            friend?.DisplayName ?? "",
+                            friend?.Username,
+                            s.GroupId,
+                            groupName,
+                            $"/group/{s.GroupId}");
+                    })
+                    .ToList();
 
-                var tunes = await db.UserTunes
+                var friendTuneRows = await db.UserTunes
                     .AsNoTracking()
                     .Where(ut => friendUserIds.Contains(ut.UserId))
-                    .Include(ut => ut.User)
-                    .Include(ut => ut.Tune)
                     .OrderByDescending(ut => ut.UserTuneId)
                     .Take(50)
-                    .Select(ut => new DashboardActivityItemDto(
+                    .ToListAsync();
+                await SetSupport.PopulateTuneAndSettingAsync(db, friendTuneRows);
+                var tunes = friendTuneRows.Select(ut =>
+                {
+                    var friend = friendUsers.GetValueOrDefault(ut.UserId);
+                    return new DashboardActivityItemDto(
                         ut.UserTuneId,
                         "Friend",
                         "TuneLearned",
-                        $"{ut.User.DisplayName} added '{ut.Tune.Title}' ({ut.Tune.TuneType}) to their repertoire",
+                        $"{friend?.DisplayName} added '{ut.Tune.Title}' ({ut.Tune.TuneType}) to their repertoire",
                         DateTime.UtcNow,
-                        ut.User.DisplayName,
-                        ut.User.Username,
+                        friend?.DisplayName ?? "",
+                        friend?.Username,
                         null,
                         null,
-                        $"/tunes/{ut.TuneId}"))
-                    .ToListAsync();
+                        $"/tunes/{ut.TuneId}");
+                }).ToList();
 
-                var badges = await db.UserBadges
+                var badgeRows = await db.UserBadges
                     .AsNoTracking()
                     .Where(b => friendUserIds.Contains(b.UserId) && b.EarnedAt >= cutoff)
-                    .Include(b => b.User)
                     .OrderByDescending(b => b.EarnedAt)
                     .Take(50)
-                    .Select(b => new DashboardActivityItemDto(
+                    .ToListAsync();
+                var badges = badgeRows.Select(b =>
+                {
+                    var friend = friendUsers.GetValueOrDefault(b.UserId);
+                    return new DashboardActivityItemDto(
                         b.UserBadgeId,
                         "Friend",
                         "BadgeEarned",
-                        $"{b.User.DisplayName} earned a new badge!",
+                        $"{friend?.DisplayName} earned a new badge!",
                         b.EarnedAt,
-                        b.User.DisplayName,
-                        b.User.Username,
+                        friend?.DisplayName ?? "",
+                        friend?.Username,
                         null,
                         null,
-                        b.User.Username != null ? $"/profile/{b.User.Username}" : null))
-                    .ToListAsync();
+                        friend?.Username != null ? $"/profile/{friend.Username}" : null);
+                }).ToList();
 
-                var friendships = await db.Friendships
+                var friendshipRows = await db.Friendships
                     .AsNoTracking()
                     .Where(f => f.Status == FriendshipStatus.Accepted && f.UpdatedAt >= cutoff && (f.RequesterId == userId || f.ReceiverId == userId))
-                    .Include(f => f.Requester)
-                    .Include(f => f.Receiver)
                     .OrderByDescending(f => f.UpdatedAt)
                     .Take(50)
-                    .Select(f => new {
-                        f.FriendshipId,
-                        Friend = f.RequesterId == userId ? f.Receiver : f.Requester,
-                        f.UpdatedAt
-                    })
-                    .Select(f => new DashboardActivityItemDto(
+                    .ToListAsync();
+                var friendships = friendshipRows.Select(f =>
+                {
+                    var friendId = f.RequesterId == userId ? f.ReceiverId : f.RequesterId;
+                    var friend = friendUsers.GetValueOrDefault(friendId);
+                    return new DashboardActivityItemDto(
                         f.FriendshipId,
                         "Friend",
                         "NewFriend",
-                        $"You and {f.Friend.DisplayName} are now friends!",
+                        $"You and {friend?.DisplayName} are now friends!",
                         f.UpdatedAt,
-                        f.Friend.DisplayName,
-                        f.Friend.Username,
+                        friend?.DisplayName ?? "",
+                        friend?.Username,
                         null,
                         null,
-                        f.Friend.Username != null ? $"/profile/{f.Friend.Username}" : null))
-                    .ToListAsync();
+                        friend?.Username != null ? $"/profile/{friend.Username}" : null);
+                }).ToList();
 
                 items.AddRange(rsvps);
                 items.AddRange(tunes);
