@@ -39,8 +39,8 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
                 && !draftIds.Contains(ut.UserTuneId)
                 && ut.Status != TuneStatus.Wishlist
                 && ut.Status != TuneStatus.Retired)
-            .Include(ut => ut.Tune)
             .ToListAsync();
+        await SetSupport.PopulateTuneAndSettingAsync(db, candidates);
 
         List<NextTuneSuggestionDto> suggestions;
         if (draftIds.Count == 0)
@@ -60,12 +60,12 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         var lastId = draftIds[^1];
         var last = await db.UserTunes
             .AsNoTracking()
-            .Include(ut => ut.Tune)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == lastId && ut.UserId == callerUserId.Value);
         if (last is null)
         {
             return new BadRequestObjectResult("The draft's last tune is not in the user's repertoire.");
         }
+        await SetSupport.PopulateTuneAndSettingAsync(db, new[] { last });
 
         suggestions = candidates
             .Select(ut =>

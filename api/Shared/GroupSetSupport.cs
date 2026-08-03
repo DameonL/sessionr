@@ -73,14 +73,7 @@ public static class GroupSetSupport
 
     public static async Task<IActionResult> LoadedSetResultAsync(AppDbContext db, SetAnalyzer analyzer, Guid groupSetId, Guid userId)
     {
-        var groupSet = await db.GroupSets
-            .AsNoTracking()
-            .Include(gs => gs.Items.OrderBy(i => i.SequenceNumber))
-            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.Tune)
-            .Include(gs => gs.Items)
-            .ThenInclude(i => i.GroupTune).ThenInclude(gt => gt.TuneSetting)
-            .SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
-
+        var groupSet = await db.GroupSets.AsNoTracking().SingleOrDefaultAsync(gs => gs.GroupSetId == groupSetId);
         if (groupSet is null)
         {
             return new NotFoundResult();
@@ -92,6 +85,70 @@ public static class GroupSetSupport
             return viewError;
         }
 
+        await PopulateItemsAsync(db, groupSet);
         return new OkObjectResult(ToDto(groupSet, analyzer));
+    }
+
+    /// <summary>
+    /// Loads each group-set's items and their <c>GroupTune -&gt; Tune/TuneSetting</c> chain by id-based
+    /// stitching, assigning the in-memory navigation properties (ordered by sequence) so
+    /// <see cref="ToDto"/> works without cross-document Includes.
+    /// </summary>
+    public static async Task PopulateItemsAsync(AppDbContext db, params GroupSet[] groupSets)
+    {
+        if (groupSets.Length == 0)
+        {
+            return;
+        }
+
+        var groupSetIds = groupSets.Select(gs => gs.GroupSetId).ToList();
+        var items = await db.GroupSetItems.AsNoTracking().Where(i => groupSetIds.Contains(i.GroupSetId)).ToListAsync();
+
+        var groupTuneIds = items.Select(i => i.GroupTuneId).Distinct().ToList();
+        var groupTunes = await db.GroupTunes.AsNoTracking().Where(gt => groupTuneIds.Contains(gt.GroupTuneId)).ToListAsync();
+        await PopulateTuneAndSettingAsync(db, groupTunes);
+
+        var groupTuneById = groupTunes.ToDictionary(gt => gt.GroupTuneId);
+        foreach (var item in items)
+        {
+            if (groupTuneById.TryGetValue(item.GroupTuneId, out var groupTune))
+            {
+                item.GroupTune = groupTune;
+            }
+        }
+
+        var itemsBySet = items.ToLookup(i => i.GroupSetId);
+        foreach (var groupSet in groupSets)
+        {
+            groupSet.Items = itemsBySet[groupSet.GroupSetId].OrderBy(i => i.SequenceNumber).ToList();
+        }
+    }
+
+    /// <summary>Assigns each GroupTune's <c>Tune</c> and (optional) <c>TuneSetting</c> navigation by id-based stitch.</summary>
+    public static async Task PopulateTuneAndSettingAsync(AppDbContext db, IReadOnlyList<GroupTune> groupTunes)
+    {
+        if (groupTunes.Count == 0)
+        {
+            return;
+        }
+
+        var tuneIds = groupTunes.Select(gt => gt.TuneId).Distinct().ToList();
+        var tunes = await db.Tunes.AsNoTracking().Where(t => tuneIds.Contains(t.TuneId)).ToDictionaryByIdAsync(t => t.TuneId);
+
+        var settingIds = groupTunes.Where(gt => gt.TuneSettingId.HasValue).Select(gt => gt.TuneSettingId!.Value).Distinct().ToList();
+        var settings = settingIds.Count == 0
+            ? new Dictionary<Guid, TuneSetting>()
+            : await db.TuneSettings.AsNoTracking().Where(s => settingIds.Contains(s.TuneSettingId)).ToDictionaryByIdAsync(s => s.TuneSettingId);
+
+        foreach (var groupTune in groupTunes)
+        {
+            if (tunes.TryGetValue(groupTune.TuneId, out var tune))
+            {
+                groupTune.Tune = tune;
+            }
+            groupTune.TuneSetting = groupTune.TuneSettingId.HasValue && settings.TryGetValue(groupTune.TuneSettingId.Value, out var setting)
+                ? setting
+                : null;
+        }
     }
 }

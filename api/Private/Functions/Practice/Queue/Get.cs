@@ -96,12 +96,12 @@ public class Get(AppDbContext db)
 
         var selectedIds = selected.Select(x => x.UserTuneId).ToList();
 
-        var fullData = await db.UserTunes
+        var selectedTunes = await db.UserTunes
             .AsNoTracking()
             .Where(ut => selectedIds.Contains(ut.UserTuneId))
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
-            .ToDictionaryAsync(ut => ut.UserTuneId);
+            .ToListAsync();
+        await SetSupport.PopulateTuneAndSettingAsync(db, selectedTunes);
+        var fullData = selectedTunes.ToDictionary(ut => ut.UserTuneId);
 
         var queue = selected
             .Select(x =>

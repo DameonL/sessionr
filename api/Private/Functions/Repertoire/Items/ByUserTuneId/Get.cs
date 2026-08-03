@@ -26,14 +26,14 @@ public class Get(AppDbContext db)
 
         var userTune = await db.UserTunes
             .AsNoTracking()
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
         if (userTune is null)
         {
             return new NotFoundResult();
         }
+
+        await SetSupport.PopulateTuneAndSettingAsync(db, new[] { userTune });
 
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
         var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);

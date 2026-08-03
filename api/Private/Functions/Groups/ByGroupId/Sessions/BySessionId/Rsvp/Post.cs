@@ -37,8 +37,6 @@ public class Post(AppDbContext db)
         }
 
         var session = await db.GroupSessions
-            .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .SingleOrDefaultAsync(gs => gs.GroupSessionId == sessionId && gs.GroupId == groupId);
         if (session is null)
         {
@@ -50,7 +48,9 @@ public class Post(AppDbContext db)
             return new BadRequestObjectResult("Cannot adjust RSVP status for past events.");
         }
 
-        var rsvp = session.Rsvps.FirstOrDefault(r => r.UserId == callerUserId.Value);
+        // RSVPs are separate documents; fetch this user's directly rather than via session.Rsvps.
+        var rsvp = await db.SessionRsvps
+            .SingleOrDefaultAsync(r => r.GroupSessionId == sessionId && r.UserId == callerUserId.Value);
         if (rsvp is null)
         {
             rsvp = new SessionRsvp { GroupSessionId = sessionId, UserId = callerUserId.Value };
@@ -61,6 +61,7 @@ public class Post(AppDbContext db)
 
         await db.SaveChangesAsync();
 
+        await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
 }

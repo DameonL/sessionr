@@ -20,8 +20,6 @@ public class Get(AppDbContext db)
     {
         var tune = await db.Tunes
             .AsNoTracking()
-            .Include(t => t.Aliases)
-            .Include(t => t.Settings)
             .SingleOrDefaultAsync(t => t.TuneId == tuneId);
 
         if (tune is null)
@@ -29,8 +27,16 @@ public class Get(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var aliases = tune.Aliases.Select(a => a.Name).ToList();
-        var settings = tune.Settings
+        // Aliases and settings are separate Cosmos documents keyed by TuneId.
+        var aliases = await db.TuneAliases
+            .AsNoTracking()
+            .Where(a => a.TuneId == tuneId)
+            .Select(a => a.Name)
+            .ToListAsync();
+        var settings = (await db.TuneSettings
+                .AsNoTracking()
+                .Where(s => s.TuneId == tuneId)
+                .ToListAsync())
             .Select(s => new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, 0))
             .OrderByDescending(s => s.VoteScore)
             .ToList();

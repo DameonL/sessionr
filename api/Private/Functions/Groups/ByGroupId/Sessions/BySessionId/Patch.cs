@@ -38,8 +38,6 @@ public class Patch(AppDbContext db)
         }
 
         var session = await db.GroupSessions
-            .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .SingleOrDefaultAsync(gs => gs.GroupSessionId == sessionId && gs.GroupId == groupId);
         if (session is null)
         {
@@ -82,6 +80,7 @@ public class Patch(AppDbContext db)
                 new GroupSessionFeedPayload(session.Title, FormatInGroupTimeZone(session.StartsAt, groupTimeZone)));
         }
 
+        await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));
     }
 

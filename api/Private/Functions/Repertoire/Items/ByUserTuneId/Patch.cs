@@ -39,8 +39,6 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
         }
 
         var userTune = await db.UserTunes
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
         if (userTune is null)
@@ -93,6 +91,9 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
             await RecordTuneLearnedFeedEventsAsync(callerUserId.Value, userTune.TuneId);
             await gamification.CheckBadgesAsync(callerUserId.Value);
         }
+
+        // Tune/TuneSetting are separate Cosmos documents; stitch them onto the tracked UserTune for the response.
+        await SetSupport.PopulateTuneAndSettingAsync(db, new[] { userTune });
 
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
         var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);

@@ -60,16 +60,80 @@ public static class SetSupport
 
     public static async Task<IActionResult> LoadedSetResultAsync(AppDbContext db, SetAnalyzer analyzer, Guid setId)
     {
-        var set = await db.Sets
-            .AsNoTracking()
-            .Include(s => s.Items.OrderBy(i => i.SequenceNumber))
-            .ThenInclude(i => i.UserTune)
-            .ThenInclude(ut => ut.Tune)
-            .Include(s => s.Items)
-            .ThenInclude(i => i.UserTune)
-            .ThenInclude(ut => ut.TuneSetting)
-            .SingleOrDefaultAsync(s => s.SetId == setId);
+        var set = await db.Sets.AsNoTracking().SingleOrDefaultAsync(s => s.SetId == setId);
+        if (set is null)
+        {
+            return new NotFoundResult();
+        }
 
-        return set is null ? new NotFoundResult() : new OkObjectResult(ToDto(set, analyzer));
+        await PopulateItemsAsync(db, set);
+        return new OkObjectResult(ToDto(set, analyzer));
+    }
+
+    /// <summary>
+    /// Loads each set's items and their <c>UserTune -&gt; Tune/TuneSetting</c> chain by id-based
+    /// stitching, then assigns the in-memory navigation properties (ordered by sequence) so
+    /// <see cref="ToDto"/> works without cross-document Includes. Replaces the old nested Include chain.
+    /// </summary>
+    public static async Task PopulateItemsAsync(AppDbContext db, params Set[] sets)
+    {
+        if (sets.Length == 0)
+        {
+            return;
+        }
+
+        var setIds = sets.Select(s => s.SetId).ToList();
+        var items = await db.SetItems.AsNoTracking().Where(si => setIds.Contains(si.SetId)).ToListAsync();
+
+        var userTuneIds = items.Select(i => i.UserTuneId).Distinct().ToList();
+        var userTunes = await db.UserTunes.AsNoTracking().Where(ut => userTuneIds.Contains(ut.UserTuneId)).ToListAsync();
+        await PopulateTuneAndSettingAsync(db, userTunes);
+
+        var userTuneById = userTunes.ToDictionary(ut => ut.UserTuneId);
+        foreach (var item in items)
+        {
+            if (userTuneById.TryGetValue(item.UserTuneId, out var userTune))
+            {
+                item.UserTune = userTune;
+            }
+        }
+
+        var itemsBySet = items.ToLookup(i => i.SetId);
+        foreach (var set in sets)
+        {
+            set.Items = itemsBySet[set.SetId].OrderBy(i => i.SequenceNumber).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Assigns each UserTune's <c>Tune</c> and (optional) <c>TuneSetting</c> navigation by id-based
+    /// stitch. Shared by the set, repertoire, practice-queue and suggestion paths, all of which need
+    /// a UserTune with its tune metadata resolved without a cross-document Include.
+    /// </summary>
+    public static async Task PopulateTuneAndSettingAsync(AppDbContext db, IReadOnlyList<UserTune> userTunes)
+    {
+        if (userTunes.Count == 0)
+        {
+            return;
+        }
+
+        var tuneIds = userTunes.Select(ut => ut.TuneId).Distinct().ToList();
+        var tunes = await db.Tunes.AsNoTracking().Where(t => tuneIds.Contains(t.TuneId)).ToDictionaryByIdAsync(t => t.TuneId);
+
+        var settingIds = userTunes.Where(ut => ut.TuneSettingId.HasValue).Select(ut => ut.TuneSettingId!.Value).Distinct().ToList();
+        var settings = settingIds.Count == 0
+            ? new Dictionary<Guid, TuneSetting>()
+            : await db.TuneSettings.AsNoTracking().Where(s => settingIds.Contains(s.TuneSettingId)).ToDictionaryByIdAsync(s => s.TuneSettingId);
+
+        foreach (var userTune in userTunes)
+        {
+            if (tunes.TryGetValue(userTune.TuneId, out var tune))
+            {
+                userTune.Tune = tune;
+            }
+            userTune.TuneSetting = userTune.TuneSettingId.HasValue && settings.TryGetValue(userTune.TuneSettingId.Value, out var setting)
+                ? setting
+                : null;
+        }
     }
 }

@@ -27,10 +27,15 @@ public class Post(AppDbContext db, GamificationService gamification)
         }
 
         var userTune = await db.UserTunes
-            .Include(ut => ut.User)
             .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
         if (userTune is null)
+        {
+            return new NotFoundResult();
+        }
+
+        var user = await db.Users.SingleOrDefaultAsync(u => u.UserId == callerUserId.Value);
+        if (user is null)
         {
             return new NotFoundResult();
         }
@@ -39,7 +44,6 @@ public class Post(AppDbContext db, GamificationService gamification)
         var now = DateTime.UtcNow;
         userTune.LastPracticed = now;
 
-        var user = userTune.User;
         var localToday = now.AddMinutes(-offsetMinutes).Date;
 
         db.PracticeLog.Add(new PracticeLogEntry
@@ -48,8 +52,14 @@ public class Post(AppDbContext db, GamificationService gamification)
             PracticedAt = now
         });
 
+        // PracticeLog references its UserTune by id only (Cosmos can't join), so resolve the user's
+        // UserTune ids first, then read their practice timestamps.
+        var userTuneIds = await db.UserTunes
+            .Where(ut => ut.UserId == callerUserId.Value)
+            .Select(ut => ut.UserTuneId)
+            .ToListAsync();
         var allTimestamps = await db.PracticeLog
-            .Where(p => p.UserTune.UserId == callerUserId.Value)
+            .Where(p => userTuneIds.Contains(p.UserTuneId))
             .Select(p => p.PracticedAt)
             .ToListAsync();
         allTimestamps.Add(now);

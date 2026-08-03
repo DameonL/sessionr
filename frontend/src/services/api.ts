@@ -1378,5 +1378,7 @@ export interface MigrationResult {
   counts: Record<string, number>
 }
 
+// Runs against the PUBLIC API: the Private API is behind EasyAuth, which is unreachable until
+// Cosmos holds the user records this migration seeds.
 export const migrateSqlToCosmos = () =>
-  apiFetch<MigrationResult>('/admin/migrate-sql-to-cosmos', { method: 'POST' })
+  apiFetchPublic<MigrationResult>('/admin/migrate-sql-to-cosmos', { method: 'POST' })

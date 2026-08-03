@@ -28,8 +28,6 @@ public class Get(AppDbContext db)
 
         var tune = await db.Tunes
             .AsNoTracking()
-            .Include(t => t.Aliases)
-            .Include(t => t.Settings)
             .SingleOrDefaultAsync(t => t.TuneId == tuneId);
 
         if (tune is null)
@@ -37,13 +35,25 @@ public class Get(AppDbContext db)
             return new NotFoundResult();
         }
 
+        // Aliases, settings and votes are separate Cosmos documents keyed by TuneId/TuneSettingId.
+        var aliases = await db.TuneAliases
+            .AsNoTracking()
+            .Where(a => a.TuneId == tuneId)
+            .Select(a => a.Name)
+            .ToListAsync();
+
+        var settingEntities = await db.TuneSettings
+            .AsNoTracking()
+            .Where(s => s.TuneId == tuneId)
+            .ToListAsync();
+        var settingIds = settingEntities.Select(s => s.TuneSettingId).ToList();
+
         var myVotes = await db.TuneSettingVotes
             .AsNoTracking()
-            .Where(v => v.UserId == userId && v.TuneSetting.TuneId == tuneId)
+            .Where(v => v.UserId == userId && settingIds.Contains(v.TuneSettingId))
             .ToDictionaryAsync(v => v.TuneSettingId, v => v.Value);
 
-        var aliases = tune.Aliases.Select(a => a.Name).ToList();
-        var settings = tune.Settings
+        var settings = settingEntities
             .Select(s => new TuneSettingDto(s.TuneSettingId, s.Key, s.AbcText, s.SubmitterName, s.VoteScore, myVotes.GetValueOrDefault(s.TuneSettingId)))
             .OrderByDescending(s => s.VoteScore)
             .ToList();

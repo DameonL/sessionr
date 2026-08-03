@@ -46,9 +46,33 @@ public class Get(AppDbContext db)
 
         var memberships = await db.GroupMemberships
             .AsNoTracking()
-            .Include(m => m.User)
             .Where(m => m.GroupId == groupId)
             .ToListAsync();
+
+        var groupTunes = await db.GroupTunes
+            .AsNoTracking()
+            .Where(gt => gt.GroupId == groupId)
+            .ToListAsync();
+        await GroupSetSupport.PopulateTuneAndSettingAsync(db, groupTunes);
+
+        var updateEntities = await db.GroupUpdates
+            .AsNoTracking()
+            .Where(gu => gu.GroupId == groupId)
+            .OrderByDescending(gu => gu.CreatedAt)
+            .Take(50)
+            .ToListAsync();
+
+        // Display names live on separate User documents; resolve everyone referenced here in one lookup.
+        var referencedUserIds = memberships.Select(m => m.UserId)
+            .Concat(groupTunes.Select(gt => gt.AddedByUserId))
+            .Concat(updateEntities.Select(gu => gu.CreatedByUserId))
+            .Distinct()
+            .ToList();
+        var usersById = await db.Users
+            .AsNoTracking()
+            .Where(u => referencedUserIds.Contains(u.UserId))
+            .ToDictionaryByIdAsync(u => u.UserId);
+        string DisplayName(Guid id) => usersById.TryGetValue(id, out var u) ? u.DisplayName : "Member";
 
         var activeMemberIds = memberships
             .Where(m => m.Status == GroupMembershipStatus.Active)
@@ -58,22 +82,20 @@ public class Get(AppDbContext db)
         var members = memberships
             .Where(m => m.Status == GroupMembershipStatus.Active)
             .OrderBy(m => m.Role switch { GroupRole.Owner => 0, GroupRole.Administrator => 1, _ => 2 })
-            .ThenBy(m => m.User.DisplayName)
-            .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.Role.ToString()))
+            .ThenBy(m => DisplayName(m.UserId))
+            .Select(m => new GroupMemberDto(m.UserId, DisplayName(m.UserId), m.Role.ToString()))
             .ToList();
 
         var pendingMembers = isViewerAdmin
             ? memberships
                 .Where(m => m.Status == GroupMembershipStatus.Pending)
                 .OrderBy(m => m.JoinedAt)
-                .Select(m => new GroupMemberDto(m.UserId, m.User.DisplayName, m.Role.ToString()))
+                .Select(m => new GroupMemberDto(m.UserId, DisplayName(m.UserId), m.Role.ToString()))
                 .ToList()
             : new List<GroupMemberDto>();
 
-        var masterTunes = await db.GroupTunes
-            .AsNoTracking()
-            .Where(gt => gt.GroupId == groupId)
-            .OrderBy(gt => gt.Tune.Title)
+        var masterTunes = groupTunes
+            .OrderBy(gt => gt.Tune.Title, StringComparer.OrdinalIgnoreCase)
             .Select(gt => new GroupTuneDto(
                 gt.GroupTuneId,
                 gt.TuneId,
@@ -82,12 +104,18 @@ public class Get(AppDbContext db)
                 gt.TuneSetting != null ? gt.TuneSetting.Key : gt.Tune.Key,
                 gt.TuneSettingId,
                 gt.TuneSetting != null ? gt.TuneSetting.SubmitterName : null,
-                gt.AddedByUser.DisplayName))
-            .ToListAsync();
+                DisplayName(gt.AddedByUserId)))
+            .ToList();
 
-        var commonTunes = await db.UserTunes
+        // Cosmos can't GROUP BY across the UserTune->Tune document boundary, so aggregate in memory
+        // after stitching each active member tune's Tune metadata.
+        var memberActiveTunes = await db.UserTunes
             .AsNoTracking()
             .Where(ut => activeMemberIds.Contains(ut.UserId) && ut.Status == TuneStatus.Active)
+            .ToListAsync();
+        await SetSupport.PopulateTuneAndSettingAsync(db, memberActiveTunes);
+
+        var commonTunes = memberActiveTunes
             .GroupBy(ut => new { ut.TuneId, ut.Tune.Title, ut.Tune.TuneType, ut.Tune.Key })
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key.Title)
@@ -100,31 +128,35 @@ public class Get(AppDbContext db)
                 g.Count(),
                 activeMemberIds.Count
             ))
-            .ToListAsync();
+            .ToList();
 
         var feed = await BuildGroupFeedAsync(db, groupId, callerUserId);
 
-        var updates = await db.GroupUpdates
-            .AsNoTracking()
-            .Where(gu => gu.GroupId == groupId)
-            .OrderByDescending(gu => gu.CreatedAt)
-            .Take(50)
+        var updates = updateEntities
             .Select(gu => new GroupUpdateDto(
                 gu.GroupUpdateId,
                 gu.GroupId,
                 gu.Title,
                 gu.Content,
                 gu.CreatedByUserId,
-                gu.CreatedByUser.DisplayName,
+                DisplayName(gu.CreatedByUserId),
                 gu.CreatedAt
             ))
-            .ToListAsync();
+            .ToList();
 
-        var schedules = await db.GroupMeetingSchedules
+        var scheduleEntities = await db.GroupMeetingSchedules
             .AsNoTracking()
-            .Include(gms => gms.Exceptions)
             .Where(gms => gms.GroupId == groupId)
             .OrderBy(gms => gms.CreatedAt)
+            .ToListAsync();
+        var scheduleIds = scheduleEntities.Select(s => s.GroupMeetingScheduleId).ToList();
+        var exceptionsBySchedule = (await db.GroupScheduleExceptions
+                .AsNoTracking()
+                .Where(ex => scheduleIds.Contains(ex.GroupMeetingScheduleId))
+                .ToListAsync())
+            .ToLookup(ex => ex.GroupMeetingScheduleId);
+
+        var schedules = scheduleEntities
             .Select(gms => new GroupMeetingScheduleDto(
                 gms.GroupMeetingScheduleId,
                 gms.GroupId,
@@ -135,11 +167,11 @@ public class Get(AppDbContext db)
                 gms.MeetingTime,
                 gms.MeetingScheduleText,
                 gms.MeetingDescription,
-                gms.Exceptions
+                exceptionsBySchedule[gms.GroupMeetingScheduleId]
                     .Select(ex => new GroupScheduleExceptionDto(ex.GroupScheduleExceptionId, ex.GroupMeetingScheduleId, ex.ExceptionDate))
                     .ToList(),
                 gms.Name))
-            .ToListAsync();
+            .ToList();
 
         return new OkObjectResult(new GroupDetailsDto(
             group.GroupId,

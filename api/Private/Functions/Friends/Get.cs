@@ -24,16 +24,26 @@ public class Get(AppDbContext db)
             return new UnauthorizedResult();
         }
 
-        var friends = await db.Friendships
+        var friendships = await db.Friendships
             .AsNoTracking()
             .Where(f => f.Status == FriendshipStatus.Accepted &&
                        (f.RequesterId == callerUserId.Value || f.ReceiverId == callerUserId.Value))
-            .Include(f => f.Requester)
-            .Include(f => f.Receiver)
-            .Select(f => new {
-                Friendship = f,
-                FriendUser = f.RequesterId == callerUserId.Value ? f.Receiver : f.Requester
-            })
+            .ToListAsync();
+
+        // The friend (the other side of each row) is a separate User document — stitch by id.
+        var friendIds = friendships
+            .Select(f => f.RequesterId == callerUserId.Value ? f.ReceiverId : f.RequesterId)
+            .Distinct()
+            .ToList();
+        var friendUsers = await db.Users
+            .AsNoTracking()
+            .Where(u => friendIds.Contains(u.UserId))
+            .ToDictionaryByIdAsync(u => u.UserId);
+
+        var friends = friendships
+            .Select(f => new { Friendship = f, FriendId = f.RequesterId == callerUserId.Value ? f.ReceiverId : f.RequesterId })
+            .Where(x => friendUsers.ContainsKey(x.FriendId))
+            .Select(x => new { x.Friendship, FriendUser = friendUsers[x.FriendId] })
             .OrderBy(x => x.FriendUser.DisplayName)
             .Select(x => new FriendDto(
                 x.FriendUser.UserId,
@@ -43,7 +53,7 @@ public class Get(AppDbContext db)
                 x.FriendUser.Location,
                 x.FriendUser.Instruments,
                 x.Friendship.UpdatedAt))
-            .ToListAsync();
+            .ToList();
 
         return new OkObjectResult(friends);
     }

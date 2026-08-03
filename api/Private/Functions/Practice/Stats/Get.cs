@@ -36,9 +36,15 @@ public class Get(AppDbContext db)
         var localToday = now.AddMinutes(-offsetMinutes).Date;
         var localWindowStart = localToday.AddDays(-29);
 
+        // PracticeLog references its UserTune by id only; resolve the user's UserTune ids first.
+        var userTuneIds = await db.UserTunes
+            .AsNoTracking()
+            .Where(ut => ut.UserId == callerUserId.Value)
+            .Select(ut => ut.UserTuneId)
+            .ToListAsync();
         var allPracticeTimestamps = await db.PracticeLog
             .AsNoTracking()
-            .Where(p => p.UserTune.UserId == callerUserId.Value)
+            .Where(p => userTuneIds.Contains(p.UserTuneId))
             .Select(p => p.PracticedAt)
             .ToListAsync();
 

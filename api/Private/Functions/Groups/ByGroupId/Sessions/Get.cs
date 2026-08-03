@@ -39,10 +39,9 @@ public class Get(AppDbContext db)
         var sessions = await db.GroupSessions
             .AsNoTracking()
             .Where(gs => gs.GroupId == groupId)
-            .Include(gs => gs.CreatedByUser)
-            .Include(gs => gs.Rsvps).ThenInclude(r => r.User)
             .OrderBy(gs => gs.StartsAt)
             .ToListAsync();
+        await GroupSessionSupport.PopulateAsync(db, sessions.ToArray());
 
         return new OkObjectResult(sessions.Select(gs => GroupSessionSupport.ToDto(gs, userId)).ToList());
     }

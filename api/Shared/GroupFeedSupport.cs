@@ -57,11 +57,22 @@ public static class GroupFeedSupport
             query = query.Where(e => e.UserId != excludeUserId.Value);
         }
 
-        var events = await query
+        var rawEvents = await query
             .OrderByDescending(e => e.CreatedAt)
             .Take(25)
-            .Select(e => new { e.EventType, e.Payload, e.CreatedAt, MemberName = e.User.DisplayName })
+            .Select(e => new { e.UserId, e.EventType, e.Payload, e.CreatedAt })
             .ToListAsync();
+
+        // The actor's display name lives on a separate User document — resolve by id.
+        var eventUserIds = rawEvents.Select(e => e.UserId).Distinct().ToList();
+        var memberNames = await db.Users
+            .AsNoTracking()
+            .Where(u => eventUserIds.Contains(u.UserId))
+            .ToDictionaryAsync(u => u.UserId, u => u.DisplayName);
+
+        var events = rawEvents
+            .Select(e => new { e.EventType, e.Payload, e.CreatedAt, MemberName = memberNames.GetValueOrDefault(e.UserId) ?? "Member" })
+            .ToList();
 
         var referencedTuneIds = events
             .Where(e => TuneIdPayloadTypes.Contains(e.EventType))

@@ -24,20 +24,24 @@ public class Get(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var tunes = await db.UserTunes
+        var userTunes = await db.UserTunes
             .AsNoTracking()
             .Where(ut => ut.UserId == userId && ut.Status == TuneStatus.Active)
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting)
+            .ToListAsync();
+
+        // Tune/TuneSetting are separate Cosmos documents, so stitch by id then order/project in memory.
+        await SetSupport.PopulateTuneAndSettingAsync(db, userTunes);
+
+        var tunes = userTunes
             .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
                 : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
-                : ut.Tune.Title)
+                : ut.Tune.Title, StringComparer.OrdinalIgnoreCase)
             .Select(ut => new PublicActiveTuneDto(
                 ut.TuneId,
                 ut.Tune.Title,
                 ut.Tune.TuneType.ToString(),
                 ut.TuneSetting != null ? ut.TuneSetting.Key : ut.Tune.Key))
-            .ToListAsync();
+            .ToList();
 
         return new OkObjectResult(tunes);
     }

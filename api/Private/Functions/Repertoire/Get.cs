@@ -36,39 +36,44 @@ public class Get(AppDbContext db)
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
+        // Status lives on the UserTune document, so it filters server-side; search/type/order all
+        // depend on the referenced Tune (a separate Cosmos document), so those run in memory after
+        // stitching each UserTune's Tune/TuneSetting by id.
         IQueryable<UserTune> query = db.UserTunes
             .AsNoTracking()
-            .Where(ut => ut.UserId == callerUserId.Value)
-            .Include(ut => ut.Tune)
-            .Include(ut => ut.TuneSetting);
+            .Where(ut => ut.UserId == callerUserId.Value);
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            query = query.Where(ut => EF.Functions.Like(ut.Tune.Title, $"%{search}%"));
-        }
-        if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
-        {
-            query = query.Where(ut => ut.Tune.TuneType == tuneType);
-        }
         if (Enum.TryParse<TuneStatus>(status, ignoreCase: true, out var tuneStatus))
         {
             query = query.Where(ut => ut.Status == tuneStatus);
         }
 
-        var totalCount = await query.CountAsync();
+        var userTunes = await query.ToListAsync();
+        await SetSupport.PopulateTuneAndSettingAsync(db, userTunes);
 
-        var ordered = query
+        IEnumerable<UserTune> filtered = userTunes;
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            filtered = filtered.Where(ut => ut.Tune.Title.Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
+        if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
+        {
+            filtered = filtered.Where(ut => ut.Tune.TuneType == tuneType);
+        }
+
+        var ordered = filtered
             .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
                 : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
-                : ut.Tune.Title)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize);
+                : ut.Tune.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
+        var totalCount = ordered.Count;
         var hasMore = (page * pageSize) < totalCount;
+        var pageItems = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         if (summary)
         {
-            var listItems = await ordered
+            var listItems = pageItems
                 .Select(ut => new RepertoireListItemDto(
                     ut.UserTuneId,
                     ut.TuneId,
@@ -78,12 +83,12 @@ public class Get(AppDbContext db)
                     ut.Status.ToString(),
                     ut.LastPracticed,
                     ut.TargetBpm))
-                .ToListAsync();
+                .ToList();
 
             return new OkObjectResult(new PagedResult<RepertoireListItemDto>(listItems, totalCount, page, pageSize, hasMore));
         }
 
-        var items = await ordered
+        var items = pageItems
             .Select(ut => new RepertoireItemDto(
                 ut.UserTuneId,
                 ut.TuneId,
@@ -95,7 +100,7 @@ public class Get(AppDbContext db)
                 ut.TargetBpm,
                 ut.CustomAbcText ?? (ut.TuneSetting != null ? ut.TuneSetting.AbcText : ut.Tune.MasterAbcText),
                 ut.CustomAbcText != null))
-            .ToListAsync();
+            .ToList();
 
         return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
     }
