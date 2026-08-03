@@ -33,6 +33,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasDefaultContainer("sessionr");
+
         // User <-> Tune many-to-many through the explicit UserTune join entity.
         modelBuilder.Entity<UserTune>(entity =>
         {

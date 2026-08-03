@@ -1372,5 +1372,11 @@ export interface DashboardActivityItemData {
 export const getActivityFeed = (filter = 'all', page = 1, pageSize = 20) =>
   apiFetch<PagedResult<DashboardActivityItemData>>(`/me/activity-feed?filter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`)
 
+export interface MigrationResult {
+  success: boolean
+  message: string
+  counts: Record<string, number>
+}
 
-
+export const migrateSqlToCosmos = () =>
+  apiFetch<MigrationResult>('/admin/migrate-sql-to-cosmos', { method: 'POST' })

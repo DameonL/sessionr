@@ -1,9 +1,9 @@
-# sessionapp
+# sessionr
 
 Mobile-first PWA for traditional musicians: repertoire management, ABC-notation
 playback, smart practice tools, and band features. Hosted on Azure Static Web
-Apps with an Azure Functions (C#, isolated worker) backend and Azure SQL via
-EF Core.
+Apps with an Azure Functions (C#, isolated worker) backend connected to Azure Cosmos DB for NoSQL via
+EF Core over Virtual Network.
 
 ## Structure
 
@@ -29,11 +29,16 @@ two halves can still be run separately with `func start` in `api/` and
 
 ### Database
 
-When the `SqlConnectionString` app setting is present the API uses Azure SQL
-(production). When it is absent — the local default — the API falls back to a
+When the `CosmosConnectionString` app setting is present, the API connects to Azure Cosmos DB for NoSQL
+(production database: `"sessionr"`). When it is absent — the local default — the API falls back to a
 SQLite file (`api/sessionapp.dev.db`, gitignored) that is created and seeded
 on first start with a dev user (`userId` 1), ten session tunes, and a sample
 set, so the whole app runs with zero provisioning.
+
+#### Data Migration & Azure Virtual Network
+
+- **Migration Endpoint:** `POST /api/admin/migrate-sql-to-cosmos` (and the admin control panel on the `/profile` page) copies legacy Azure SQL records (`SqlConnectionString`) to Cosmos DB for NoSQL (`CosmosConnectionString`).
+- **Virtual Network:** Azure Functions apps are connected via Regional VNet Integration (`WEBSITE_VNET_ROUTE_ALL=1`) to the database subnet containing the Cosmos DB Private Endpoint (`privatelink.documents.azure.com`).
 
 ## API
 
