@@ -1,8 +1,26 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.ValueGeneration;
 using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Data;
+
+/// <summary>
+/// Derives a Cosmos partition-key value from the entity's single primary key at insert time, so
+/// each document self-partitions by its own id without every model needing a hand-written property.
+/// </summary>
+public class PartitionKeyValueGenerator : ValueGenerator<string>
+{
+    public override bool GeneratesTemporaryValues => false;
+
+    public override string Next(EntityEntry entry)
+    {
+        var primaryKey = entry.Metadata.FindPrimaryKey();
+        var value = primaryKey is null ? null : entry.Property(primaryKey.Properties[0].Name).CurrentValue;
+        return value?.ToString() ?? Guid.CreateVersion7().ToString();
+    }
+}
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
@@ -444,6 +462,58 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                     property.ValueGenerated = ValueGenerated.Never;
                 }
             }
+        }
+
+        if (!isRelational)
+        {
+            ConfigureCosmosContainers(modelBuilder);
+        }
+    }
+
+    /// <summary>
+    /// Cosmos containers must be created with a partition key path, and a single container holding
+    /// every entity type in one (null) logical partition is neither valid to provision nor scalable.
+    /// Give each entity type its own container partitioned by its own id: point-reads by id stay
+    /// single-partition, list queries (e.g. "this user's tunes") fan out cross-partition, which is
+    /// fine at this app's scale. Runs for the Cosmos provider only; SQLite/SqlServer ignore it.
+    /// </summary>
+    private static void ConfigureCosmosContainers(ModelBuilder modelBuilder)
+    {
+        // 1) Sever every inter-document relationship. Cosmos can't join across documents, and once a
+        //    partition key is added it becomes part of the primary key ({Id, PartitionKey}), so any FK
+        //    still targeting the bare single-column key fails model validation. The scalar FK id
+        //    properties (UserId, TuneId, …) stay mapped — queries filter and stitch on them instead.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
+        {
+            foreach (var navigation in entityType.GetNavigations().ToList())
+            {
+                if (!navigation.TargetEntityType.IsOwned())
+                {
+                    modelBuilder.Entity(entityType.ClrType).Ignore(navigation.Name);
+                }
+            }
+        }
+
+        // 2) Give each entity its own container partitioned by its own id (via a derived string key,
+        //    since Cosmos partition keys must be scalar strings and our ids are Guids).
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (entityType.IsOwned())
+            {
+                continue;
+            }
+
+            var primaryKey = entityType.FindPrimaryKey();
+            if (primaryKey is null || primaryKey.Properties.Count != 1)
+            {
+                continue;
+            }
+
+            var entity = modelBuilder.Entity(entityType.ClrType);
+            entity.Property<string>("PartitionKey")
+                .HasValueGenerator<PartitionKeyValueGenerator>();
+            entity.ToContainer(entityType.ClrType.Name)
+                .HasPartitionKey("PartitionKey");
         }
     }
 }

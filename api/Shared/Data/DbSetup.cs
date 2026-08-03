@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace SessionApp.Api.Data;
 
@@ -18,9 +19,13 @@ public static class DbSetup
     /// <summary>Registers AppDbContext and returns whether it's running against local SQLite (vs. Cosmos DB).</summary>
     public static bool AddSessionAppDbContext(this IServiceCollection services)
     {
+        // Only a genuine Cosmos connection string may drive the runtime context. SqlConnectionString
+        // is deliberately NOT a fallback here: it belongs to the old SQL backend and is consumed only
+        // by the one-time MigrateSqlToCosmos export. Feeding a SQL connection string to UseCosmos throws
+        // "missing a required property: AccountEndpoint" at EnsureCreated and takes the worker down at
+        // startup — which is exactly the failure this guard prevents.
         var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString")
-            ?? Environment.GetEnvironmentVariable("MongoConnectionString")
-            ?? Environment.GetEnvironmentVariable("SqlConnectionString");
+            ?? Environment.GetEnvironmentVariable("MongoConnectionString");
         var useSqlite = string.IsNullOrWhiteSpace(cosmosConnectionString);
 
         services.AddDbContext<AppDbContext>(options =>
@@ -39,7 +44,14 @@ public static class DbSetup
             else
             {
                 var dbName = Environment.GetEnvironmentVariable("CosmosDatabaseName") ?? "sessionr";
-                options.UseCosmos(cosmosConnectionString!, dbName);
+                options.UseCosmos(cosmosConnectionString!, dbName, cosmos =>
+                {
+                    // Gateway mode is the recommended connection mode for Azure Functions: Direct mode
+                    // needs outbound TCP on ports 10000-20000 (restricted on Functions plans) and pulls
+                    // in the native ServiceInterop component, which can hard-crash the worker on some
+                    // hosting platforms. Gateway routes everything over HTTPS/443.
+                    cosmos.ConnectionMode(Microsoft.Azure.Cosmos.ConnectionMode.Gateway);
+                });
             }
         });
 
@@ -64,7 +76,22 @@ public static class DbSetup
         }
         else
         {
-            db.Database.EnsureCreated();
+            // EnsureCreated is the first time we actually reach Cosmos. It runs in Program.Main
+            // before app.Run(), so any exception here kills the isolated worker at startup and the
+            // Functions host only reports "worker exited" with no detail. Log the real cause first.
+            try
+            {
+                db.Database.EnsureCreated();
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILoggerFactory>()?.CreateLogger(typeof(DbSetup).FullName!);
+                logger?.LogCritical(ex,
+                    "Cosmos database initialization failed at startup. Verify CosmosConnectionString is a valid " +
+                    "Cosmos DB for NoSQL connection string (AccountEndpoint=...;AccountKey=...) and that the account " +
+                    "is reachable. The worker will now exit.");
+                throw;
+            }
         }
     }
 }
