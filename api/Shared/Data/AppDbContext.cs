@@ -34,6 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultContainer("sessionr");
+        var isRelational = Database.ProviderName != "Microsoft.EntityFrameworkCore.Cosmos";
 
         // User <-> Tune many-to-many through the explicit UserTune join entity.
         modelBuilder.Entity<UserTune>(entity =>
@@ -48,10 +49,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(ut => ut.TuneId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // A user holds at most one instance of a given tune.
-            entity.HasIndex(ut => new { ut.UserId, ut.TuneId }).IsUnique();
-            entity.HasIndex(ut => new { ut.UserId, ut.Status });
-            entity.HasIndex(ut => new { ut.UserId, ut.LastPracticed });
+            if (isRelational)
+            {
+                // A user holds at most one instance of a given tune.
+                entity.HasIndex(ut => new { ut.UserId, ut.TuneId }).IsUnique();
+                entity.HasIndex(ut => new { ut.UserId, ut.Status });
+                entity.HasIndex(ut => new { ut.UserId, ut.LastPracticed });
+            }
 
             entity.Property(ut => ut.Status).HasConversion<string>().HasMaxLength(20);
 
@@ -82,13 +86,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(si => si.UserTuneId)
                 .OnDelete(DeleteBehavior.Restrict); // avoid multiple cascade paths in SQL Server
 
-            entity.HasIndex(si => new { si.SetId, si.SequenceNumber }).IsUnique();
+            if (isRelational)
+            {
+                entity.HasIndex(si => new { si.SetId, si.SequenceNumber }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<User>(entity =>
         {
-            entity.HasIndex(u => u.Email).IsUnique();
-            entity.HasIndex(u => u.Username).IsUnique();
+            if (isRelational)
+            {
+                entity.HasIndex(u => u.Email).IsUnique();
+                entity.HasIndex(u => u.Username).IsUnique();
+            }
             entity.Property(u => u.Username).HasMaxLength(30);
         });
 
@@ -106,8 +116,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gm => gm.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // A user holds at most one membership row per group.
-            entity.HasIndex(gm => new { gm.GroupId, gm.UserId }).IsUnique();
+            if (isRelational)
+            {
+                // A user holds at most one membership row per group.
+                entity.HasIndex(gm => new { gm.GroupId, gm.UserId }).IsUnique();
+            }
 
             entity.Property(gm => gm.Role).HasConversion<string>().HasMaxLength(20);
             entity.Property(gm => gm.Status).HasConversion<string>().HasMaxLength(20);
@@ -115,7 +128,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<Group>(entity =>
         {
-            entity.HasIndex(g => g.InviteCode).IsUnique();
+            if (isRelational)
+            {
+                entity.HasIndex(g => g.InviteCode).IsUnique();
+            }
             entity.Property(g => g.TimeZone).HasMaxLength(64);
         });
 
@@ -131,7 +147,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gu => gu.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(gu => gu.CreatedAt);
+            if (isRelational)
+            {
+                entity.HasIndex(gu => gu.CreatedAt);
+            }
         });
 
         modelBuilder.Entity<GroupMeetingSchedule>(entity =>
@@ -156,8 +175,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(e => e.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // A schedule can only be cancelled once for a given date.
-            entity.HasIndex(e => new { e.GroupMeetingScheduleId, e.ExceptionDate }).IsUnique();
+            if (isRelational)
+            {
+                // A schedule can only be cancelled once for a given date.
+                entity.HasIndex(e => new { e.GroupMeetingScheduleId, e.ExceptionDate }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<GroupFeedEvent>(entity =>
@@ -174,10 +196,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             entity.Property(e => e.EventType).HasConversion<string>().HasMaxLength(20);
 
-            // Feed listing reads by group ordered by recency; the dedupe/merge check on
-            // write reads by (group, user) regardless of order.
-            entity.HasIndex(e => new { e.GroupId, e.CreatedAt });
-            entity.HasIndex(e => new { e.GroupId, e.UserId });
+            if (isRelational)
+            {
+                // Feed listing reads by group ordered by recency; the dedupe/merge check on
+                // write reads by (group, user) regardless of order.
+                entity.HasIndex(e => new { e.GroupId, e.CreatedAt });
+                entity.HasIndex(e => new { e.GroupId, e.UserId });
+            }
         });
 
         // A group's curated master tune list, mirroring the UserTune pattern:
@@ -204,8 +229,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gt => gt.AddedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // A tune appears at most once on a group's master list.
-            entity.HasIndex(gt => new { gt.GroupId, gt.TuneId }).IsUnique();
+            if (isRelational)
+            {
+                // A tune appears at most once on a group's master list.
+                entity.HasIndex(gt => new { gt.GroupId, gt.TuneId }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<GroupSet>(entity =>
@@ -229,7 +257,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gsi => gsi.GroupTuneId)
                 .OnDelete(DeleteBehavior.Restrict); // avoid multiple cascade paths in SQL Server
 
-            entity.HasIndex(gsi => new { gsi.GroupSetId, gsi.SequenceNumber }).IsUnique();
+            if (isRelational)
+            {
+                entity.HasIndex(gsi => new { gsi.GroupSetId, gsi.SequenceNumber }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<GroupSession>(entity =>
@@ -244,7 +275,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(gs => gs.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(gs => new { gs.GroupId, gs.StartsAt });
+            if (isRelational)
+            {
+                entity.HasIndex(gs => new { gs.GroupId, gs.StartsAt });
+            }
         });
 
         modelBuilder.Entity<SessionRsvp>(entity =>
@@ -259,8 +293,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(r => r.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // A user holds at most one RSVP per session.
-            entity.HasIndex(r => new { r.GroupSessionId, r.UserId }).IsUnique();
+            if (isRelational)
+            {
+                // A user holds at most one RSVP per session.
+                entity.HasIndex(r => new { r.GroupSessionId, r.UserId }).IsUnique();
+            }
 
             entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
         });
@@ -272,7 +309,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(p => p.UserTuneId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(p => p.PracticedAt);
+            if (isRelational)
+            {
+                entity.HasIndex(p => p.PracticedAt);
+            }
         });
 
         modelBuilder.Entity<EarTrainingProgress>(entity =>
@@ -282,15 +322,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(e => e.UserTuneId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // One resumable ear-training state per user tune.
-            entity.HasIndex(e => e.UserTuneId).IsUnique();
+            if (isRelational)
+            {
+                // One resumable ear-training state per user tune.
+                entity.HasIndex(e => e.UserTuneId).IsUnique();
+            }
         });
 
         modelBuilder.Entity<Tune>(entity =>
         {
             entity.Property(t => t.TuneType).HasConversion<string>().HasMaxLength(20);
             entity.Property(t => t.Key).HasMaxLength(10);
-            entity.HasIndex(t => t.Title);
+            if (isRelational)
+            {
+                entity.HasIndex(t => t.Title);
+            }
         });
 
         modelBuilder.Entity<TuneAlias>(entity =>
@@ -321,7 +367,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(v => v.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(v => new { v.TuneSettingId, v.UserId }).IsUnique();
+            if (isRelational)
+            {
+                entity.HasIndex(v => new { v.TuneSettingId, v.UserId }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<PointsTransaction>(entity =>
@@ -334,8 +383,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(t => t.Reason).HasConversion<string>().HasMaxLength(30);
             entity.Property(t => t.SourceId).HasMaxLength(200);
 
-            // The idempotency guard: the same (user, reason, sourceId) is never awarded twice.
-            entity.HasIndex(t => new { t.UserId, t.Reason, t.SourceId }).IsUnique();
+            if (isRelational)
+            {
+                // The idempotency guard: the same (user, reason, sourceId) is never awarded twice.
+                entity.HasIndex(t => new { t.UserId, t.Reason, t.SourceId }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<UserBadge>(entity =>
@@ -347,8 +399,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             entity.Property(b => b.BadgeKey).HasMaxLength(50);
 
-            // A badge is earned by a user at most once.
-            entity.HasIndex(b => new { b.UserId, b.BadgeKey }).IsUnique();
+            if (isRelational)
+            {
+                // A badge is earned by a user at most once.
+                entity.HasIndex(b => new { b.UserId, b.BadgeKey }).IsUnique();
+            }
         });
 
         modelBuilder.Entity<Friendship>(entity =>
@@ -363,9 +418,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(f => f.ReceiverId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(f => new { f.RequesterId, f.ReceiverId }).IsUnique();
-            entity.HasIndex(f => new { f.ReceiverId, f.Status });
-            entity.HasIndex(f => new { f.RequesterId, f.Status });
+            if (isRelational)
+            {
+                entity.HasIndex(f => new { f.RequesterId, f.ReceiverId }).IsUnique();
+                entity.HasIndex(f => new { f.ReceiverId, f.Status });
+                entity.HasIndex(f => new { f.RequesterId, f.Status });
+            }
 
             entity.Property(f => f.Status).HasConversion<string>().HasMaxLength(20);
         });
