@@ -58,6 +58,7 @@ public class GamificationService(AppDbContext db)
     public async Task<IReadOnlyList<string>> AwardPointsAsync(Guid userId, PointsReason reason, string sourceId, User? user = null, bool saveImmediately = true)
     {
         var alreadyAwarded = await db.PointsTransactions
+            .AsNoTracking()
             .AnyAsync(t => t.UserId == userId && t.Reason == reason && t.SourceId == sourceId);
         if (alreadyAwarded)
         {
@@ -93,6 +94,7 @@ public class GamificationService(AppDbContext db)
     private async Task<IReadOnlyList<string>> EvaluateBadgesAsync(Guid userId, User? user, bool saveImmediately)
     {
         var earnedKeys = (await db.UserBadges
+            .AsNoTracking()
             .Where(b => b.UserId == userId)
             .Select(b => b.BadgeKey)
             .ToListAsync())

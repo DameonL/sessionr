@@ -55,13 +55,19 @@ public class Post(AppDbContext db, GamificationService gamification)
         // PracticeLog references its UserTune by id only (Cosmos can't join), so resolve the user's
         // UserTune ids first, then read their practice timestamps.
         var userTuneIds = await db.UserTunes
+            .AsNoTracking()
             .Where(ut => ut.UserId == callerUserId.Value)
             .Select(ut => ut.UserTuneId)
             .ToListAsync();
-        var allTimestamps = await db.PracticeLog
-            .Where(p => userTuneIds.Contains(p.UserTuneId))
-            .Select(p => p.PracticedAt)
-            .ToListAsync();
+
+        var allTimestamps = userTuneIds.Count == 0
+            ? new System.Collections.Generic.List<DateTime>()
+            : await db.PracticeLog
+                .AsNoTracking()
+                .Where(p => userTuneIds.Contains(p.UserTuneId))
+                .Select(p => p.PracticedAt)
+                .ToListAsync();
+
         allTimestamps.Add(now);
 
         var computedStreak = PracticeStreakCalculator.ComputeCurrentStreak(allTimestamps, now, offsetMinutes);
