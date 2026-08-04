@@ -57,9 +57,11 @@ public class GamificationService(AppDbContext db)
     /// </summary>
     public async Task<IReadOnlyList<string>> AwardPointsAsync(Guid userId, PointsReason reason, string sourceId, User? user = null, bool saveImmediately = true)
     {
-        var alreadyAwarded = await db.PointsTransactions
+        var existingTransactions = await db.PointsTransactions
             .AsNoTracking()
-            .AnyAsync(t => t.UserId == userId && t.Reason == reason && t.SourceId == sourceId);
+            .Where(t => t.UserId == userId && t.SourceId == sourceId)
+            .ToListAsync();
+        var alreadyAwarded = existingTransactions.Any(t => t.Reason == reason);
         if (alreadyAwarded)
         {
             return Array.Empty<string>();
@@ -137,7 +139,8 @@ public class GamificationService(AppDbContext db)
             if (effectiveStreak >= 365) Award("streak-365", Streak365BonusPoints);
         }
 
-        var activeCount = await db.UserTunes.CountAsync(ut => ut.UserId == userId && ut.Status == TuneStatus.Active);
+        var userTunes = await db.UserTunes.AsNoTracking().Where(ut => ut.UserId == userId).ToListAsync();
+        var activeCount = userTunes.Count(ut => ut.Status == TuneStatus.Active);
         if (activeCount >= ActiveTunesForFirstBadge) Award("active-5");
         if (activeCount >= ActiveTunesForSecondBadge) Award("active-20");
 
