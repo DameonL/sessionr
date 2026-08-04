@@ -12,12 +12,10 @@ import {
   getMyGamificationSummary,
   getPendingFriendRequests,
   getPracticeStats,
-  migrateSqlToCosmos,
   removeFriend,
   updateCurrentUser,
   type FriendDto,
   type FriendRequestDto,
-  type MigrationResult,
   type UserBadge,
 } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
@@ -74,28 +72,7 @@ export function Profile() {
   const [instruments, setInstruments] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [migrating, setMigrating] = useState(false)
-  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null)
-  const [migrationError, setMigrationError] = useState<string | null>(null)
   const seeded = useRef(false)
-  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const handleMigrate = async () => {
-    if (!confirm('Start migrating data from Azure SQL to Azure Cosmos DB for NoSQL?')) return
-    setMigrating(true)
-    setMigrationError(null)
-    setMigrationResult(null)
-    try {
-      const res = await migrateSqlToCosmos()
-      setMigrationResult(res)
-      showToast('Database migration completed successfully!', 'success')
-    } catch (err: any) {
-      setMigrationError(err.message || 'Migration failed.')
-      showToast(err.message || 'Migration failed.', 'error')
-    } finally {
-      setMigrating(false)
-    }
-  }
 
   const mustSetUsername = !!profileQuery.data && !profileQuery.data.username
 
@@ -436,42 +413,6 @@ export function Profile() {
             You haven't added any friends yet. Visit another musician's public profile page to send a friend request!
           </p>
         )}
-      </div>
-
-      {/* Admin Database Migration Card */}
-      <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
-        <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.2rem' }}>
-          ⚡ Database Migration (Azure SQL → Cosmos DB for NoSQL)
-        </h2>
-        <p className="tune-meta" style={{ marginTop: '0.25rem' }}>
-          One-time migration tool to copy production records from Azure SQL into Azure Cosmos DB for NoSQL over Virtual Network.
-        </p>
-
-        {migrationResult && (
-          <div style={{ padding: '1rem', background: 'rgba(77, 208, 165, 0.1)', borderRadius: '8px', marginBottom: '1rem', border: '1px solid rgba(77, 208, 165, 0.3)' }}>
-            <h4 style={{ margin: '0 0 0.5rem', color: '#4dd0a5' }}>✓ {migrationResult.message}</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem', fontSize: '0.85rem' }}>
-              {Object.entries(migrationResult.counts).map(([table, count]) => (
-                <div key={table}><strong>{table}:</strong> {count}</div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {migrationError && (
-          <div className="error" style={{ padding: '1rem', borderRadius: '8px', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)' }}>
-            ⚠️ {migrationError}
-          </div>
-        )}
-
-        <button
-          className="primary"
-          onClick={handleMigrate}
-          disabled={migrating}
-          style={{ backgroundColor: '#eab308', borderColor: '#ca8a04', color: '#000', fontWeight: 600 }}
-        >
-          {migrating ? 'Migrating Data…' : 'Start Migration'}
-        </button>
       </div>
     </section>
   )

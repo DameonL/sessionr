@@ -1372,25 +1372,4 @@ export interface DashboardActivityItemData {
 export const getActivityFeed = (filter = 'all', page = 1, pageSize = 20) =>
   apiFetch<PagedResult<DashboardActivityItemData>>(`/me/activity-feed?filter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`)
 
-export interface MigrationResult {
-  success: boolean
-  message: string
-  counts: Record<string, number>
-}
-
-// Runs against the PUBLIC API with a raw fetch, deliberately bypassing the shared doFetch layer:
-// the global offline flag (tripped by the unreachable private /users/me health check) would
-// otherwise short-circuit this into the offline queue instead of sending it, and the copy can also
-// run longer than doFetch's 20s request timeout. It's an anonymous endpoint, so no token is needed.
-export const migrateSqlToCosmos = async (): Promise<MigrationResult> => {
-  const base = PUBLIC_API_BASE.endsWith('/') ? PUBLIC_API_BASE.slice(0, -1) : PUBLIC_API_BASE
-  // No custom headers / body, so this stays a CORS-simple POST (no preflight) — it only needs the
-  // same cross-origin access the public GET endpoints already rely on.
-  const res = await fetch(`${base}/migrate-sql-to-cosmos`, { method: 'POST' })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(detail || `API ${res.status}: ${res.statusText}`)
-  }
-  const text = await res.text()
-  return (text ? JSON.parse(text) : {}) as MigrationResult
 }

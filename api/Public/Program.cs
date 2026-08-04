@@ -21,9 +21,4 @@ var app = builder.Build();
 
 DbSetup.InitializeDatabase(app.Services, useSqlite);
 
-// One-time SQL -> Cosmos data copy, triggered by the RunMigrationOnStartup app setting. Lives here
-// (not behind an HTTP endpoint) so it works even when the app sits behind EasyAuth/WAF. No-op unless
-// the flag is set; never throws. Remove the app setting once the copy is confirmed.
-await SqlToCosmosMigrator.RunIfRequestedAsync();
-
 app.Run();

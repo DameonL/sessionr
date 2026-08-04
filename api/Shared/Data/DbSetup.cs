@@ -19,11 +19,7 @@ public static class DbSetup
     /// <summary>Registers AppDbContext and returns whether it's running against local SQLite (vs. Cosmos DB).</summary>
     public static bool AddSessionAppDbContext(this IServiceCollection services)
     {
-        // Only a genuine Cosmos connection string may drive the runtime context. SqlConnectionString
-        // is deliberately NOT a fallback here: it belongs to the old SQL backend and is consumed only
-        // by the one-time MigrateSqlToCosmos export. Feeding a SQL connection string to UseCosmos throws
-        // "missing a required property: AccountEndpoint" at EnsureCreated and takes the worker down at
-        // startup — which is exactly the failure this guard prevents.
+        // Only a genuine Cosmos connection string may drive the runtime context.
         var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString")
             ?? Environment.GetEnvironmentVariable("MongoConnectionString");
         var useSqlite = string.IsNullOrWhiteSpace(cosmosConnectionString);
