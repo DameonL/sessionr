@@ -15,6 +15,7 @@ import {
 import { showToast } from '../../state/appState'
 import { Dialog } from '../../components/Dialog'
 import { TransferOwnershipModal } from '../../components/TransferOwnershipModal'
+import { QRCodeModal } from '../../components/QRCodeModal'
 import { useGroupDetail } from './groupDetailContext'
 
 function RoleBadge({ role }: { role: GroupMember['role'] }) {
@@ -46,6 +47,7 @@ export function GroupMembersPanel() {
   const [showPrivacyConfirm, setShowPrivacyConfirm] = useState(false)
   const [transferTarget, setTransferTarget] = useState<{ userId: string; displayName: string } | null>(null)
   const [shareUrl, setShareUrl] = useState('')
+  const [showQrModal, setShowQrModal] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -131,12 +133,12 @@ export function GroupMembersPanel() {
           </div>
 
           {details.isPrivate && details.inviteCode && (
-            <div style={{ marginTop: '0.75rem' }}>
+            <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <span className="tune-meta">Invite code:</span>{' '}
               <code style={{ fontSize: '1rem' }}>{details.inviteCode}</code>
               <button
                 className="secondary"
-                style={{ marginLeft: '0.75rem', padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                 onClick={() => {
                   navigator.clipboard.writeText(`${shareUrl}?code=${details.inviteCode}`)
                   alert('Invite link copied to clipboard!')
@@ -146,7 +148,14 @@ export function GroupMembersPanel() {
               </button>
               <button
                 className="secondary"
-                style={{ marginLeft: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                onClick={() => setShowQrModal(true)}
+              >
+                📱 QR Code Invite
+              </button>
+              <button
+                className="secondary"
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                 onClick={() => regenerateCodeMutation.mutate()}
                 disabled={regenerateCodeMutation.isPending}
               >
@@ -156,6 +165,15 @@ export function GroupMembersPanel() {
           )}
         </div>
       )}
+
+      <QRCodeModal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        title={`Group Invite: ${details.name}`}
+        subtitle="Scan with a phone camera to join this private group with invite code pre-filled"
+        url={`${shareUrl}?code=${details.inviteCode}`}
+        downloadFilename={`group-${details.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-invite-qr.png`}
+      />
 
       {isAdmin && details.pendingMembers.length > 0 && (
         <div style={{ marginBottom: '1.5rem' }}>

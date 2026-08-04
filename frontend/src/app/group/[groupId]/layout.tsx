@@ -7,6 +7,7 @@ import { useRouter, useSearchParams, usePathname, useParams } from 'next/navigat
 import { getGroupDetails, joinGroup, leaveGroup } from '../../../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../../../state/appState'
 import { GroupDetailProvider } from '../../../views/group/groupDetailContext'
+import { QRCodeModal } from '../../../components/QRCodeModal'
 
 export default function GroupDetailLayout({ children }: { children: React.ReactNode }) {
   const { groupId } = useParams<{ groupId: string }>()
@@ -20,6 +21,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
 
   const [shareUrl, setShareUrl] = useState('')
   const [inviteCodeInput, setInviteCodeInput] = useState(searchParams.get('code') ?? '')
+  const [showQrModal, setShowQrModal] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -339,26 +341,42 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
         <h3>Invite Musicians</h3>
         <p className="tune-meta">
           {details.isPrivate
-            ? 'Share this link — since the group is private, they\'ll need to request to join or use an invite code (see Members tab).'
-            : 'Share this link with other session players so they can view and join your group:'}
+            ? 'Share this link or QR code — since the group is private, members scanning the QR code will automatically have the invite code pre-filled.'
+            : 'Share this link or QR code with other session players so they can view and join your group:'}
         </p>
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
           <input
             type="text"
             readOnly
-            value={shareUrl}
-            style={{ flex: 1, padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.9rem' }}
+            value={details.isPrivate && details.inviteCode ? `${shareUrl}?code=${details.inviteCode}` : shareUrl}
+            style={{ flex: 1, minWidth: '220px', padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.9rem' }}
           />
           <button
             onClick={() => {
-              navigator.clipboard.writeText(shareUrl)
+              const link = details.isPrivate && details.inviteCode ? `${shareUrl}?code=${details.inviteCode}` : shareUrl
+              navigator.clipboard.writeText(link)
               alert('Join link copied to clipboard!')
             }}
           >
             Copy Link
           </button>
+          <button
+            className="secondary"
+            onClick={() => setShowQrModal(true)}
+          >
+            📱 Show QR Code
+          </button>
         </div>
       </div>
+
+      <QRCodeModal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        title={`Group Invite: ${details.name}`}
+        subtitle={details.isPrivate ? 'Scan with a phone camera to join this private group' : 'Scan to open and join this group'}
+        url={details.isPrivate && details.inviteCode ? `${shareUrl}?code=${details.inviteCode}` : shareUrl}
+        downloadFilename={`group-${details.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-qr.png`}
+      />
     </section>
   )
 }

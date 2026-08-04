@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   acceptFriendRequest,
   cancelFriendRequest,
@@ -22,6 +23,7 @@ import {
 import { getBadgeInfo } from '../services/badges'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
 import { BadgeModal } from '../components/BadgeModal'
+import { QRCodeModal } from '../components/QRCodeModal'
 
 /** Bookmarkable public profile page: /profile/{username} */
 export function PublicProfile({ username }: { username?: string }) {
@@ -29,8 +31,11 @@ export function PublicProfile({ username }: { username?: string }) {
   const viewerProfile = useSignal(currentUserProfile)
   const isViewerModerator = !!viewerProfile?.isModerator
   const queryClient = useQueryClient()
+  const searchParams = useSearchParams()
+  const isAddFriendAction = searchParams.get('action') === 'add-friend'
 
   const [showSanitizeModal, setShowSanitizeModal] = useState(false)
+  const [showQrModal, setShowQrModal] = useState(false)
   const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
   const [sanName, setSanName] = useState('')
   const [sanBio, setSanBio] = useState('')
@@ -167,6 +172,38 @@ export function PublicProfile({ username }: { username?: string }) {
 
   return (
     <section>
+      {isAddFriendAction && viewerProfile && viewerProfile.userId !== resolvedUserId && friendshipStatus === 'None' && (
+        <div
+          className="card"
+          style={{
+            padding: '1rem 1.25rem',
+            marginBottom: '1rem',
+            background: 'rgba(77, 208, 165, 0.15)',
+            border: '1px solid #4dd0a5',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <strong>👋 Scanned Friend QR Code!</strong>
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+              Send a friend request to connect with {displayName}.
+            </div>
+          </div>
+          <button
+            className="primary"
+            onClick={() => sendRequestMutation.mutate()}
+            disabled={sendRequestMutation.isPending}
+          >
+            {sendRequestMutation.isPending ? 'Sending…' : '➕ Send Friend Request'}
+          </button>
+        </div>
+      )}
+
       <div className="card" style={{ padding: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
@@ -178,6 +215,14 @@ export function PublicProfile({ username }: { username?: string }) {
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              className="secondary"
+              onClick={() => setShowQrModal(true)}
+              title="Show friend invite QR code"
+            >
+              📱 Share QR Code
+            </button>
+
             {viewerProfile && viewerProfile.userId !== resolvedUserId && friendshipStatus && (
               <>
                 {friendshipStatus === 'None' && (
@@ -360,6 +405,15 @@ export function PublicProfile({ username }: { username?: string }) {
           </div>
         </div>
       )}
+
+      <QRCodeModal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        title={`Friend Invite: ${displayName}`}
+        subtitle="Show this QR code to a fellow musician so they can scan and add you as a friend!"
+        url={typeof window !== 'undefined' ? `${window.location.origin}/profile/${slug}?action=add-friend` : `https://sessionapp.dev/profile/${slug}?action=add-friend`}
+        downloadFilename={`friend-${slug}-qr.png`}
+      />
     </section>
   )
 }

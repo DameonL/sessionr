@@ -21,6 +21,7 @@ import {
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
 import { BadgeModal } from '../components/BadgeModal'
+import { QRCodeModal } from '../components/QRCodeModal'
 
 const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
 
@@ -63,6 +64,7 @@ export function Profile() {
   })
 
   const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
+  const [showQrModal, setShowQrModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState('')
@@ -156,13 +158,24 @@ export function Profile() {
 
   return (
     <section>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h1 style={{ margin: 0 }}>Your Profile</h1>
-        {profileQuery.data?.username && (
-          <Link href={`/profile/${profileQuery.data.username}`} prefetch={false} className="quiet-link">
-            View public profile ↗
-          </Link>
-        )}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {profileQuery.data?.username && (
+            <button
+              type="button"
+              className="secondary btn-sm"
+              onClick={() => setShowQrModal(true)}
+            >
+              📱 My Friend QR Code
+            </button>
+          )}
+          {profileQuery.data?.username && (
+            <Link href={`/profile/${profileQuery.data.username}`} prefetch={false} className="quiet-link">
+              View public profile ↗
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
@@ -415,6 +428,17 @@ export function Profile() {
           </p>
         )}
       </div>
+
+      {profileQuery.data?.username && (
+        <QRCodeModal
+          isOpen={showQrModal}
+          onClose={() => setShowQrModal(false)}
+          title={`Friend Invite: ${profileQuery.data.displayName}`}
+          subtitle="Show this QR code to a fellow musician so they can scan and add you as a friend!"
+          url={typeof window !== 'undefined' ? `${window.location.origin}/profile/${profileQuery.data.username}?action=add-friend` : `https://sessionapp.dev/profile/${profileQuery.data.username}?action=add-friend`}
+          downloadFilename={`friend-${profileQuery.data.username}-qr.png`}
+        />
+      )}
     </section>
   )
 }

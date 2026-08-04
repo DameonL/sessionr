@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useMsal } from '@azure/msal-react'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
 import { NetworkStatusBanner } from './NetworkStatusBanner'
+import { QRScannerModal } from './QRScannerModal'
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
@@ -19,6 +20,7 @@ const NAV_LINKS = [
 export function NavBar() {
   const [mounted, setMounted] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [showScannerModal, setShowScannerModal] = useState(false)
   const pathname = usePathname()
   const profile = useSignal(currentUserProfile)
 
@@ -57,7 +59,16 @@ export function NavBar() {
         </nav>
 
         {/* Desktop Auth Section */}
-        <div className="desktop-auth-slot">
+        <div className="desktop-auth-slot" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="secondary btn-sm"
+            onClick={() => setShowScannerModal(true)}
+            title="Scan a group or friend QR code"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem' }}
+          >
+            📷 Scan QR
+          </button>
           {!mounted ? (
             <div className="nav-pill" />
           ) : (
@@ -85,6 +96,17 @@ export function NavBar() {
           <div className="mobile-backdrop" onClick={() => setMobileOpen(false)} />
           <div className="mobile-drawer">
             <nav className="mobile-nav-links">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setMobileOpen(false)
+                  setShowScannerModal(true)
+                }}
+                style={{ width: '100%', marginBottom: '0.5rem', textAlign: 'center' }}
+              >
+                📷 Scan QR Code
+              </button>
               {links.map((link) => {
                 const active = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href))
                 return (
@@ -105,6 +127,11 @@ export function NavBar() {
           </div>
         </>
       )}
+
+      <QRScannerModal
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
+      />
     </header>
   )
 }
