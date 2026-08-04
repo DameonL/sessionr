@@ -73,6 +73,7 @@ export function Profile() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const seeded = useRef(false)
+  const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const mustSetUsername = !!profileQuery.data && !profileQuery.data.username
 
