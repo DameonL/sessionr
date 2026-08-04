@@ -20,77 +20,85 @@ public class Post(AppDbContext db, GamificationService gamification)
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "repertoire/items/{userTuneId:guid}/practiced")] HttpRequest req,
         Guid userTuneId)
     {
-        var callerUserId = await req.GetCallerUserIdAsync(db);
-        if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+        try
         {
-            return Unauthorized("Authentication credentials are required.");
-        }
+            var callerUserId = await req.GetCallerUserIdAsync(db);
+            if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
+            {
+                return Unauthorized("Authentication credentials are required.");
+            }
 
-        var userTune = await db.UserTunes
-            .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
+            var userTune = await db.UserTunes
+                .SingleOrDefaultAsync(ut => ut.UserTuneId == userTuneId && ut.UserId == callerUserId.Value);
 
-        if (userTune is null)
-        {
-            return new NotFoundResult();
-        }
+            if (userTune is null)
+            {
+                return new NotFoundResult();
+            }
 
-        var user = await db.Users.SingleOrDefaultAsync(u => u.UserId == callerUserId.Value);
-        if (user is null)
-        {
-            return new NotFoundResult();
-        }
+            var user = await db.Users.SingleOrDefaultAsync(u => u.UserId == callerUserId.Value);
+            if (user is null)
+            {
+                return new NotFoundResult();
+            }
 
-        var offsetMinutes = req.GetTimezoneOffsetMinutes();
-        var now = DateTime.UtcNow;
-        userTune.LastPracticed = now;
+            var offsetMinutes = req.GetTimezoneOffsetMinutes();
+            var now = DateTime.UtcNow;
+            userTune.LastPracticed = now;
 
-        var localToday = now.AddMinutes(-offsetMinutes).Date;
+            var localToday = now.AddMinutes(-offsetMinutes).Date;
 
-        db.PracticeLog.Add(new PracticeLogEntry
-        {
-            UserTuneId = userTuneId,
-            PracticedAt = now
-        });
+            db.PracticeLog.Add(new PracticeLogEntry
+            {
+                UserTuneId = userTuneId,
+                PracticedAt = now
+            });
 
-        // PracticeLog references its UserTune by id only (Cosmos can't join), so resolve the user's
-        // UserTune ids first, then read their practice timestamps.
-        var userTuneIds = await db.UserTunes
-            .AsNoTracking()
-            .Where(ut => ut.UserId == callerUserId.Value)
-            .Select(ut => ut.UserTuneId)
-            .ToListAsync();
-
-        var allTimestamps = userTuneIds.Count == 0
-            ? new System.Collections.Generic.List<DateTime>()
-            : await db.PracticeLog
+            // PracticeLog references its UserTune by id only (Cosmos can't join), so resolve the user's
+            // UserTune ids first, then read their practice timestamps.
+            var userTuneIds = await db.UserTunes
                 .AsNoTracking()
-                .Where(p => userTuneIds.Contains(p.UserTuneId))
-                .Select(p => p.PracticedAt)
+                .Where(ut => ut.UserId == callerUserId.Value)
+                .Select(ut => ut.UserTuneId)
                 .ToListAsync();
 
-        allTimestamps.Add(now);
+            var allTimestamps = userTuneIds.Count == 0
+                ? new System.Collections.Generic.List<DateTime>()
+                : await db.PracticeLog
+                    .AsNoTracking()
+                    .Where(p => userTuneIds.Contains(p.UserTuneId))
+                    .Select(p => p.PracticedAt)
+                    .ToListAsync();
 
-        var computedStreak = PracticeStreakCalculator.ComputeCurrentStreak(allTimestamps, now, offsetMinutes);
-        user.CurrentStreak = computedStreak;
-        user.StreakAnchorDate = localToday;
+            allTimestamps.Add(now);
 
-        var sourceId = $"{userTuneId}:{localToday:yyyy-MM-dd}";
-        var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId, user, saveImmediately: false);
+            var computedStreak = PracticeStreakCalculator.ComputeCurrentStreak(allTimestamps, now, offsetMinutes);
+            user.CurrentStreak = computedStreak;
+            user.StreakAnchorDate = localToday;
 
-        await db.SaveChangesAsync();
+            var sourceId = $"{userTuneId}:{localToday:yyyy-MM-dd}";
+            var newBadges = await gamification.AwardPointsAsync(callerUserId.Value, PointsReason.PracticeLogged, sourceId, user, saveImmediately: false);
 
-        foreach (var badgeKey in newBadges)
-        {
-            if (GamificationService.TryGetStreakDays(badgeKey, out var days))
+            await db.SaveChangesAsync();
+
+            foreach (var badgeKey in newBadges)
             {
-                await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.StreakMilestone, new StreakMilestonePayload(days));
+                if (GamificationService.TryGetStreakDays(badgeKey, out var days))
+                {
+                    await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.StreakMilestone, new StreakMilestonePayload(days));
+                }
+                else
+                {
+                    await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.BadgeEarned, new BadgeEarnedPayload(badgeKey, GamificationService.BadgeLabel(badgeKey)));
+                }
             }
-            else
-            {
-                await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.BadgeEarned, new BadgeEarnedPayload(badgeKey, GamificationService.BadgeLabel(badgeKey)));
-            }
+
+            return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
         }
-
-        return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[MarkPracticed ERROR] UserTuneId: {userTuneId}\n{ex}");
+            return new ObjectResult(new { error = ex.Message, detail = ex.ToString() }) { StatusCode = 500 };
+        }
     }
 }

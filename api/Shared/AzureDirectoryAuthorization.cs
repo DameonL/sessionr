@@ -36,12 +36,10 @@ public static class AzureDirectoryAuthorization
         var normalizedEmail = !string.IsNullOrWhiteSpace(email) ? email.Trim().ToLowerInvariant() : null;
         var trimmedDisplayName = !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim() : null;
 
-        var candidates = await db.Users
-            .Where(u => u.UserId == userId || (normalizedEmail != null && u.Email == normalizedEmail))
-            .ToListAsync();
-
-        var byOid = candidates.FirstOrDefault(u => u.UserId == userId);
-        var byEmail = normalizedEmail != null ? candidates.FirstOrDefault(u => u.Email == normalizedEmail) : null;
+        var byOid = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId);
+        var byEmail = (byOid == null && normalizedEmail != null)
+            ? await db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail)
+            : null;
 
         if (byOid != null)
         {
