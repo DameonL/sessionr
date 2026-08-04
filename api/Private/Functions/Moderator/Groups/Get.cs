@@ -24,11 +24,37 @@ public class Get(AppDbContext db)
             return Forbidden("Moderator access required.");
         }
 
-        var groups = await db.Groups
+        var groupEntities = await db.Groups
             .AsNoTracking()
             .OrderByDescending(g => g.CreatedAt)
-            .Select(g => new UnreviewedGroups.Get.ModeratorGroupDto(g.GroupId, g.Name, g.Description, g.City, g.IsPrivate, g.InviteCode, g.IsReviewed, g.ReviewedAt, g.ReviewedBy, g.CreatedAt, g.Memberships.Count))
             .ToListAsync();
+
+        var groupIds = groupEntities.Select(g => g.GroupId).ToList();
+        var memberships = groupIds.Count == 0
+            ? new System.Collections.Generic.List<Models.GroupMembership>()
+            : await db.GroupMemberships
+                .AsNoTracking()
+                .Where(m => groupIds.Contains(m.GroupId))
+                .ToListAsync();
+
+        var memberCountsByGroup = memberships
+            .GroupBy(m => m.GroupId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var groups = groupEntities
+            .Select(g => new UnreviewedGroups.Get.ModeratorGroupDto(
+                g.GroupId,
+                g.Name,
+                g.Description,
+                g.City,
+                g.IsPrivate,
+                g.InviteCode,
+                g.IsReviewed,
+                g.ReviewedAt,
+                g.ReviewedBy,
+                g.CreatedAt,
+                memberCountsByGroup.TryGetValue(g.GroupId, out var c) ? c : 0))
+            .ToList();
 
         return new OkObjectResult(groups);
     }

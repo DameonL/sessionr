@@ -21,8 +21,7 @@ public class MigrateSqlToCosmos
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "migrate-sql-to-cosmos")] HttpRequest req)
     {
         var sqlConnectionString = Environment.GetEnvironmentVariable("SqlConnectionString");
-        var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString")
-            ?? Environment.GetEnvironmentVariable("MongoConnectionString");
+        var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString");
 
         if (string.IsNullOrWhiteSpace(sqlConnectionString))
         {

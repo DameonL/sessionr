@@ -32,36 +32,26 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
             return viewError;
         }
 
-        var raw = await db.GroupSets
+        var rawGroupSets = await db.GroupSets
             .AsNoTracking()
             .Where(gs => gs.GroupId == groupId)
             .OrderBy(gs => gs.Title)
-            .Select(gs => new
-            {
-                gs.GroupSetId,
-                gs.GroupId,
-                gs.Title,
-                Items = gs.Items
-                    .OrderBy(i => i.SequenceNumber)
-                    .Select(i => new
-                    {
-                        i.GroupTuneId,
-                        i.SequenceNumber,
-                        i.Repetitions,
-                        i.GroupTune.Tune.Title,
-                        i.GroupTune.Tune.TuneType,
-                        Key = i.GroupTune.TuneSetting != null ? i.GroupTune.TuneSetting.Key : i.GroupTune.Tune.Key
-                    })
-                    .ToList()
-            })
             .ToListAsync();
 
-        var sets = raw
+        await GroupSetSupport.PopulateItemsAsync(db, rawGroupSets.ToArray());
+
+        var sets = rawGroupSets
             .Select(s => GroupSetSupport.ToSummaryDto(
                 s.GroupSetId,
                 s.GroupId,
                 s.Title,
-                s.Items.Select(i => (i.GroupTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType, i.Key)).ToList(),
+                s.Items.Select(i => (
+                    i.GroupTuneId,
+                    i.SequenceNumber,
+                    i.Repetitions,
+                    i.GroupTune.Tune.Title,
+                    i.GroupTune.Tune.TuneType,
+                    GroupSetSupport.EffectiveKey(i.GroupTune))).ToList(),
                 analyzer))
             .ToList();
 

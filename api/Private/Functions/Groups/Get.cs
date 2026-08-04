@@ -34,9 +34,16 @@ public class Get(AppDbContext db)
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
+        var callerGroupIds = await db.GroupMemberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId)
+            .Select(m => m.GroupId)
+            .Distinct()
+            .ToListAsync();
+
         var query = db.Groups
             .AsNoTracking()
-            .Where(g => !g.IsPrivate || g.Memberships.Any(m => m.UserId == userId));
+            .Where(g => !g.IsPrivate || callerGroupIds.Contains(g.GroupId));
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -45,20 +52,40 @@ public class Get(AppDbContext db)
 
         var totalCount = await query.CountAsync();
 
-        var groups = await query
+        var pagedGroups = await query
             .OrderBy(g => g.Name)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(g => new GroupDto(
+            .ToListAsync();
+
+        var pagedGroupIds = pagedGroups.Select(g => g.GroupId).ToList();
+        var memberships = pagedGroupIds.Count == 0
+            ? new System.Collections.Generic.List<GroupMembership>()
+            : await db.GroupMemberships
+                .AsNoTracking()
+                .Where(m => pagedGroupIds.Contains(m.GroupId))
+                .ToListAsync();
+
+        var membershipsByGroup = memberships.ToLookup(m => m.GroupId);
+
+        var groups = pagedGroups.Select(g =>
+        {
+            var groupMemberships = membershipsByGroup[g.GroupId].ToList();
+            var isMember = groupMemberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active);
+            var isPending = groupMemberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending);
+            var activeCount = groupMemberships.Count(m => m.Status == GroupMembershipStatus.Active);
+            var description = g.IsPrivate && !isMember ? null : g.Description;
+
+            return new GroupDto(
                 g.GroupId,
                 g.Name,
-                g.IsPrivate && !g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active) ? null : g.Description,
+                description,
                 g.City,
-                g.Memberships.Count(m => m.Status == GroupMembershipStatus.Active),
-                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active),
+                activeCount,
+                isMember,
                 g.IsPrivate,
-                g.Memberships.Any(m => m.UserId == userId && m.Status == GroupMembershipStatus.Pending)))
-            .ToListAsync();
+                isPending);
+        }).ToList();
 
         var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<GroupDto>(groups, totalCount, page, pageSize, hasMore));

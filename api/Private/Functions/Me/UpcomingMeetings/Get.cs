@@ -26,45 +26,58 @@ public class Get(AppDbContext db)
         }
         var userId = callerUserId.Value;
 
-        var userGroups = await db.GroupMemberships
+        var userMemberships = await db.GroupMemberships
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.Status == GroupMembershipStatus.Active)
-            .Select(m => new { m.GroupId, m.Group.Name, TimeZone = m.Group.TimeZone ?? "UTC" })
+            .Select(m => m.GroupId)
             .ToListAsync();
 
-        if (userGroups.Count == 0)
+        if (userMemberships.Count == 0)
         {
             return new OkObjectResult(new List<UpcomingMeetingDto>());
         }
 
-        var groupIds = userGroups.Select(g => g.GroupId).ToList();
-        var groupMap = userGroups.ToDictionary(g => g.GroupId);
+        var groupIds = userMemberships.Distinct().ToList();
+        var groups = await db.Groups
+            .AsNoTracking()
+            .Where(g => groupIds.Contains(g.GroupId))
+            .ToDictionaryByIdAsync(g => g.GroupId);
+
+        var groupMap = groupIds.ToDictionary(id => id, id => new
+        {
+            GroupId = id,
+            Name = groups.TryGetValue(id, out var g) ? g.Name : "",
+            TimeZone = (groups.TryGetValue(id, out g) ? g.TimeZone : null) ?? "UTC"
+        });
 
         var nowUtc = DateTime.UtcNow;
         var endUtc = nowUtc.AddDays(7);
 
-        var sessionRows = await db.GroupSessions
+        var sessionEntities = await db.GroupSessions
             .AsNoTracking()
             .Where(gs => groupIds.Contains(gs.GroupId) && gs.StartsAt >= nowUtc && gs.StartsAt <= endUtc && !gs.IsCancelled)
-            .Select(gs => new
-            {
-                gs.GroupSessionId,
-                gs.GroupId,
-                gs.Title,
-                gs.Location,
-                gs.StartsAt,
-                gs.IsCancelled,
-                ViewerRsvpStatus = gs.Rsvps.Where(r => r.UserId == userId).Select(r => (RsvpStatus?)r.Status).FirstOrDefault(),
-                GoingCount = gs.Rsvps.Count(r => r.Status == RsvpStatus.Going),
-                MaybeCount = gs.Rsvps.Count(r => r.Status == RsvpStatus.Maybe)
-            })
             .ToListAsync();
+
+        var sessionIds = sessionEntities.Select(s => s.GroupSessionId).ToList();
+        var rsvps = sessionIds.Count == 0
+            ? new List<SessionRsvp>()
+            : await db.SessionRsvps
+                .AsNoTracking()
+                .Where(r => sessionIds.Contains(r.GroupSessionId))
+                .ToListAsync();
+
+        var rsvpsBySession = rsvps.ToLookup(r => r.GroupSessionId);
 
         var result = new List<UpcomingMeetingDto>();
         var existingSessionDates = new HashSet<string>();
 
-        foreach (var s in sessionRows)
+        foreach (var s in sessionEntities)
         {
+            var sessionRsvps = rsvpsBySession[s.GroupSessionId].ToList();
+            var viewerRsvpStatus = sessionRsvps.FirstOrDefault(r => r.UserId == userId)?.Status;
+            var goingCount = sessionRsvps.Count(r => r.Status == RsvpStatus.Going);
+            var maybeCount = sessionRsvps.Count(r => r.Status == RsvpStatus.Maybe);
+
             var group = groupMap[s.GroupId];
             result.Add(new UpcomingMeetingDto(
                 s.GroupId,
@@ -75,30 +88,41 @@ public class Get(AppDbContext db)
                 s.Location,
                 s.StartsAt,
                 s.IsCancelled,
-                s.ViewerRsvpStatus?.ToString(),
-                s.GoingCount,
-                s.MaybeCount));
+                viewerRsvpStatus?.ToString(),
+                goingCount,
+                maybeCount));
 
             existingSessionDates.Add($"{s.GroupId}:{s.StartsAt:yyyy-MM-dd}");
         }
 
-        var scheduleRows = await db.GroupMeetingSchedules
+        var scheduleEntities = await db.GroupMeetingSchedules
             .AsNoTracking()
             .Where(gms => groupIds.Contains(gms.GroupId) && gms.RecurrencePattern != RecurrencePattern.None)
-            .Select(gms => new
-            {
-                gms.GroupMeetingScheduleId,
-                gms.GroupId,
-                gms.RecurrencePattern,
-                gms.RecurrenceDayOfWeek,
-                gms.RecurrenceWeekOfMonth,
-                gms.StartDate,
-                gms.MeetingTime,
-                gms.MeetingScheduleText,
-                gms.MeetingDescription,
-                ExceptionDates = gms.Exceptions.Select(e => e.ExceptionDate.Date).ToList()
-            })
             .ToListAsync();
+
+        var scheduleIds = scheduleEntities.Select(s => s.GroupMeetingScheduleId).ToList();
+        var exceptions = scheduleIds.Count == 0
+            ? new List<GroupScheduleException>()
+            : await db.GroupScheduleExceptions
+                .AsNoTracking()
+                .Where(e => scheduleIds.Contains(e.GroupMeetingScheduleId))
+                .ToListAsync();
+
+        var exceptionsBySchedule = exceptions.ToLookup(e => e.GroupMeetingScheduleId);
+
+        var scheduleRows = scheduleEntities.Select(gms => new
+        {
+            gms.GroupMeetingScheduleId,
+            gms.GroupId,
+            gms.RecurrencePattern,
+            gms.RecurrenceDayOfWeek,
+            gms.RecurrenceWeekOfMonth,
+            gms.StartDate,
+            gms.MeetingTime,
+            gms.MeetingScheduleText,
+            gms.MeetingDescription,
+            ExceptionDates = exceptionsBySchedule[gms.GroupMeetingScheduleId].Select(e => e.ExceptionDate.Date).ToList()
+        }).ToList();
 
         var today = nowUtc.Date;
         for (int i = 0; i <= 7; i++)

@@ -24,34 +24,25 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
             return Unauthorized("Authentication credentials are required.");
         }
 
-        var raw = await db.Sets
+        var rawSets = await db.Sets
             .AsNoTracking()
             .Where(s => s.UserId == callerUserId.Value)
             .OrderBy(s => s.Title)
-            .Select(s => new
-            {
-                s.SetId,
-                s.Title,
-                Items = s.Items
-                    .OrderBy(i => i.SequenceNumber)
-                    .Select(i => new
-                    {
-                        i.UserTuneId,
-                        i.SequenceNumber,
-                        i.Repetitions,
-                        i.UserTune.Tune.Title,
-                        i.UserTune.Tune.TuneType,
-                        Key = i.UserTune.TuneSetting != null ? i.UserTune.TuneSetting.Key : i.UserTune.Tune.Key
-                    })
-                    .ToList()
-            })
             .ToListAsync();
 
-        var sets = raw
+        await SetSupport.PopulateItemsAsync(db, rawSets.ToArray());
+
+        var sets = rawSets
             .Select(s => SetSupport.ToSummaryDto(
                 s.SetId,
                 s.Title,
-                s.Items.Select(i => (i.UserTuneId, i.SequenceNumber, i.Repetitions, i.Title, i.TuneType, i.Key)).ToList(),
+                s.Items.Select(i => (
+                    i.UserTuneId,
+                    i.SequenceNumber,
+                    i.Repetitions,
+                    i.UserTune.Tune.Title,
+                    i.UserTune.Tune.TuneType,
+                    i.UserTune.TuneSetting != null ? i.UserTune.TuneSetting.Key : i.UserTune.Tune.Key)).ToList(),
                 analyzer))
             .ToList();
 

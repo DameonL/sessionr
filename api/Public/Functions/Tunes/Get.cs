@@ -25,8 +25,14 @@ public class Get(AppDbContext db)
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(t => EF.Functions.Like(t.Title, $"%{search}%")
-                                  || t.Aliases.Any(a => EF.Functions.Like(a.Name, $"%{search}%")));
+            var matchingAliasTuneIds = await db.TuneAliases
+                .AsNoTracking()
+                .Where(a => EF.Functions.Like(a.Name, $"%{search}%"))
+                .Select(a => a.TuneId)
+                .Distinct()
+                .ToListAsync();
+
+            query = query.Where(t => EF.Functions.Like(t.Title, $"%{search}%") || matchingAliasTuneIds.Contains(t.TuneId));
         }
         if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
         {
@@ -50,23 +56,15 @@ public class Get(AppDbContext db)
 
         if (sort == "popular")
         {
-            query = query.OrderByDescending(t => t.RepertoireCount)
-                .ThenBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
-                    : t.Title.StartsWith("A ") ? t.Title.Substring(2)
-                    : t.Title);
+            query = query.OrderByDescending(t => t.RepertoireCount).ThenBy(t => t.Title);
         }
         else if (sort == "newest")
         {
-            query = query.OrderByDescending(t => t.CreatedAt)
-                .ThenBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
-                    : t.Title.StartsWith("A ") ? t.Title.Substring(2)
-                    : t.Title);
+            query = query.OrderByDescending(t => t.CreatedAt).ThenBy(t => t.Title);
         }
         else
         {
-            query = query.OrderBy(t => t.Title.StartsWith("The ") ? t.Title.Substring(4)
-                : t.Title.StartsWith("A ") ? t.Title.Substring(2)
-                : t.Title);
+            query = query.OrderBy(t => t.Title);
         }
 
         var results = await query
