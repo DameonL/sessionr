@@ -18,7 +18,7 @@ public class MigrateSqlToCosmos
 {
     [Function("MigrateSqlToCosmos")]
     public async Task<IActionResult> Run(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "admin/migrate-sql-to-cosmos")] HttpRequest req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "migrate-sql-to-cosmos")] HttpRequest req)
     {
         var sqlConnectionString = Environment.GetEnvironmentVariable("SqlConnectionString");
         var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString")

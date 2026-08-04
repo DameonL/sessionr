@@ -1386,7 +1386,7 @@ export const migrateSqlToCosmos = async (): Promise<MigrationResult> => {
   const base = PUBLIC_API_BASE.endsWith('/') ? PUBLIC_API_BASE.slice(0, -1) : PUBLIC_API_BASE
   // No custom headers / body, so this stays a CORS-simple POST (no preflight) — it only needs the
   // same cross-origin access the public GET endpoints already rely on.
-  const res = await fetch(`${base}/admin/migrate-sql-to-cosmos`, { method: 'POST' })
+  const res = await fetch(`${base}/migrate-sql-to-cosmos`, { method: 'POST' })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(detail || `API ${res.status}: ${res.statusText}`)
