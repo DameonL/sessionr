@@ -17,22 +17,30 @@ public class Get(AppDbContext db)
     public async Task<IActionResult> SearchTunes(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tunes")] HttpRequest req)
     {
-        var search = req.Query["search"].ToString();
-        var type = req.Query["type"].ToString();
-        var key = req.Query["key"].ToString();
+        var search = req.Query["search"].ToString().Trim();
+        var type = req.Query["type"].ToString().Trim();
+        var key = req.Query["key"].ToString().Trim();
 
         var query = db.Tunes.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
+            var searchLower = search.ToLower();
             var matchingAliasTuneIds = await db.TuneAliases
                 .AsNoTracking()
-                .Where(a => EF.Functions.Like(a.Name, $"%{search}%"))
+                .Where(a => a.Name.ToLower().Contains(searchLower))
                 .Select(a => a.TuneId)
                 .Distinct()
                 .ToListAsync();
 
-            query = query.Where(t => EF.Functions.Like(t.Title, $"%{search}%") || matchingAliasTuneIds.Contains(t.TuneId));
+            if (matchingAliasTuneIds.Count > 0)
+            {
+                query = query.Where(t => t.Title.ToLower().Contains(searchLower) || matchingAliasTuneIds.Contains(t.TuneId));
+            }
+            else
+            {
+                query = query.Where(t => t.Title.ToLower().Contains(searchLower));
+            }
         }
         if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
         {
@@ -43,7 +51,7 @@ public class Get(AppDbContext db)
             query = query.Where(t => t.Key == key);
         }
 
-        var sort = req.Query["sort"].ToString().ToLower();
+        var sort = req.Query["sort"].ToString().ToLower().Trim();
 
         int.TryParse(req.Query["page"], out var page);
         if (page < 1) page = 1;
@@ -52,27 +60,26 @@ public class Get(AppDbContext db)
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var totalCount = await query.CountAsync();
-
         if (sort == "popular")
         {
-            query = query.OrderByDescending(t => t.RepertoireCount).ThenBy(t => t.Title);
+            query = query.OrderByDescending(t => t.RepertoireCount);
         }
         else if (sort == "newest")
         {
-            query = query.OrderByDescending(t => t.CreatedAt).ThenBy(t => t.Title);
+            query = query.OrderByDescending(t => t.CreatedAt);
         }
         else
         {
             query = query.OrderBy(t => t.Title);
         }
 
+        var totalCount = await query.CountAsync();
+
         var results = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key, t.RepertoireCount))
             .ToListAsync();
-
 
         var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<TuneDto>(results, totalCount, page, pageSize, hasMore));

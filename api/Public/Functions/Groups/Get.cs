@@ -40,7 +40,8 @@ public class Get(AppDbContext db)
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(g => EF.Functions.Like(g.Name, $"%{search}%") || (g.City != null && EF.Functions.Like(g.City, $"%{search}%")));
+            var searchLower = search.Trim().ToLower();
+            query = query.Where(g => g.Name.ToLower().Contains(searchLower) || (g.City != null && g.City.ToLower().Contains(searchLower)));
         }
 
         var totalCount = await query.CountAsync();
