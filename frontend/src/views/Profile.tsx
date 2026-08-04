@@ -22,6 +22,7 @@ import { currentUserId, currentUserProfile, showToast, useSignal } from '../stat
 import { getBadgeInfo } from '../services/badges'
 import { BadgeModal } from '../components/BadgeModal'
 import { QRCodeModal } from '../components/QRCodeModal'
+import { QRScannerModal } from '../components/QRScannerModal'
 
 const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
 
@@ -65,6 +66,7 @@ export function Profile() {
 
   const [selectedBadge, setSelectedBadge] = useState<UserBadge | null>(null)
   const [showQrModal, setShowQrModal] = useState(false)
+  const [showScannerModal, setShowScannerModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState('')
@@ -338,9 +340,19 @@ export function Profile() {
 
       {/* Friends & Friend Requests Section */}
       <div className="card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
-        <h2 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          👥 Friends {friendsQuery.data && `(${friendsQuery.data.length})`}
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            👥 Friends {friendsQuery.data && `(${friendsQuery.data.length})`}
+          </h2>
+          <button
+            type="button"
+            className="secondary btn-sm"
+            onClick={() => setShowScannerModal(true)}
+            title="Scan a friend QR code to add them"
+          >
+            📷 Scan QR Code
+          </button>
+        </div>
 
         {/* Pending Requests Sub-section */}
         {pendingRequestsQuery.data && pendingRequestsQuery.data.length > 0 && (
@@ -439,6 +451,11 @@ export function Profile() {
           downloadFilename={`friend-${profileQuery.data.username}-qr.png`}
         />
       )}
+
+      <QRScannerModal
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
+      />
     </section>
   )
 }

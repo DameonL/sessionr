@@ -7,6 +7,7 @@ import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
+import { QRScannerModal } from '../components/QRScannerModal'
 
 export function Groups() {
   const userId = useSignal(currentUserId)
@@ -22,6 +23,7 @@ export function Groups() {
   const [schedules, setSchedules] = useState<ScheduleDraft[]>([])
 
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showScannerModal, setShowScannerModal] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
   // Fetch groups
@@ -113,16 +115,26 @@ export function Groups() {
             Find traditional music sessions, view meeting calendars, and connect with local musicians.
           </p>
         </div>
-        {showSignedInUi && (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
-            onClick={() => {
-              setShowCreateForm(!showCreateForm)
-              setCreateError(null)
-            }}
+            type="button"
+            className="secondary"
+            onClick={() => setShowScannerModal(true)}
+            title="Scan a group QR code to join"
           >
-            {showCreateForm ? 'Close Form' : '+ Create Group'}
+            📷 Scan QR Code
           </button>
-        )}
+          {showSignedInUi && (
+            <button
+              onClick={() => {
+                setShowCreateForm(!showCreateForm)
+                setCreateError(null)
+              }}
+            >
+              {showCreateForm ? 'Close Form' : '+ Create Group'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Group Creation Form */}
@@ -288,6 +300,11 @@ export function Groups() {
         hasMore={groupsQuery.hasNextPage}
         isLoadingMore={groupsQuery.isFetchingNextPage}
         onLoadMore={() => groupsQuery.fetchNextPage()}
+      />
+
+      <QRScannerModal
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
       />
     </div>
   )
