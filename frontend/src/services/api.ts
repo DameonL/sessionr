@@ -1371,5 +1371,3 @@ export interface DashboardActivityItemData {
 
 export const getActivityFeed = (filter = 'all', page = 1, pageSize = 20) =>
   apiFetch<PagedResult<DashboardActivityItemData>>(`/me/activity-feed?filter=${encodeURIComponent(filter)}&page=${page}&pageSize=${pageSize}`)
-
-}
