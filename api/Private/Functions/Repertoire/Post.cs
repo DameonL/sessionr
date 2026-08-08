@@ -20,11 +20,20 @@ public class Post(AppDbContext db)
         var callerUserId = await req.GetCallerUserIdAsync(db);
         if (!callerUserId.HasValue || callerUserId.Value == Guid.Empty)
         {
-            return Unauthorized("Authentication credentials are required.");
+            return new UnauthorizedObjectResult("Authentication credentials are required.");
         }
 
-        var body = await req.ReadFromJsonAsync<AddToRepertoireRequest>();
-        if (body is null)
+        AddToRepertoireRequest? body = null;
+        try
+        {
+            body = await req.ReadFromJsonAsync<AddToRepertoireRequest>();
+        }
+        catch
+        {
+            return new BadRequestObjectResult("Invalid JSON payload.");
+        }
+
+        if (body is null || body.TuneId == Guid.Empty)
         {
             return new BadRequestObjectResult("TuneId is required.");
         }
@@ -41,10 +50,11 @@ public class Post(AppDbContext db)
             return new ConflictObjectResult("Tune is already in the repertoire.");
         }
 
-        if (body.TuneSettingId is not null)
+        TuneSetting? selectedSetting = null;
+        if (body.TuneSettingId is not null && body.TuneSettingId != Guid.Empty)
         {
-            var settingBelongs = await db.TuneSettings.AnyAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == body.TuneId);
-            if (!settingBelongs)
+            selectedSetting = await db.TuneSettings.SingleOrDefaultAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == body.TuneId);
+            if (selectedSetting is null)
             {
                 return new BadRequestObjectResult("TuneSettingId does not belong to the given tune.");
             }
@@ -54,7 +64,7 @@ public class Post(AppDbContext db)
         {
             UserId = callerUserId.Value,
             TuneId = body.TuneId,
-            TuneSettingId = body.TuneSettingId,
+            TuneSettingId = selectedSetting?.TuneSettingId ?? body.TuneSettingId,
             Status = TuneStatus.Learning,
             TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
         };
@@ -62,9 +72,8 @@ public class Post(AppDbContext db)
         tune.RepertoireCount++;
         await db.SaveChangesAsync();
 
-
-        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : tune.Key;
-        var effectiveAbc = userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : tune.MasterAbcText;
+        var effectiveKey = selectedSetting != null ? selectedSetting.Key : tune.Key;
+        var effectiveAbc = selectedSetting != null ? selectedSetting.AbcText : tune.MasterAbcText;
 
         return new OkObjectResult(new RepertoireItemDto(
             userTune.UserTuneId,
