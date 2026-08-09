@@ -92,7 +92,7 @@ export function Dashboard() {
         <div>
           <div style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <span>🔥</span>
-            <span>{summary.isPending ? '...' : `${streakDays} Day Practice Streak`}</span>
+            <span>{summary.isPending ? '...' : streakDays > 0 ? `${streakDays} Day Practice Streak` : 'Start Your Practice Streak'}</span>
           </div>
           <span className="tune-meta" style={{ fontSize: '0.85rem' }}>
             {streakDays > 0 ? 'Keep the momentum going today!' : 'Start a practice session to build your streak!'}
