@@ -8,6 +8,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Me.DashboardSummary;
@@ -26,9 +27,13 @@ public class Get(AppDbContext db)
         }
         var userId = callerUserId.Value;
 
-        // 1. Practice Streak
-        var user = await db.Users.AsNoTracking().Where(u => u.UserId == userId).Select(u => new { u.CurrentStreak }).FirstOrDefaultAsync();
-        var currentStreakDays = user?.CurrentStreak ?? 0;
+        // 1. Practice Streak — apply the freshness guard so a lapsed streak reads as broken (0)
+        // instead of showing the stale cached value until the user next practices.
+        var user = await db.Users.AsNoTracking().Where(u => u.UserId == userId).Select(u => new { u.CurrentStreak, u.StreakAnchorDate }).FirstOrDefaultAsync();
+        var offsetMinutes = req.GetTimezoneOffsetMinutes();
+        var currentStreakDays = user is null
+            ? 0
+            : PracticeStreakCalculator.EffectiveStreak(user.CurrentStreak, user.StreakAnchorDate, DateTime.UtcNow, offsetMinutes);
 
         // 2. Active group IDs for user
         var userGroupMemberships = await db.GroupMemberships

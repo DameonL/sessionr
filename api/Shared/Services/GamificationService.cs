@@ -124,11 +124,7 @@ public class GamificationService(AppDbContext db)
         }
 
         user ??= await db.Users.SingleAsync(u => u.UserId == userId);
-        var today = DateTime.UtcNow.Date;
-        var effectiveStreak = (user.StreakAnchorDate.HasValue &&
-            (user.StreakAnchorDate.Value.Date == today || user.StreakAnchorDate.Value.Date == today.AddDays(-1)))
-            ? user.CurrentStreak
-            : 0;
+        var effectiveStreak = PracticeStreakCalculator.EffectiveStreak(user.CurrentStreak, user.StreakAnchorDate, DateTime.UtcNow);
 
         if (effectiveStreak > 0)
         {

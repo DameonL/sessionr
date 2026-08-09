@@ -28,4 +28,18 @@ public static class PracticeStreakCalculator
         }
         return streak;
     }
+
+    /// <summary>
+    /// Returns the cached streak only while it is still "alive" — the anchor day is today or
+    /// yesterday in the user's local timezone. Once a full local day passes without practice the
+    /// streak is broken and this returns 0. Matches ComputeCurrentStreak's "doesn't break until the
+    /// local day is fully over" anchoring.
+    /// </summary>
+    public static int EffectiveStreak(int currentStreak, DateTime? anchorDate, DateTime utcNow, int offsetMinutes = 0)
+    {
+        if (!anchorDate.HasValue) return 0;
+        var localToday = utcNow.AddMinutes(-offsetMinutes).Date;
+        var anchor = anchorDate.Value.Date;
+        return (anchor == localToday || anchor == localToday.AddDays(-1)) ? currentStreak : 0;
+    }
 }
