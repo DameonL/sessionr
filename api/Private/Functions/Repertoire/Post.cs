@@ -46,8 +46,14 @@ public class Post(AppDbContext db)
                 return new NotFoundObjectResult($"Tune {body.TuneId} not found.");
             }
 
-            var exists = await db.UserTunes.AnyAsync(ut => ut.UserId == callerUserId.Value && ut.TuneId == body.TuneId);
-            if (exists)
+            // NB: AnyAsync/CountAsync translate to an EXISTS/COUNT form the Cosmos
+            // provider emits with an unresolved `root` identifier (SC2001), so use a
+            // projected FirstOrDefaultAsync (LIMIT 1) existence check instead.
+            var existing = await db.UserTunes
+                .Where(ut => ut.UserId == callerUserId.Value && ut.TuneId == body.TuneId)
+                .Select(ut => (Guid?)ut.UserTuneId)
+                .FirstOrDefaultAsync();
+            if (existing is not null)
             {
                 return new ConflictObjectResult("Tune is already in the repertoire.");
             }
