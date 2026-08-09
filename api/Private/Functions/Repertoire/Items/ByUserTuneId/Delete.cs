@@ -31,7 +31,7 @@ public class Delete(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var usedInSets = await db.SetItems.AnyAsync(si => si.UserTuneId == userTuneId);
+        var usedInSets = await db.SetItems.Where(si => si.UserTuneId == userTuneId).CosmosAnyAsync();
         if (usedInSets)
         {
             return new ConflictObjectResult("Tune is used in one or more sets. Remove it from those sets first.");

@@ -76,7 +76,8 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
         if (body.TuneSettingId is not null)
         {
             var settingBelongs = await db.TuneSettings
-                .AnyAsync(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == userTune.TuneId);
+                .Where(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == userTune.TuneId)
+                .CosmosAnyAsync();
             if (!settingBelongs)
             {
                 return new BadRequestObjectResult("TuneSettingId does not belong to this tune.");

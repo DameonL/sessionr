@@ -38,16 +38,23 @@ public class Post(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var userExists = await db.Users.AnyAsync(u => u.UserId == callerUserId.Value);
+        var userExists = await db.Users.Where(u => u.UserId == callerUserId.Value).CosmosAnyAsync();
         if (!userExists)
         {
             return new BadRequestObjectResult("User does not exist.");
         }
 
+        // The vote's tune is reached via TuneSetting, a separate Cosmos document, so resolve the
+        // tune's setting ids first and match against those instead of dereferencing the nav.
+        var tuneSettingIds = await db.TuneSettings
+            .Where(s => s.TuneId == setting.TuneId)
+            .Select(s => s.TuneSettingId)
+            .ToListAsync();
         var hasVotedOnOtherSetting = await db.TuneSettingVotes
-            .AnyAsync(v => v.UserId == callerUserId.Value 
-                        && v.TuneSetting.TuneId == setting.TuneId 
-                        && v.TuneSettingId != settingId);
+            .Where(v => v.UserId == callerUserId.Value
+                     && v.TuneSettingId != settingId
+                     && tuneSettingIds.Contains(v.TuneSettingId))
+            .CosmosAnyAsync();
         if (hasVotedOnOtherSetting)
         {
             return new BadRequestObjectResult("You can only vote on a given tune once.");

@@ -18,7 +18,7 @@ public class Get(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId:guid}/active-tunes")] HttpRequest req,
         Guid userId)
     {
-        var exists = await db.Users.AsNoTracking().AnyAsync(u => u.UserId == userId);
+        var exists = await db.Users.AsNoTracking().Where(u => u.UserId == userId).CosmosAnyAsync();
         if (!exists)
         {
             return new NotFoundResult();

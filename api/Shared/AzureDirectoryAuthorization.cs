@@ -80,7 +80,7 @@ public static class AzureDirectoryAuthorization
         // On collision, leave Username null rather than auto-suffixing — the frontend
         // gates app entry on this and routes the user to pick one explicitly.
         var candidateUsername = UsernameSlug.Slugify(newUser.DisplayName);
-        if (candidateUsername != null && !await db.Users.AnyAsync(u => u.Username == candidateUsername))
+        if (candidateUsername != null && !await db.Users.Where(u => u.Username == candidateUsername).CosmosAnyAsync())
         {
             newUser.Username = candidateUsername;
         }

@@ -70,7 +70,9 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         }
 
         var ownedCount = await db.GroupTunes
-            .CountAsync(gt => gt.GroupId == groupId && ids.Contains(gt.GroupTuneId));
+            .Where(gt => gt.GroupId == groupId && ids.Contains(gt.GroupTuneId))
+            .Select(gt => gt.GroupTuneId)
+            .CosmosCountAsync();
         if (ownedCount != ids.Count)
         {
             return (new BadRequestObjectResult("All tunes must come from the group's master tune list."), body);

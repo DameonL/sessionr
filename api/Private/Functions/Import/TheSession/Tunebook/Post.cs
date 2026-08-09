@@ -73,8 +73,9 @@ public class Post(AppDbContext db, TheSessionImportService importService, ILogge
                 }
                 imported++;
 
-                var inRepertoire = await db.UserTunes.AnyAsync(
-                    ut => ut.UserId == callerUserId.Value && ut.TuneId == tune.TuneId);
+                var inRepertoire = await db.UserTunes
+                    .Where(ut => ut.UserId == callerUserId.Value && ut.TuneId == tune.TuneId)
+                    .CosmosAnyAsync();
                 if (inRepertoire)
                 {
                     already++;

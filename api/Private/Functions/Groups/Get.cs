@@ -51,7 +51,7 @@ public class Get(AppDbContext db)
             query = query.Where(g => g.Name.ToLower().Contains(searchLower) || (g.City != null && g.City.ToLower().Contains(searchLower)));
         }
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.Select(g => g.GroupId).CosmosCountAsync();
 
         var pagedGroups = await query
             .OrderBy(g => g.Name)

@@ -26,7 +26,7 @@ public class Post(AppDbContext db)
             return authResult;
         }
 
-        var groupExists = await db.Groups.AnyAsync(g => g.GroupId == groupId);
+        var groupExists = await db.Groups.Where(g => g.GroupId == groupId).CosmosAnyAsync();
         if (!groupExists)
         {
             return new NotFoundResult();

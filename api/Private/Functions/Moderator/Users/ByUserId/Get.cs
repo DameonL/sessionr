@@ -32,8 +32,8 @@ public class Get(AppDbContext db)
             return new NotFoundResult();
         }
 
-        var groupCount = await db.GroupMemberships.CountAsync(gm => gm.UserId == userId);
-        var tuneCount = await db.UserTunes.CountAsync(ut => ut.UserId == userId);
+        var groupCount = await db.GroupMemberships.Where(gm => gm.UserId == userId).Select(gm => gm.GroupMembershipId).CosmosCountAsync();
+        var tuneCount = await db.UserTunes.Where(ut => ut.UserId == userId).Select(ut => ut.UserTuneId).CosmosCountAsync();
 
         return new OkObjectResult(new ModeratorUserDetailsDto(
             user.UserId,

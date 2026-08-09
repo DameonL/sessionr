@@ -38,7 +38,7 @@ public class Post(AppDbContext db)
             return new NotFoundObjectResult($"Tune {body.TuneId} not found.");
         }
 
-        var exists = await db.GroupTunes.AnyAsync(gt => gt.GroupId == groupId && gt.TuneId == body.TuneId);
+        var exists = await db.GroupTunes.Where(gt => gt.GroupId == groupId && gt.TuneId == body.TuneId).CosmosAnyAsync();
         if (exists)
         {
             return new ConflictObjectResult("Tune is already in the group's repertoire.");

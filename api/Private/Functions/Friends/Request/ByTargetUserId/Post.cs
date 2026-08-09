@@ -29,7 +29,7 @@ public class Post(AppDbContext db)
             return new BadRequestObjectResult("You cannot send a friend request to yourself.");
         }
 
-        var targetUserExists = await db.Users.AsNoTracking().AnyAsync(u => u.UserId == targetUserId);
+        var targetUserExists = await db.Users.AsNoTracking().Where(u => u.UserId == targetUserId).CosmosAnyAsync();
         if (!targetUserExists)
         {
             return new NotFoundObjectResult("Target user not found.");

@@ -83,7 +83,7 @@ public class Patch(AppDbContext db)
 
             if (trimmed != user.Username)
             {
-                var taken = await db.Users.AnyAsync(u => u.Username == trimmed && u.UserId != user.UserId);
+                var taken = await db.Users.Where(u => u.Username == trimmed && u.UserId != user.UserId).CosmosAnyAsync();
                 if (taken)
                 {
                     return new ConflictObjectResult("That username is already taken.");

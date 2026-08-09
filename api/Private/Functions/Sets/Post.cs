@@ -58,7 +58,9 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         }
 
         var ownedCount = await db.UserTunes
-            .CountAsync(ut => ut.UserId == userId && ids.Contains(ut.UserTuneId));
+            .Where(ut => ut.UserId == userId && ids.Contains(ut.UserTuneId))
+            .Select(ut => ut.UserTuneId)
+            .CosmosCountAsync();
         if (ownedCount != ids.Count)
         {
             return new BadRequestObjectResult("All tunes must come from the user's repertoire.");

@@ -26,7 +26,8 @@ public class Post(AppDbContext db)
         }
 
         var scheduleExists = await db.GroupMeetingSchedules
-            .AnyAsync(gms => gms.GroupMeetingScheduleId == scheduleId && gms.GroupId == groupId);
+            .Where(gms => gms.GroupMeetingScheduleId == scheduleId && gms.GroupId == groupId)
+            .CosmosAnyAsync();
         if (!scheduleExists)
         {
             return new NotFoundResult();

@@ -23,7 +23,7 @@ public class Get(AppDbContext db)
             return new OkObjectResult(new UsernameAvailabilityDto(normalized, false, "invalid-format"));
         }
 
-        var taken = await db.Users.AsNoTracking().AnyAsync(u => u.Username == normalized);
+        var taken = await db.Users.AsNoTracking().Where(u => u.Username == normalized).CosmosAnyAsync();
         return new OkObjectResult(new UsernameAvailabilityDto(normalized, !taken, taken ? "taken" : null));
     }
 }

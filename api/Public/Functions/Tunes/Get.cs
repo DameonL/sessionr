@@ -73,7 +73,7 @@ public class Get(AppDbContext db)
             query = query.OrderBy(t => t.Title);
         }
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.Select(t => t.TuneId).CosmosCountAsync();
 
         var results = await query
             .Skip((page - 1) * pageSize)

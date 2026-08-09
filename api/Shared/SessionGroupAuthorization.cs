@@ -33,7 +33,8 @@ public static class SessionGroupAuthorization
     /// <summary>Checks whether a user is an active member of an in-app SessionApp music group.</summary>
     public static Task<bool> IsActiveMemberAsync(this AppDbContext db, Guid groupId, Guid userId) =>
         db.GroupMemberships.AsNoTracking()
-            .AnyAsync(gm => gm.GroupId == groupId && gm.UserId == userId && gm.Status == GroupMembershipStatus.Active);
+            .Where(gm => gm.GroupId == groupId && gm.UserId == userId && gm.Status == GroupMembershipStatus.Active)
+            .CosmosAnyAsync();
 
     public static bool IsAdminOrOwner(this GroupRole? role) => role is GroupRole.Administrator or GroupRole.Owner;
 

@@ -38,7 +38,7 @@ public class Post(AppDbContext db)
         await db.SaveChangesAsync();
 
         // Memberships are separate documents; count them directly rather than via an Include.
-        var memberCount = await db.GroupMemberships.CountAsync(m => m.GroupId == groupId);
+        var memberCount = await db.GroupMemberships.Where(m => m.GroupId == groupId).Select(m => m.GroupMembershipId).CosmosCountAsync();
         return new OkObjectResult(new UnreviewedGroups.Get.ModeratorGroupDto(group.GroupId, group.Name, group.Description, group.City, group.IsPrivate, group.InviteCode, group.IsReviewed, group.ReviewedAt, group.ReviewedBy, group.CreatedAt, memberCount));
     }
 }
