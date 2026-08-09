@@ -65,4 +65,58 @@ export function showToast(message: string, type: 'success' | 'error' | 'info' = 
   }, duration);
 }
 
+/**
+ * A persistent, dismissible error surface (unlike toasts, which auto-expire) so
+ * the full server response — status, message, and any diagnostic detail/stack —
+ * can be read and copied, including on mobile where the network response isn't
+ * otherwise reachable.
+ */
+export interface ErrorReport {
+  id: string
+  title: string
+  status?: number
+  message: string
+  detail?: string
+}
+
+export const activeErrorReport = new Signal<ErrorReport | null>(null);
+
+export function showErrorReport(report: Omit<ErrorReport, 'id'>) {
+  const id = Math.random().toString(36).substring(2, 9);
+  activeErrorReport.value = { id, ...report };
+}
+
+export function dismissErrorReport() {
+  activeErrorReport.value = null;
+}
+
+/**
+ * Classifies an unknown thrown value and, when it represents a real failure,
+ * surfaces it in the global error-report modal. Offline-queued and
+ * auth-required flows have their own UX and are intentionally ignored so they
+ * don't raise an alarming modal.
+ */
+export function reportError(error: unknown, context?: string) {
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    if (e.offlineQueued || e.unauthenticated) return;
+    const status = typeof e.status === 'number' ? (e.status as number) : undefined;
+    const message = typeof e.message === 'string' && e.message ? (e.message as string) : 'Unexpected error';
+    const detail =
+      typeof e.serverDetail === 'string' && e.serverDetail
+        ? (e.serverDetail as string)
+        : typeof e.body === 'string' && e.body
+          ? (e.body as string)
+          : undefined;
+    showErrorReport({
+      title: context ?? (status ? `Request failed (HTTP ${status})` : 'Request failed'),
+      status,
+      message,
+      detail,
+    });
+    return;
+  }
+  showErrorReport({ title: context ?? 'Something went wrong', message: String(error) });
+}
+
 

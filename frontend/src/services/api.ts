@@ -151,12 +151,19 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
       return doFetch<T>(base, path, init, true, opts)
     }
 
-    if (isPrivateApi && method !== 'GET' && !opts?.skipOfflineQueue) {
+    // Only a genuinely unavailable backend (bad gateway / cold-start / gateway
+    // timeout) should be treated like being offline and have the mutation
+    // queued for later replay. A 4xx/5xx *with* a response body is a real
+    // application error the server deliberately returned — surface it as an
+    // ApiError (carrying the backend's { error, detail } diagnostic) instead of
+    // silently swallowing it into the offline queue, where it would be invisible.
+    const backendUnavailable = res.status === 502 || res.status === 503 || res.status === 504
+    if (isPrivateApi && method !== 'GET' && !opts?.skipOfflineQueue && backendUnavailable) {
       void checkUsersMeHealth()
       return queueOfflineMutation<T>(method, url, path, init)
     }
 
-    throw new Error(detail || `API ${res.status}: ${res.statusText}`)
+    throw new ApiError(res.status, res.statusText, detail)
   }
 
   let data: T
@@ -209,6 +216,40 @@ export class OfflineQueuedError extends Error {
   constructor(description: string) {
     super(`${description} — queued offline, will sync when back online.`)
     this.name = 'OfflineQueuedError'
+  }
+}
+
+/**
+ * A genuine error *response* from the server: the request reached the backend
+ * and it replied with a non-2xx status. Carries the raw body plus, when the
+ * backend returned our { error, detail } diagnostic shape, the parsed fields —
+ * so the UI can show the real message and stack trace instead of a bare status.
+ */
+export class ApiError extends Error {
+  status: number
+  body: string
+  serverError?: string
+  serverDetail?: string
+  constructor(status: number, statusText: string, body: string) {
+    let serverError: string | undefined
+    let serverDetail: string | undefined
+    if (body) {
+      try {
+        const parsed = JSON.parse(body)
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed.error === 'string') serverError = parsed.error
+          if (typeof parsed.detail === 'string') serverDetail = parsed.detail
+        }
+      } catch {
+        // Non-JSON body (e.g. a plain-text message) — preserved via `body`.
+      }
+    }
+    super(serverError || body || `API ${status}: ${statusText}`)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+    this.serverError = serverError
+    this.serverDetail = serverDetail
   }
 }
 

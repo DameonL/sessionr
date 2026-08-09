@@ -3,9 +3,17 @@
  * useState) so non-React code — syncManager's post-replay cache invalidation —
  * can reach the same client that <QueryClientProvider> renders with.
  */
-import { QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryClient } from '@tanstack/react-query'
+import { reportError } from '../state/appState'
 
 export const queryClient = new QueryClient({
+  // Surface every mutation failure through the global error report modal, so a
+  // real server error (e.g. a 500 from a mutation with no local onError) is
+  // never silently lost. Offline-queued / auth-required errors are filtered out
+  // inside reportError.
+  mutationCache: new MutationCache({
+    onError: (error) => reportError(error),
+  }),
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
