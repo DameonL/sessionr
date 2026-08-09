@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
-import { getCurrentUser } from '../services/api'
+import { getCurrentUser, ApiError, UnauthenticatedError } from '../services/api'
 import { loginRequest } from '../services/authConfig'
 import { authStatus, currentUserId, currentUserProfile, getBearerToken, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
@@ -59,6 +59,12 @@ async function fetchMsalConfig(): Promise<any> {
 
 let cachedToken: string | null = null
 
+// True while MsalBackgroundSync is actively acquiring a token + syncing the user
+// profile (including its cold-start retry loop). The pending-safety timer checks
+// this so it never flips a still-working sign-in to 'anonymous' mid-retry — the
+// retry loop owns the terminal state in that case.
+let syncInProgress = false
+
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
   const [configError, setConfigError] = useState(false)
@@ -71,7 +77,10 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     // wedged interaction), don't leave the whole app frozen on blank 'pending'
     // screens — fall back to anonymous and invite a retry.
     const pendingSafetyTimer = setTimeout(() => {
-      if (authStatus.value === 'pending') {
+      // Don't pre-empt an in-flight sync/retry: a cold backend can take longer
+      // than this to answer GET /users/me, and the retry loop will settle the
+      // status itself. Only rescue a genuinely wedged bootstrap.
+      if (authStatus.value === 'pending' && !syncInProgress) {
         authStatus.value = 'anonymous';
         showToast('Sign-in is taking longer than expected. Please try again.', 'info');
       }
@@ -307,26 +316,67 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
       return
     }
 
-    if (isAuthenticated && accounts.length > 0) {
-      getBearerToken(false).then((token) => {
-        if (!token) {
-          currentUserId.value = ''
-          currentUserProfile.value = null
-          authStatus.value = 'anonymous'
-          onSyncEnd()
-          return
-        }
+    if (!isAuthenticated || accounts.length === 0) {
+      // MSAL has no authenticated account — genuinely signed out.
+      currentUserId.value = ''
+      currentUserProfile.value = null
+      authStatus.value = 'anonymous'
+      onSyncEnd()
+      return
+    }
 
-        const activeAccount = accounts[0]
-        const displayName = activeAccount.name ||
-                            (activeAccount.idTokenClaims as any)?.name ||
-                            (activeAccount.idTokenClaims as any)?.given_name ||
-                            'Microsoft Musician';
+    // MSAL says we're authenticated. The signed-in UI still needs the backend
+    // user profile (GET /users/me) to populate currentUserId, but that first
+    // call can transiently fail — most often an Azure Functions cold start on
+    // the first request after login or a reload. Treating that one failure as
+    // "signed out" is what used to bounce a valid session back to the sign-in
+    // screen ("sign in twice" / "lost my session"). So retry transient failures
+    // with backoff across a cold-start window, and only fall to 'anonymous' for
+    // a definitive not-signed-in signal.
+    let cancelled = false
+    syncInProgress = true
 
-        onSyncStart(displayName)
+    const setAnonymous = () => {
+      currentUserId.value = ''
+      currentUserProfile.value = null
+      authStatus.value = 'anonymous'
+    }
 
-        getCurrentUser()
-          .then((profile) => {
+    // A hard "you are not signed in" signal — no amount of retrying will help.
+    // A 401 has already survived doFetch's own forceRefresh retry by this point.
+    const isDefinitiveAuthFailure = (err: unknown) =>
+      err instanceof UnauthenticatedError ||
+      (err instanceof ApiError && err.status === 401)
+
+    const activeAccount = accounts[0]
+    const displayName = activeAccount.name ||
+                        (activeAccount.idTokenClaims as any)?.name ||
+                        (activeAccount.idTokenClaims as any)?.given_name ||
+                        'Microsoft Musician';
+
+    // ~6 attempts with capped backoff (~0.5s → 5s, ~18s total) to ride out a
+    // cold backend before giving up.
+    const MAX_ATTEMPTS = 6
+    const backoffMs = (attempt: number) => Math.min(500 * 2 ** attempt, 5000)
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    const syncUser = async () => {
+      onSyncStart(displayName)
+      try {
+        for (let attempt = 0; attempt < MAX_ATTEMPTS && !cancelled; attempt++) {
+          try {
+            const token = await getBearerToken(false)
+            if (cancelled) return
+            if (!token) {
+              // Token temporarily unavailable (e.g. a stalled silent refresh).
+              // Transient — back off and retry rather than dropping the session.
+              await sleep(backoffMs(attempt))
+              continue
+            }
+
+            const profile = await getCurrentUser()
+            if (cancelled) return
+
             if (profile) {
               currentUserId.value = profile.userId
               currentUserProfile.value = profile
@@ -335,26 +385,43 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
                 showToast('Please choose a username to continue.', 'info')
                 router.replace('/profile')
               }
-            } else {
-              currentUserId.value = ''
-              currentUserProfile.value = null
-              authStatus.value = 'anonymous'
+              return
             }
-          })
-          .catch((err) => {
-            console.error('Failed to sync user with DB:', err)
-            currentUserId.value = ''
-            currentUserProfile.value = null
-            authStatus.value = 'anonymous'
-          })
-          .finally(() => {
-            onSyncEnd()
-          })
-      })
-    } else {
-      currentUserId.value = ''
-      currentUserProfile.value = null
-      authStatus.value = 'anonymous'
+            // A null profile (backend unreachable with no cache) is transient.
+            await sleep(backoffMs(attempt))
+          } catch (err) {
+            if (cancelled) return
+            if (isDefinitiveAuthFailure(err)) {
+              setAnonymous()
+              return
+            }
+            // Transient (network/timeout/5xx/cold start) — retry with backoff.
+            console.warn(`User sync attempt ${attempt + 1} failed, retrying:`, err)
+            await sleep(backoffMs(attempt))
+          }
+        }
+
+        if (!cancelled) {
+          // Exhausted retries against an unreachable backend. Surface it as a
+          // connectivity problem, not a logout, so the user doesn't think their
+          // session vanished.
+          console.error('Failed to sync user with DB after retries; backend unreachable.')
+          setAnonymous()
+          showToast("Couldn't reach the server to finish signing you in. Please try again.", 'error')
+        }
+      } finally {
+        if (!cancelled) {
+          syncInProgress = false
+          onSyncEnd()
+        }
+      }
+    }
+
+    void syncUser()
+
+    return () => {
+      cancelled = true
+      syncInProgress = false
       onSyncEnd()
     }
   }, [isAuthenticated, accounts, inProgress])
