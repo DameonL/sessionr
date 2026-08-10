@@ -14,6 +14,7 @@ import {
 } from '../services/api'
 import { useAuthStatus, currentUserProfile, useSignal } from '../state/appState'
 import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
+import { Spinner } from './Spinner'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
 const SheetMusic = dynamic(() => import('./SheetMusic').then((m) => m.SheetMusic), { ssr: false })
@@ -164,7 +165,7 @@ export function TuneSettingsModal({
     return (
       <div className="modal-backdrop" onClick={onClose}>
         <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
-          <p>Loading tune details…</p>
+          <div className="spinner-row"><Spinner /></div>
         </div>
       </div>
     )

@@ -14,6 +14,7 @@ import {
   type RsvpStatus,
 } from '../services/api'
 import { useAuthStatus, showToast } from '../state/appState'
+import { Spinner } from './Spinner'
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -205,7 +206,7 @@ export function GroupSessions({
       )}
 
       <div style={{ marginTop: '1.5rem' }}>
-        {sessions.isPending && <p>Loading…</p>}
+        {sessions.isPending && <div className="spinner-row"><Spinner /></div>}
         {upcoming.length === 0 && !sessions.isPending && (
           <p className="tune-meta italic">No upcoming sessions scheduled.</p>
         )}

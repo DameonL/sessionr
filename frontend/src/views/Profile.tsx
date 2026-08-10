@@ -23,6 +23,7 @@ import { getBadgeInfo } from '../services/badges'
 import { BadgeModal } from '../components/BadgeModal'
 import { QRCodeModal } from '../components/QRCodeModal'
 import { QRScannerModal } from '../components/QRScannerModal'
+import { Spinner } from '../components/Spinner'
 
 const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
 
@@ -148,7 +149,7 @@ export function Profile() {
   }
 
   if (profileQuery.isLoading) {
-    return <p>Loading your profile…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
 
   if (profileQuery.isError) {
@@ -395,7 +396,7 @@ export function Profile() {
 
         {/* Active Friends List */}
         {friendsQuery.isLoading ? (
-          <p className="tune-meta">Loading friends…</p>
+          <div className="spinner-row"><Spinner size={22} /></div>
         ) : friendsQuery.data && friendsQuery.data.length > 0 ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
             {friendsQuery.data.map((friend) => (

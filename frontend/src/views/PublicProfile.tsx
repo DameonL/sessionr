@@ -24,6 +24,7 @@ import { getBadgeInfo } from '../services/badges'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
 import { BadgeModal } from '../components/BadgeModal'
 import { QRCodeModal } from '../components/QRCodeModal'
+import { Spinner } from '../components/Spinner'
 
 /** Bookmarkable public profile page: /profile/{username} */
 export function PublicProfile({ username }: { username?: string }) {
@@ -144,7 +145,7 @@ export function PublicProfile({ username }: { username?: string }) {
   })
 
   if (profile.isLoading) {
-    return <p>Loading profile…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
 
   if (profile.isError || !profile.data) {

@@ -8,6 +8,7 @@ import {
   getFullRepertoire,
 } from '../../../services/api'
 import { currentUserId, useSignal } from '../../../state/appState'
+import { Spinner } from '../../../components/Spinner'
 
 // Dynamically import EarTrainer to prevent abcjs SSR errors
 const EarTrainer = dynamic(() => import('../../../components/EarTrainer').then((m) => m.EarTrainer), { ssr: false })
@@ -30,7 +31,7 @@ export default function EarTrainingPage() {
 
   return (
     <div>
-      {repertoire.isLoading && <p>Loading your tunebook…</p>}
+      {repertoire.isLoading && <div className="spinner-row"><Spinner /></div>}
       {repertoire.isError && <p className="error">Could not load your tunebook.</p>}
 
       {earTuneId !== null && earTune ? (

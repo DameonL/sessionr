@@ -19,6 +19,7 @@ import {
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
 import { useRouter } from 'next/navigation'
 import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
+import { Spinner } from '../components/Spinner'
 
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
@@ -156,7 +157,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   }
 
   if (isPending) {
-    return <p>Loading…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
   if (isError || !details) {
     return (

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { formatTuneType, type TuneSummary } from '../../services/api'
 import { InfiniteScrollSentinel } from '../../components/InfiniteScrollSentinel'
+import { Spinner } from '../../components/Spinner'
 
 /** Shared results list for the tune library views (search + browse). */
 export function TuneResultsList({
@@ -24,7 +25,7 @@ export function TuneResultsList({
 }) {
   return (
     <>
-      {isLoading && <p style={{ marginTop: '1rem' }}>Loading tunes…</p>}
+      {isLoading && <div className="spinner-row"><Spinner /></div>}
       {isError && <p className="error" style={{ marginTop: '1rem' }}>Could not load tunes.</p>}
 
       <ul className="tune-list">
