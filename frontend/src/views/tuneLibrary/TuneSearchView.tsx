@@ -1,18 +1,26 @@
 "use client";
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { searchTunes, formatTuneType, TUNE_TYPES } from '../../services/api'
+import { useQueryFilters } from '../../hooks/useQueryFilters'
 import { TuneResultsList } from './TuneResultsList'
 
 /** Search the tune library by name/alternate name, optionally filtered by type. */
 export function TuneSearchView() {
-  const [searchInput, setSearchInput] = useState('')
-  const [filterTypeInput, setFilterTypeInput] = useState('')
+  const { searchParams, setParams } = useQueryFilters()
 
-  // Submitted query state (separate from inputs to avoid live-search API spam).
-  const [submittedSearch, setSubmittedSearch] = useState('')
-  const [submittedType, setSubmittedType] = useState('')
+  // The URL holds the *submitted* search, so the view is bookmarkable and
+  // restored on back/forward. Inputs below are the form draft.
+  const submittedSearch = searchParams.get('q') ?? ''
+  const submittedType = searchParams.get('type') ?? ''
+
+  const [searchInput, setSearchInput] = useState(submittedSearch)
+  const [filterTypeInput, setFilterTypeInput] = useState(submittedType)
+
+  // Re-sync the draft inputs when the URL changes via back/forward or a bookmark.
+  useEffect(() => setSearchInput(submittedSearch), [submittedSearch])
+  useEffect(() => setFilterTypeInput(submittedType), [submittedType])
 
   const hasSearchQuery = submittedSearch.length > 0 || submittedType !== ''
 
@@ -26,8 +34,9 @@ export function TuneSearchView() {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmittedSearch(searchInput.trim())
-    setSubmittedType(filterTypeInput)
+    // Blur the focused input so mobile dismisses the on-screen keyboard on search.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    setParams({ q: searchInput.trim(), type: filterTypeInput })
   }
 
   const allTunes = libraryQuery.data?.pages.flatMap((p) => p.items) ?? []
@@ -69,8 +78,7 @@ export function TuneSearchView() {
               onClick={() => {
                 setSearchInput('')
                 setFilterTypeInput('')
-                setSubmittedSearch('')
-                setSubmittedType('')
+                setParams({ q: '', type: '' })
               }}
             >
               ✕ Clear
