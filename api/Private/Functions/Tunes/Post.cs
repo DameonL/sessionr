@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, TuneHeuristics heuristics)
 {
     /// <summary>POST /api/tunes — add a tune to the global library.</summary>
     [Function("CreateTune")]
@@ -39,6 +40,7 @@ public class Post(AppDbContext db)
             Key = body.Key.Trim(),
             MasterAbcText = body.Abc,
         };
+        heuristics.Apply(tune);
         db.Tunes.Add(tune);
         await db.SaveChangesAsync();
 
@@ -53,6 +55,6 @@ public class Post(AppDbContext db)
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
 
-        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount));
+        return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount, tune.Difficulty));
     }
 }

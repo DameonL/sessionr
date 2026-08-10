@@ -333,6 +333,8 @@ export interface TuneSummary {
   tuneType: string
   key: string
   repertoireCount: number
+  /** Rough 0–100 difficulty estimate (higher = harder). See api TuneHeuristics. */
+  difficulty?: number
 }
 
 export interface TuneSetting {
@@ -365,6 +367,11 @@ export interface RepertoireItem {
   abc: string
   abcText?: string
   hasCustomAbc: boolean
+  /** Rough 0–100 difficulty estimate (higher = harder). */
+  difficulty?: number
+  /** First/last note of the master ABC as absolute MIDI; used for set-medley joins. */
+  startingMidi?: number | null
+  endingMidi?: number | null
 }
 
 /** Lightweight repertoire row for the scrolling list — no ABC. Fetch getRepertoireItem for that. */
@@ -377,6 +384,8 @@ export interface RepertoireListItem {
   status: string
   lastPracticed: string | null
   targetBpm: number | null
+  /** Rough 0–100 difficulty estimate (higher = harder). */
+  difficulty?: number
 }
 
 export interface PracticeQueueItem {

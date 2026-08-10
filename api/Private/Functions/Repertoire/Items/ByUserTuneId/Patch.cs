@@ -109,7 +109,10 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
             userTune.LastPracticed,
             userTune.TargetBpm,
             effectiveAbc,
-            userTune.CustomAbcText != null));
+            userTune.CustomAbcText != null,
+            userTune.Tune.Difficulty,
+            userTune.Tune.StartingMidi,
+            userTune.Tune.EndingMidi));
     }
 
     private async Task RecordTuneLearnedFeedEventsAsync(Guid userId, Guid tuneId)

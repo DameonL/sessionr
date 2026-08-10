@@ -18,6 +18,7 @@ builder.UseMiddleware<HttpCachingMiddleware>();
 var useSqlite = builder.Services.AddSessionAppDbContext();
 
 builder.Services.AddSingleton<SetAnalyzer>();
+builder.Services.AddSingleton<TuneHeuristics>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<TheSessionImportService>();
 builder.Services.AddScoped<GamificationService>();

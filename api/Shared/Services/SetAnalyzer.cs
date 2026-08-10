@@ -51,7 +51,8 @@ public class SetAnalyzer
     /// changes, and prefer tunes the player can actually deliver.
     /// </summary>
     public (int Score, string Reason) ScoreNextTune(
-        TuneType lastType, string lastKey, TuneType candidateType, string candidateKey, TuneStatus status)
+        TuneType lastType, string lastKey, TuneType candidateType, string candidateKey, TuneStatus status,
+        int? lastEndingMidi = null, int? candidateStartingMidi = null)
     {
         var score = 0;
         var reasons = new List<string>();
@@ -79,6 +80,25 @@ public class SetAnalyzer
             };
             score += keyScore;
             reasons.Add(keyReason);
+        }
+
+        // Melodic join: how the last tune's final note leads into the next tune's
+        // first note. A shared or closely-related pitch makes the seam disappear.
+        if (lastEndingMidi is int endMidi && candidateStartingMidi is int startMidi)
+        {
+            var interval = ((startMidi - endMidi) % 12 + 12) % 12;
+            var (joinScore, joinReason) = interval switch
+            {
+                0 => (12, "lands on the same note"),
+                5 or 7 => (8, "note leads by a fourth or fifth"),
+                1 or 2 or 10 or 11 => (6, "steps straight in"),
+                _ => (0, (string?)null),
+            };
+            score += joinScore;
+            if (joinReason is not null)
+            {
+                reasons.Add(joinReason);
+            }
         }
 
         var (statusScore, statusReason) = status switch

@@ -76,7 +76,7 @@ public record GroupSessionDto(
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
 
-public record TuneDto(Guid TuneId, string Title, string TuneType, string Key, int RepertoireCount);
+public record TuneDto(Guid TuneId, string Title, string TuneType, string Key, int RepertoireCount, int Difficulty = 0);
 
 public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue);
 
@@ -98,7 +98,10 @@ public record RepertoireItemDto(
     DateTime? LastPracticed,
     int? TargetBpm,
     [property: JsonPropertyName("abcText")] string AbcText,
-    bool HasCustomAbc)
+    bool HasCustomAbc,
+    int Difficulty = 0,
+    int? StartingMidi = null,
+    int? EndingMidi = null)
 {
     [JsonPropertyName("abc")]
     public string Abc => AbcText;
@@ -113,7 +116,8 @@ public record RepertoireListItemDto(
     string Key,
     string Status,
     DateTime? LastPracticed,
-    int? TargetBpm);
+    int? TargetBpm,
+    int Difficulty = 0);
 
 /// <summary>Aggregate repertoire counts for the dashboard — computed via SQL GroupBy, not client-side.</summary>
 public record RepertoireStatsDto(

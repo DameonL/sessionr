@@ -17,7 +17,18 @@ public class Tune
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public int RepertoireCount { get; set; } = 0;
 
-
+    // Melodic heuristics derived from MasterAbcText by TuneHeuristics, stored so
+    // set-medley joins and learning recommendations don't re-parse ABC per request.
+    // MIDI values are absolute (middle C = 60); null until computed / when the ABC has no notes.
+    public int? StartingMidi { get; set; }
+    public int? EndingMidi { get; set; }
+    public int? LowestMidi { get; set; }
+    public int? HighestMidi { get; set; }
+    public int NoteCount { get; set; } = 0;
+    public int AccidentalCount { get; set; } = 0;
+    public int PartCount { get; set; } = 0;
+    /// <summary>Rough 0–100 difficulty estimate (higher = harder). See TuneHeuristics.</summary>
+    public int Difficulty { get; set; } = 0;
 
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<TuneAlias> Aliases { get; set; } = new List<TuneAlias>();

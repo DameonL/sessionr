@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Data;
 
@@ -30,6 +31,11 @@ public static class DbInitializer
         db.Users.Add(user);
 
         var tunes = SeedTunes();
+        var heuristics = new TuneHeuristics();
+        foreach (var t in tunes)
+        {
+            heuristics.Apply(t);
+        }
         db.Tunes.AddRange(tunes);
         db.SaveChanges();
 

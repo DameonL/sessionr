@@ -48,6 +48,9 @@ public class Get(AppDbContext db)
             userTune.LastPracticed,
             userTune.TargetBpm,
             effectiveAbc,
-            userTune.CustomAbcText != null));
+            userTune.CustomAbcText != null,
+            userTune.Tune.Difficulty,
+            userTune.Tune.StartingMidi,
+            userTune.Tune.EndingMidi));
     }
 }

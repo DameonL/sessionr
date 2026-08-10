@@ -93,7 +93,10 @@ public class Post(AppDbContext db)
                 userTune.LastPracticed,
                 userTune.TargetBpm,
                 effectiveAbc,
-                false));
+                false,
+                tune.Difficulty,
+                tune.StartingMidi,
+                tune.EndingMidi));
         }
         catch (Exception ex)
         {

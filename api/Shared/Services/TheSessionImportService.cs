@@ -22,7 +22,7 @@ public sealed record TheSessionSetting(string? Key, string? Abc);
 /// Shared client for thesession.org's public JSON API, plus the tune-upsert logic
 /// used by both the public search/import endpoints and the private tunebook import.
 /// </summary>
-public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpClientFactory)
+public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpClientFactory, TuneHeuristics heuristics)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -107,6 +107,7 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
             {
                 existing.TheSessionId = detail.Id;
                 existing.MasterAbcText = correctAbc;
+                heuristics.Apply(existing);
                 await db.SaveChangesAsync();
             }
             return existing;
@@ -120,6 +121,7 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
             Key = key,
             MasterAbcText = BuildAbc(title, detail.Type ?? "", meter, key, setting.Abc),
         };
+        heuristics.Apply(tune);
         db.Tunes.Add(tune);
         await db.SaveChangesAsync();
 

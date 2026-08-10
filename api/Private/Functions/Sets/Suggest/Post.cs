@@ -71,7 +71,8 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
             .Select(ut =>
             {
                 var (score, reason) = analyzer.ScoreNextTune(
-                    last.Tune.TuneType, last.Tune.Key, ut.Tune.TuneType, ut.Tune.Key, ut.Status);
+                    last.Tune.TuneType, last.Tune.Key, ut.Tune.TuneType, ut.Tune.Key, ut.Status,
+                    last.Tune.EndingMidi, ut.Tune.StartingMidi);
                 return new NextTuneSuggestionDto(
                     ut.UserTuneId, ut.Tune.Title, ut.Tune.TuneType.ToString(), ut.Tune.Key,
                     ut.Status.ToString(), score, reason);

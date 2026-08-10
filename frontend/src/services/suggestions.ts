@@ -76,6 +76,15 @@ function getTooltipForPiece(piece: string): string {
   if (p.includes('bold key jump')) {
     return `Bold shift: Moving to a distant key signature creates a dramatic, surprising transition that commands attention.`
   }
+  if (p.includes('lands on the same note')) {
+    return `Seamless join: The next tune starts on the same note the previous one ended on, so the seam between them disappears.`
+  }
+  if (p.includes('fourth or fifth')) {
+    return `Strong lead-in: The previous tune's last note is a fourth or fifth away from the next tune's first note — a natural, resolving leap.`
+  }
+  if (p.includes('steps straight in')) {
+    return `Stepwise join: The next tune begins a step away from where the last one ended, so the melody flows straight in.`
+  }
   if (p.includes('gig-ready') || p.includes('active')) {
     return `Active tune: A tune you know well and can play confidently at full speed.`
   }
@@ -144,7 +153,9 @@ export function scoreNextTune(
   lastKey: string,
   candidateType: string,
   candidateKey: string,
-  status: string
+  status: string,
+  lastEndingMidi?: number | null,
+  candidateStartingMidi?: number | null
 ): { score: number; reason: string } {
   let score = 0
   const reasons: string[] = []
@@ -184,6 +195,33 @@ export function scoreNextTune(
 
     score += keyScore
     reasons.push(keyReason)
+  }
+
+  // Melodic join: how the last tune's final note leads into the next tune's
+  // first note. Mirrors SetAnalyzer.ScoreNextTune on the backend.
+  if (
+    lastEndingMidi !== undefined &&
+    lastEndingMidi !== null &&
+    candidateStartingMidi !== undefined &&
+    candidateStartingMidi !== null
+  ) {
+    const interval = (((candidateStartingMidi - lastEndingMidi) % 12) + 12) % 12
+    let joinScore = 0
+    let joinReason: string | null = null
+    if (interval === 0) {
+      joinScore = 12
+      joinReason = 'lands on the same note'
+    } else if (interval === 5 || interval === 7) {
+      joinScore = 8
+      joinReason = 'note leads by a fourth or fifth'
+    } else if (interval === 1 || interval === 2 || interval === 10 || interval === 11) {
+      joinScore = 6
+      joinReason = 'steps straight in'
+    }
+    score += joinScore
+    if (joinReason) {
+      reasons.push(joinReason)
+    }
   }
 
   let statusScore = 0
@@ -239,7 +277,20 @@ export function suggestNextPracticeTunes(
 
   return filteredCandidates
     .map((c) => {
-      const { score, reason } = scoreNextTune(last.tuneType, last.key, c.tuneType, c.key, c.status)
+      // The melodic join needs each tune's first/last note, which live on the
+      // repertoire item (candidates may come from the leaner practice queue).
+      const candidateStartingMidi = repertoire.find(
+        (r) => r.userTuneId === c.userTuneId
+      )?.startingMidi
+      const { score, reason } = scoreNextTune(
+        last.tuneType,
+        last.key,
+        c.tuneType,
+        c.key,
+        c.status,
+        last.endingMidi,
+        candidateStartingMidi
+      )
       return {
         userTuneId: c.userTuneId,
         title: c.title,

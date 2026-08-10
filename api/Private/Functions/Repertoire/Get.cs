@@ -82,7 +82,8 @@ public class Get(AppDbContext db)
                     ut.TuneSetting != null ? ut.TuneSetting.Key : ut.Tune.Key,
                     ut.Status.ToString(),
                     ut.LastPracticed,
-                    ut.TargetBpm))
+                    ut.TargetBpm,
+                    ut.Tune.Difficulty))
                 .ToList();
 
             return new OkObjectResult(new PagedResult<RepertoireListItemDto>(listItems, totalCount, page, pageSize, hasMore));
@@ -99,7 +100,10 @@ public class Get(AppDbContext db)
                 ut.LastPracticed,
                 ut.TargetBpm,
                 ut.CustomAbcText ?? (ut.TuneSetting != null ? ut.TuneSetting.AbcText : ut.Tune.MasterAbcText),
-                ut.CustomAbcText != null))
+                ut.CustomAbcText != null,
+                ut.Tune.Difficulty,
+                ut.Tune.StartingMidi,
+                ut.Tune.EndingMidi))
             .ToList();
 
         return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
