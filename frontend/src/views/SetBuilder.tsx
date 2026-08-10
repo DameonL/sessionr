@@ -257,6 +257,15 @@ function SetEditor({
         placeholder="Set title"
         value={draft.title}
         onChange={(e) => setDraft({ ...draft, title: e.target.value, isCustomTitle: true })}
+        onBlur={() => {
+          if (draft.title.trim().length === 0) {
+            setDraft({
+              ...draft,
+              title: generateDefaultSetTitle(draft.items),
+              isCustomTitle: false,
+            })
+          }
+        }}
       />
 
       <h2>Tunes in this set</h2>
