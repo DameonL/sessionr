@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import {
+  TUNE_STATUSES,
+  TUNE_TYPES,
   createSet,
   deleteSet,
   formatTuneType,
@@ -174,7 +176,7 @@ function SetEditor({
   draft: Draft
   setDraft: (d: Draft) => void
   repertoire: RepertoireItem[]
-  available: Omit<DraftItem, 'repetitions'>[]
+  available: RepertoireItem[]
   onSave: () => void
   onCancel: () => void
   saving: boolean
@@ -202,7 +204,47 @@ function SetEditor({
   }
 
   const addItem = (item: Omit<DraftItem, 'repetitions'>) =>
-    updateDraftItems([...draft.items, { ...item, repetitions: DEFAULT_REPETITIONS }])
+    updateDraftItems([
+      ...draft.items,
+      {
+        userTuneId: item.userTuneId,
+        title: item.title,
+        tuneType: item.tuneType,
+        key: item.key,
+        repetitions: DEFAULT_REPETITIONS,
+      },
+    ])
+
+  // Local filters for the "Your repertoire" picker — mirrors the Repertoire view.
+  // Kept in component state (not the URL) since a mid-edit filter is ephemeral.
+  const [pickerSearch, setPickerSearch] = useState('')
+  const [pickerType, setPickerType] = useState('')
+  const [pickerKey, setPickerKey] = useState('')
+  const [pickerStatus, setPickerStatus] = useState('')
+
+  const availableKeys = useMemo(
+    () => [...new Set(available.map((r) => r.key))].sort(),
+    [available],
+  )
+
+  const filteredAvailable = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase()
+    return available.filter((r) => {
+      if (pickerType && r.tuneType !== pickerType) return false
+      if (pickerKey && r.key !== pickerKey) return false
+      if (pickerStatus && r.status !== pickerStatus) return false
+      if (q && !`${r.title} ${r.tuneType} ${r.key}`.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [available, pickerSearch, pickerType, pickerKey, pickerStatus])
+
+  const hasPickerFilters = Boolean(pickerSearch || pickerType || pickerKey || pickerStatus)
+  const clearPickerFilters = () => {
+    setPickerSearch('')
+    setPickerType('')
+    setPickerKey('')
+    setPickerStatus('')
+  }
 
   const previewItems = draft.items
     .map((item) => ({
@@ -370,17 +412,70 @@ function SetEditor({
       )}
 
       <h2>Your repertoire</h2>
+      <div className="detail-controls">
+        <input
+          className="search-box"
+          type="search"
+          placeholder="Search tunes… (title, type, or key)"
+          value={pickerSearch}
+          onChange={(e) => setPickerSearch(e.target.value)}
+        />
+      </div>
+      <div className="detail-controls">
+        <label>
+          Filter by type
+          <select value={pickerType} onChange={(e) => setPickerType(e.target.value)}>
+            <option value="">All types</option>
+            {TUNE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {formatTuneType(type)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Filter by key
+          <select value={pickerKey} onChange={(e) => setPickerKey(e.target.value)}>
+            <option value="">All keys</option>
+            {availableKeys.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Filter by status
+          <select value={pickerStatus} onChange={(e) => setPickerStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {TUNE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </label>
+        {hasPickerFilters && (
+          <button className="secondary" onClick={clearPickerFilters}>
+            ✕ Clear filters
+          </button>
+        )}
+      </div>
       <ul className="tune-list">
-        {available.map((item) => (
+        {filteredAvailable.map((item) => (
           <li key={item.userTuneId} className="card tune-row">
             <span className="tune-title">{item.title}</span>
             <span className="tune-meta">
               {formatTuneType(item.tuneType)} · {item.key}
             </span>
+            <span className={`badge badge-${item.status.toLowerCase()}`}>{item.status}</span>
             <button onClick={() => addItem(item)}>+ Add</button>
           </li>
         ))}
       </ul>
+      {available.length > 0 && filteredAvailable.length === 0 && (
+        <p className="tune-meta">No tunes match these filters.</p>
+      )}
 
       {/* Bottom Action Controls */}
       <div style={{ marginTop: '1rem' }}>
