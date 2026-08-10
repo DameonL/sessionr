@@ -8,6 +8,7 @@ import { getGroupDetails, joinGroup, leaveGroup } from '../../../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../../../state/appState'
 import { GroupDetailProvider } from '../../../views/group/groupDetailContext'
 import { QRCodeModal } from '../../../components/QRCodeModal'
+import { Spinner } from '../../../components/Spinner'
 
 export default function GroupDetailLayout({ children }: { children: React.ReactNode }) {
   const { groupId } = useParams<{ groupId: string }>()
@@ -55,7 +56,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
   })
 
   if (groupQuery.isPending) {
-    return <section><p>Loading group details…</p></section>
+    return <section><div className="spinner-row"><Spinner /></div></section>
   }
 
   if (groupQuery.isError || !groupQuery.data) {

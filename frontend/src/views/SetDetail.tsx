@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getSet } from '../services/api'
+import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
 const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
@@ -15,7 +16,7 @@ export function SetDetail({ setId }: { setId?: string }) {
   const set = useQuery({ queryKey: ['set', id], queryFn: () => getSet(id) })
 
   if (set.isLoading) {
-    return <p>Loading…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
   if (set.isError || !set.data) {
     return (

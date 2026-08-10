@@ -17,6 +17,7 @@ import {
 } from '../services/api'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
 import { validateAbc } from '../services/abcTools'
+import { Spinner } from '../components/Spinner'
 
 export function ModeratorView() {
   const profile = useSignal(currentUserProfile)
@@ -178,7 +179,7 @@ export function ModeratorView() {
       {activeTab === 'tunes' && (
         <div>
           {unreviewedTunes.isLoading ? (
-            <p>Loading unreviewed tunes…</p>
+            <div className="spinner-row"><Spinner /></div>
           ) : unreviewedTunes.isError ? (
             <p className="error">Failed to load unreviewed tunes.</p>
           ) : unreviewedTunes.data?.length === 0 ? (
@@ -243,7 +244,7 @@ export function ModeratorView() {
       {activeTab === 'groups' && (
         <div>
           {unreviewedGroups.isLoading ? (
-            <p>Loading unreviewed groups…</p>
+            <div className="spinner-row"><Spinner /></div>
           ) : unreviewedGroups.isError ? (
             <p className="error">Failed to load unreviewed groups.</p>
           ) : unreviewedGroups.data?.length === 0 ? (
@@ -296,7 +297,7 @@ export function ModeratorView() {
       {activeTab === 'all-groups' && (
         <div>
           {allGroups.isLoading ? (
-            <p>Loading groups directory…</p>
+            <div className="spinner-row"><Spinner /></div>
           ) : allGroups.isError ? (
             <p className="error">Failed to load groups directory.</p>
           ) : (

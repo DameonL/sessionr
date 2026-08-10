@@ -8,6 +8,7 @@ import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { QRScannerModal } from '../components/QRScannerModal'
+import { Spinner } from '../components/Spinner'
 
 export function Groups() {
   const userId = useSignal(currentUserId)
@@ -95,7 +96,7 @@ export function Groups() {
   }
 
   if (groupsQuery.isPending) {
-    return <section><p>Loading groups…</p></section>
+    return <section><div className="spinner-row"><Spinner /></div></section>
   }
 
   if (groupsQuery.isError) {

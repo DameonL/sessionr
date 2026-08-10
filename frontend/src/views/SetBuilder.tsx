@@ -17,6 +17,7 @@ import {
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
 import { parseSuggestionReason } from '../services/suggestions'
+import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
 const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
@@ -114,7 +115,7 @@ export function SetBuilder() {
       <h1>Set Builder</h1>
       <button onClick={() => setDraft({ setId: null, title: '', items: [], isCustomTitle: false })}>+ New set</button>
 
-      {sets.isPending && <p>Loading…</p>}
+      {sets.isPending && <div className="spinner-row"><Spinner /></div>}
       {(sets.data ?? []).map((set) => (
         <div key={set.setId} className="card set-card">
           <div className="set-header">

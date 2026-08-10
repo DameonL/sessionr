@@ -20,6 +20,7 @@ import { foldAbcOctaves, transposeAbc } from '../services/abcTools'
 import { showBadgeToasts } from '../services/badges'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { DebouncedNumberInput } from '../components/DebouncedNumberInput'
+import { Spinner } from '../components/Spinner'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -87,7 +88,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   })
 
   if (itemQuery.isLoading) {
-    return <p>Loading…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
   if (itemQuery.isError) {
     const notFound = (itemQuery.error as Error).message.includes('404')

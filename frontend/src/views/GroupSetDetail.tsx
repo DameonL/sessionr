@@ -5,6 +5,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getGroupSet } from '../services/api'
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
+import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
 const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
@@ -22,7 +23,7 @@ export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
   })
 
   if (set.isPending) {
-    return <p>Loading…</p>
+    return <div className="spinner-row"><Spinner /></div>
   }
   if (set.isError || !set.data) {
     return (

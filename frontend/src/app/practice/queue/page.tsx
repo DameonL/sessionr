@@ -11,6 +11,7 @@ import {
 } from '../../../services/api'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
 import { showBadgeToasts } from '../../../services/badges'
+import { Spinner } from '../../../components/Spinner'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
 const TunePlayer = dynamic(() => import('../../../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
@@ -51,7 +52,7 @@ export default function DailyQueuePage() {
 
   return (
     <>
-      {queue.isLoading && <p>Loading today's queue…</p>}
+      {queue.isLoading && <div className="spinner-row"><Spinner /></div>}
       {queue.isError && <p className="error">Could not load the practice queue.</p>}
       {!queue.isLoading && items.length === 0 && (
         <p>Queue is clear — add tunes to your repertoire or mark some as Learning.</p>

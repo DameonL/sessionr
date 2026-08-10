@@ -14,6 +14,7 @@ import {
 } from '../services/api'
 import { useAuthStatus } from '../state/appState'
 import { normalizeTitleForSorting } from '../services/abcTools'
+import { Spinner } from './Spinner'
 
 interface DraftItem {
   groupTuneId: string
@@ -125,7 +126,7 @@ export function GroupSetBuilder({
         <button onClick={() => setDraft({ groupSetId: null, title: '', items: [], isCustomTitle: false })}>+ New Set</button>
       )}
 
-      {sets.isPending && <p>Loading…</p>}
+      {sets.isPending && <div className="spinner-row"><Spinner /></div>}
       {[...(sets.data ?? [])]
         .sort((a, b) => normalizeTitleForSorting(a.title).localeCompare(normalizeTitleForSorting(b.title)))
         .map((set) => (

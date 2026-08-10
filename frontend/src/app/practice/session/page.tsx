@@ -7,6 +7,7 @@ import { getFullRepertoire, logPractice } from '../../../services/api'
 import { generateVirtualSession, type SessionTune, type VirtualSession } from '../../../services/virtualSession'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
 import { showBadgeToasts } from '../../../services/badges'
+import { Spinner } from '../../../components/Spinner'
 
 // Dynamically import VirtualSessionPlayer to prevent abcjs SSR errors
 const VirtualSessionPlayer = dynamic(
@@ -117,7 +118,7 @@ export default function VirtualSessionPage() {
           Simulates a live session: a 4-piece virtual band plays 3 sets of 2-3 tunes from your Active repertoire.
           Each tune's notation stays hidden until the band plays it — sight-unseen, the first time through.
         </p>
-        {repertoire.isLoading && <p className="tune-meta">Loading your repertoire…</p>}
+        {repertoire.isLoading && <div className="spinner-row"><Spinner /></div>}
         {!repertoire.isLoading && activeCount < 2 && (
           <p className="error">
             You need at least 2 tunes marked "Active" in your repertoire to start a Virtual Session.
