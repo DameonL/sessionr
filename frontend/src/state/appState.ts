@@ -26,7 +26,6 @@ export class Signal<T> {
 
 export const currentUserId = new Signal('');
 export const currentUserProfile = new Signal<UserProfile | null>(null);
-export const repertoireSearch = new Signal('');
 
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous';
 export const authStatus = new Signal<AuthStatus>('pending');

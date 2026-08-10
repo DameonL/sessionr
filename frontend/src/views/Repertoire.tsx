@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
@@ -16,7 +15,8 @@ import {
   searchTunes,
   type RepertoireListItem,
 } from '../services/api'
-import { currentUserId, repertoireSearch, useSignal } from '../state/appState'
+import { currentUserId, useSignal } from '../state/appState'
+import { useQueryFilters } from '../hooks/useQueryFilters'
 import { RepertoireBackup } from '../components/RepertoireBackup'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
@@ -34,15 +34,18 @@ function getSortKey(item: RepertoireListItem, field: 'title' | 'tuneType' | 'key
 export function Repertoire() {
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
-  const search = useSignal(repertoireSearch)
-  const searchParams = useSearchParams()
+  const { searchParams, setParams } = useQueryFilters()
+
+  // URL query string is the source of truth for search + filters + sort, so the
+  // view is bookmarkable and restored on back/forward.
+  const search = searchParams.get('q') ?? ''
+  const filterType = searchParams.get('type') ?? ''
+  const filterKey = searchParams.get('key') ?? ''
+  const filterStatus = searchParams.get('status') ?? ''
+  const sortField = (searchParams.get('sort') as 'title' | 'tuneType' | 'key') || 'title'
+  const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc'
 
   const [theSessionQuery, setTheSessionQuery] = useState<string | null>(null)
-  const [filterType, setFilterType] = useState(() => searchParams.get('type') ?? '')
-  const [filterKey, setFilterKey] = useState('')
-  const [filterStatus, setFilterStatus] = useState(() => searchParams.get('status') ?? '')
-  const [sortField, setSortField] = useState<'title' | 'tuneType' | 'key'>('title')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const repertoireQuery = useInfiniteQuery({
     queryKey: ['repertoire', userId, search, filterType, filterStatus],
@@ -111,14 +114,14 @@ export function Repertoire() {
           type="search"
           placeholder="Search tunes… (title, type, or key)"
           value={search}
-          onChange={(e) => (repertoireSearch.value = e.target.value)}
+          onChange={(e) => setParams({ q: e.target.value })}
         />
       </div>
 
       <div className="detail-controls">
         <label>
           Filter by type
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+          <select value={filterType} onChange={(e) => setParams({ type: e.target.value })}>
             <option value="">All types</option>
             {TUNE_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -129,7 +132,7 @@ export function Repertoire() {
         </label>
         <label>
           Filter by key
-          <select value={filterKey} onChange={(e) => setFilterKey(e.target.value)}>
+          <select value={filterKey} onChange={(e) => setParams({ key: e.target.value })}>
             <option value="">All keys</option>
             {[...new Set(allRepertoireItems.map((item) => item.key))]
               .sort()
@@ -142,7 +145,7 @@ export function Repertoire() {
         </label>
         <label>
           Filter by status
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <select value={filterStatus} onChange={(e) => setParams({ status: e.target.value })}>
             <option value="">All statuses</option>
             {TUNE_STATUSES.map((status) => (
               <option key={status} value={status}>
@@ -153,7 +156,7 @@ export function Repertoire() {
         </label>
         <label>
           Sort by
-          <select value={sortField} onChange={(e) => setSortField(e.target.value as 'title' | 'tuneType' | 'key')}>
+          <select value={sortField} onChange={(e) => setParams({ sort: e.target.value })}>
             <option value="title">Title</option>
             <option value="tuneType">Type</option>
             <option value="key">Key</option>
@@ -161,7 +164,7 @@ export function Repertoire() {
         </label>
         <label>
           Direction
-          <select value={sortDirection} onChange={(e) => setSortDirection(e.target.value as 'asc' | 'desc')}>
+          <select value={sortDirection} onChange={(e) => setParams({ dir: e.target.value })}>
             <option value="asc">Ascending</option>
             <option value="desc">Descending</option>
           </select>
@@ -169,12 +172,7 @@ export function Repertoire() {
         {Boolean(search || filterType || filterKey || filterStatus) && (
           <button
             className="secondary"
-            onClick={() => {
-              repertoireSearch.value = ''
-              setFilterType('')
-              setFilterKey('')
-              setFilterStatus('')
-            }}
+            onClick={() => setParams({ q: '', type: '', key: '', status: '' })}
           >
             ✕ Clear filters
           </button>
