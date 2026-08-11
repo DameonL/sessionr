@@ -161,6 +161,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         }
 
         cachedToken = null;
+        // Never launch an interactive redirect while offline: silent acquisition
+        // always fails without a network, and a redirect to ciamlogin is a hard
+        // navigation that hangs/breaks the offline session. Return null instead —
+        // the fetch/sync layers already treat a null token as the offline path.
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          return null;
+        }
         if (!redirectInProgress) {
           const isInIframe = typeof window !== 'undefined' && window.parent !== window;
           if (!isInIframe) {

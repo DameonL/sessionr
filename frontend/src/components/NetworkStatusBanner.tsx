@@ -27,6 +27,7 @@ export function NetworkStatusBanner() {
         authRequired ? (
           <button
             className="secondary btn-sm"
+            disabled={!isOnline}
             onClick={() => {
               // loginRedirect, not loginPopup — popups get blocked too
               // unreliably in practice. No redirectStartPage is passed, so
