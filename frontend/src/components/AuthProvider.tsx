@@ -45,6 +45,9 @@ async function fetchMsalConfig(): Promise<any> {
     const timer = setTimeout(() => controller.abort(), 8000)
     try {
       const res = await fetch('/api/config', { signal: controller.signal })
+      // Treat a non-2xx response as a failure so it falls through to the
+      // cached-config fallback rather than being parsed into a bogus config.
+      if (!res.ok) throw new Error(`/api/config responded ${res.status}`)
       return await res.json()
     } finally {
       clearTimeout(timer)
@@ -54,6 +57,29 @@ async function fetchMsalConfig(): Promise<any> {
     return await attempt()
   } catch {
     return await attempt()
+  }
+}
+
+// The MSAL config is static, non-secret public-client data derived from the
+// server's MSAL_* env vars. Caching the last good copy in localStorage (the same
+// store MSAL uses for its own token cache) lets a later *offline* start reuse it
+// to initialize MSAL locally instead of hard-failing on the /api/config fetch.
+const MSAL_CONFIG_CACHE_KEY = 'sessionapp_msal_config'
+
+function readCachedMsalConfig(): any | null {
+  try {
+    const raw = window.localStorage.getItem(MSAL_CONFIG_CACHE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function persistMsalConfig(config: any): void {
+  try {
+    window.localStorage.setItem(MSAL_CONFIG_CACHE_KEY, JSON.stringify(config))
+  } catch {
+    // Best-effort — storage full/blocked shouldn't break bootstrap.
   }
 }
 
@@ -155,24 +181,34 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const bootstrap = async () => {
-      let config: any;
+      let config: any = null;
+      // Whether /api/config actually answered (even with mock/empty config) vs.
+      // the fetch throwing (offline / server unreachable). Only a real answer
+      // distinguishes a genuine misconfiguration from a network failure.
+      let serverResponded = false;
       try {
         config = await fetchMsalConfig();
+        serverResponded = true;
       } catch (err) {
-        console.error('Failed to fetch MSAL config:', err);
-        if (cancelled) return;
-        authStatus.value = 'anonymous';
-        setConfigError(true);
-        return;
+        console.warn('Failed to fetch MSAL config, falling back to cache:', err);
+        config = readCachedMsalConfig();
       }
 
       if (cancelled) return;
 
       if (!config?.clientId || config.clientId === 'MOCK_CLIENT_ID') {
         authStatus.value = 'anonymous';
-        setConfigError(true);
+        // Show the blocking "Misconfigured" screen ONLY when the server actually
+        // responded with mock/empty config. A thrown fetch (offline / server
+        // down) with no cached fallback just renders the app anonymously so the
+        // offline stack (SW cache, IndexedDB cache, offline banner) can run.
+        if (serverResponded) setConfigError(true);
         return;
       }
+
+      // Refresh the cache so a later offline start can reuse this config.
+      // Harmless when `config` itself came from the cache.
+      persistMsalConfig(config);
 
       const authority = config.tenantId
         ? `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantId}/`
