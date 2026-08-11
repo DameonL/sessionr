@@ -103,10 +103,20 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     console.error('Failed to get bearer token', err)
   }
 
+  const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
+
   // Private API endpoints require a verified token. If no token is available,
   // do not fire an unauthenticated request to the private backend (which will
   // return 401 and trigger false offline checks).
   if (isPrivateApi && !token) {
+    // Offline, the token usually can't be refreshed at all — its silent renewal
+    // needs the network. A GET can still be served from the offline cache, so
+    // route it through the same unreachable path as a token-carrying request
+    // whose fetch fails. This is what lets repertoire/tunes/users-me render
+    // offline even once the cached access token has expired.
+    if (method === 'GET' && knownOffline) {
+      return handleUnreachable<T>(method, url, path, init)
+    }
     if (isUsersMeCheck) {
       return null as unknown as T
     }
@@ -116,7 +126,6 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   // Skip straight to the offline path rather than waiting on a fetch that's
   // certain to fail — navigator.onLine is false only when the browser is
   // confident there's no connectivity at all. Also check isApiOffline.
-  const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
   const isOffline = knownOffline || (isApiOffline.value && !isUsersMeCheck)
 
   let res: Response

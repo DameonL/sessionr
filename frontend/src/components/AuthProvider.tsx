@@ -403,7 +403,33 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
     const backoffMs = (attempt: number) => Math.min(500 * 2 ** attempt, 5000)
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine
+
     const syncUser = async () => {
+      // Offline: MSAL can't mint a fresh token and the backend is unreachable,
+      // so don't show the blocking "signing in & syncing" modal or spin through
+      // retries. Restore identity straight from the cached /users/me response
+      // (served by the offline layer in api.ts) so personal pages render from
+      // cache; fall back to anonymous only when there's nothing cached to restore.
+      if (offline) {
+        try {
+          const cached = await getCurrentUser()
+          if (cancelled) return
+          if (cached) {
+            currentUserId.value = cached.userId
+            currentUserProfile.value = cached
+            authStatus.value = 'authenticated'
+          } else {
+            setAnonymous()
+          }
+        } catch {
+          if (!cancelled) setAnonymous()
+        } finally {
+          if (!cancelled) syncInProgress = false
+        }
+        return
+      }
+
       onSyncStart(displayName)
       try {
         for (let attempt = 0; attempt < MAX_ATTEMPTS && !cancelled; attempt++) {
