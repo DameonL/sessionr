@@ -127,6 +127,9 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         }
 
         const activeAccount = pca.getActiveAccount() || accounts[0];
+        // Set only when the IdP explicitly signals interaction is required, which
+        // is the sole condition (with being online) that permits a redirect.
+        let interactionRequired = false;
 
         // Try a silent refresh first. With a refresh token in the cache this is
         // a direct POST to the token endpoint (no iframe, no cookie, no popup);
@@ -153,19 +156,25 @@ export default function AuthProvider({ children }: AuthProviderProps) {
             return result.idToken;
           }
         } catch (silentErr) {
-          // InteractionRequiredAuthError, the timeout, or a blocked iframe all
-          // land here — fall through to the interactive redirect below.
-          if (!(silentErr instanceof InteractionRequiredAuthError)) {
-            console.warn('Silent token acquisition failed, falling back to redirect:', silentErr);
+          // Only an InteractionRequiredAuthError means the identity provider
+          // itself decided the user must re-authenticate interactively. A
+          // timeout, a blocked iframe, or any network/offline failure is NOT
+          // that signal — it must never bounce the user to ciamlogin.
+          if (silentErr instanceof InteractionRequiredAuthError) {
+            interactionRequired = true;
+          } else {
+            console.warn('Silent token acquisition failed (no interactive redirect):', silentErr);
           }
         }
 
         cachedToken = null;
-        // Never launch an interactive redirect while offline: silent acquisition
-        // always fails without a network, and a redirect to ciamlogin is a hard
-        // navigation that hangs/breaks the offline session. Return null instead —
-        // the fetch/sync layers already treat a null token as the offline path.
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Launch the interactive redirect ONLY when the IdP explicitly demands
+        // interaction AND we're online. Offline (or online-but-unreachable, where
+        // the silent call fails with a network error rather than
+        // InteractionRequired), return null and let the fetch/sync layers use
+        // their offline path (cached data, anonymous UI, "Sign In" affordances).
+        const online = typeof navigator === 'undefined' || navigator.onLine;
+        if (!interactionRequired || !online) {
           return null;
         }
         if (!redirectInProgress) {
