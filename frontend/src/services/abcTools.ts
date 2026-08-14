@@ -550,6 +550,18 @@ export function extractKeyFromAbc(abcText: string): string {
   return ''
 }
 
+export function extractTitleFromAbc(abcText: string): string {
+  if (!abcText) return ''
+  const lines = abcText.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^T:/i.test(trimmed)) {
+      return trimmed.slice(2).trim().split('%')[0].trim()
+    }
+  }
+  return ''
+}
+
 export function validateAbc(abcText: string): { isValid: boolean; error?: string; trimmedAbc: string } {
   const trimmedAbc = (abcText || '').trim()
   if (!trimmedAbc) {

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createTune, formatTuneType, TUNE_TYPES } from '../../services/api'
-import { extractKeyFromAbc, validateAbc } from '../../services/abcTools'
+import { extractKeyFromAbc, extractTitleFromAbc, validateAbc } from '../../services/abcTools'
 import { useAuthStatus, showToast } from '../../state/appState'
 import { Dialog } from '../../components/Dialog'
 
@@ -33,6 +33,7 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
   const [addAbc, setAddAbc] = useState('')
   const [addKeyOverride, setAddKeyOverride] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
+  const lastAutoTitleRef = useRef('')
 
   const createTuneMutation = useMutation({
     mutationFn: (newTune: { title: string; tuneType: string; key: string; abc: string }) => createTune(newTune),
@@ -42,6 +43,7 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
       setAddAbc('')
       setAddKeyOverride('')
       setAddError(null)
+      lastAutoTitleRef.current = ''
       showToast('Tune added to library!', 'success')
       router.push(`/tunes/${data.tuneId}`)
     },
@@ -57,6 +59,17 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
       return
     }
     setShowAddModal(true)
+  }
+
+  const handleAbcChange = (newAbc: string) => {
+    setAddAbc(newAbc)
+    // Auto-fill the title from the ABC's T: header, mirroring how Key is auto-derived below —
+    // but only while the title still matches what we last auto-filled, so a manual edit sticks.
+    if (addTitle.trim() === '' || addTitle === lastAutoTitleRef.current) {
+      const detected = extractTitleFromAbc(newAbc)
+      lastAutoTitleRef.current = detected
+      setAddTitle(detected)
+    }
   }
 
   const handleAddTuneSubmit = (e: React.FormEvent) => {
@@ -148,7 +161,7 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
             <textarea
               placeholder="Paste ABC text here (must include K: header, e.g. K:D)..."
               value={addAbc}
-              onChange={(e) => setAddAbc(e.target.value)}
+              onChange={(e) => handleAbcChange(e.target.value)}
               rows={6}
               required
               style={{ display: 'block', width: '100%', marginTop: '0.35rem', fontFamily: 'monospace' }}
