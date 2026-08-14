@@ -60,6 +60,11 @@ public class Get(AppDbContext db)
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
+        // Count before sorting: Cosmos's cross-partition query engine requires the ORDER BY
+        // property to be present in the SELECT projection, and this count narrows the
+        // projection down to just TuneId, so it must run against the unsorted query.
+        var totalCount = await query.Select(t => t.TuneId).CosmosCountAsync();
+
         if (sort == "popular")
         {
             query = query.OrderByDescending(t => t.RepertoireCount);
@@ -72,8 +77,6 @@ public class Get(AppDbContext db)
         {
             query = query.OrderBy(t => t.Title);
         }
-
-        var totalCount = await query.Select(t => t.TuneId).CosmosCountAsync();
 
         var results = await query
             .Skip((page - 1) * pageSize)

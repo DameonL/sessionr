@@ -3,6 +3,7 @@ api/**/bin/
 api/**/obj/
 api/**/local.settings.json
 api/sessionapp.dev.db*
+/sessionapp.dev.db*
 *.user
 
 # --- Node / Vite ---
