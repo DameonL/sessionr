@@ -8,6 +8,8 @@ namespace SessionApp.Api.Services;
 /// <summary>
 /// Melodic facts derived from a tune's ABC, plus a rough difficulty score.
 /// MIDI values are absolute (middle C = 60); null when the ABC has no notes.
+/// Midis is the full ordered note sequence read off the ABC (written order,
+/// repeats not unrolled) — the basis for MelodyFingerprint's interval matching.
 /// </summary>
 public record TuneMelodyStats(
     int? StartingMidi,
@@ -17,7 +19,8 @@ public record TuneMelodyStats(
     int NoteCount,
     int AccidentalCount,
     int PartCount,
-    int Difficulty);
+    int Difficulty,
+    IReadOnlyList<int> Midis);
 
 /// <summary>
 /// Pure domain logic that reads the notes out of a tune's ABC to derive
@@ -84,6 +87,7 @@ public class TuneHeuristics
         tune.AccidentalCount = stats.AccidentalCount;
         tune.PartCount = stats.PartCount;
         tune.Difficulty = stats.Difficulty;
+        tune.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
     }
 
     public TuneMelodyStats Compute(string? abc, string? key, TuneType tuneType)
@@ -166,7 +170,7 @@ public class TuneHeuristics
 
         if (midis.Count == 0)
         {
-            return new TuneMelodyStats(null, null, null, null, 0, 0, partCount, 0);
+            return new TuneMelodyStats(null, null, null, null, 0, 0, partCount, 0, midis);
         }
 
         int lowest = midis[0], highest = midis[0];
@@ -179,7 +183,7 @@ public class TuneHeuristics
         var difficulty = ScoreDifficulty(highest - lowest, sharps, accidentalCount, midis.Count, partCount, highest, tuneType);
 
         return new TuneMelodyStats(
-            midis[0], midis[^1], lowest, highest, midis.Count, accidentalCount, partCount, difficulty);
+            midis[0], midis[^1], lowest, highest, midis.Count, accidentalCount, partCount, difficulty, midis);
     }
 
     /// <summary>1–5 star band for display, derived from the 0–100 difficulty.</summary>

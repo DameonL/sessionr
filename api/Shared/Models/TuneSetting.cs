@@ -11,6 +11,9 @@ public class TuneSetting
     public string SubmitterName { get; set; } = "System";
     public int VoteScore { get; set; } = 0;
 
+    /// <summary>Same representation as Tune.FingerprintIntervals, computed from this setting's own AbcText.</summary>
+    public string? FingerprintIntervals { get; set; }
+
     public Tune Tune { get; set; } = null!;
     public ICollection<TuneSettingVote> Votes { get; set; } = new List<TuneSettingVote>();
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();

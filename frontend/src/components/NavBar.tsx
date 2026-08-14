@@ -10,6 +10,7 @@ import { NetworkStatusBanner } from './NetworkStatusBanner'
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
   { href: '/tunes', label: 'Tunes' },
+  { href: '/identify', label: 'Identify' },
   { href: '/repertoire', label: 'Repertoire' },
   { href: '/sets', label: 'Set Builder' },
   { href: '/practice', label: 'Practice Room' },

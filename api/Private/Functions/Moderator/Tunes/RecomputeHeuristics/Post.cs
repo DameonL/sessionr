@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Models;
 using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
@@ -13,15 +14,18 @@ namespace SessionApp.Api.Functions.Moderator.Tunes.RecomputeHeuristics;
 [RequireModerator]
 public class Post(AppDbContext db, TuneHeuristics heuristics)
 {
-    public record RecomputeResult(int TunesUpdated);
+    public record RecomputeResult(int TunesUpdated, int SettingsUpdated);
 
     private const int BatchSize = 200;
 
     /// <summary>
     /// POST /api/moderator/tunes/recompute-heuristics — one-off backfill that
-    /// recomputes the stored melodic heuristics for every tune from its ABC.
-    /// Run once after deploying the heuristic fields (existing Cosmos documents
-    /// otherwise carry the CLR defaults). Batched so it works on Cosmos.
+    /// recomputes the stored melodic heuristics (and melody fingerprint, used by
+    /// tune identification — see TuneMatchIndex) for every tune and tune setting
+    /// from its ABC. Run once after deploying these fields (existing Cosmos
+    /// documents otherwise carry the CLR defaults). Batched so it works on Cosmos.
+    /// Follow with POST /api/moderator/tunes/refresh-match-index so the in-memory
+    /// match index picks up the backfilled fingerprints immediately.
     /// </summary>
     [Function("RecomputeTuneHeuristics")]
     public async Task<IActionResult> RecomputeTuneHeuristics(
@@ -32,7 +36,9 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
             return Forbidden("Moderator access required.");
         }
 
-        var updated = 0;
+        var tuneTypeById = new System.Collections.Generic.Dictionary<System.Guid, TuneType>();
+
+        var tunesUpdated = 0;
         var skip = 0;
         while (true)
         {
@@ -49,7 +55,8 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
             foreach (var tune in batch)
             {
                 heuristics.Apply(tune);
-                updated++;
+                tuneTypeById[tune.TuneId] = tune.TuneType;
+                tunesUpdated++;
             }
             await db.SaveChangesAsync();
             skip += batch.Count;
@@ -60,6 +67,43 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
             }
         }
 
-        return new OkObjectResult(new RecomputeResult(updated));
+        var settingsUpdated = 0;
+        skip = 0;
+        while (true)
+        {
+            var batch = await db.TuneSettings
+                .OrderBy(s => s.TuneSettingId)
+                .Skip(skip)
+                .Take(BatchSize)
+                .ToListAsync();
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var setting in batch)
+            {
+                if (!tuneTypeById.TryGetValue(setting.TuneId, out var tuneType))
+                {
+                    var owner = await db.Tunes.AsNoTracking().SingleOrDefaultAsync(t => t.TuneId == setting.TuneId);
+                    if (owner is null) continue;
+                    tuneType = owner.TuneType;
+                    tuneTypeById[setting.TuneId] = tuneType;
+                }
+
+                var stats = heuristics.Compute(setting.AbcText, setting.Key, tuneType);
+                setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+                settingsUpdated++;
+            }
+            await db.SaveChangesAsync();
+            skip += batch.Count;
+
+            if (batch.Count < BatchSize)
+            {
+                break;
+            }
+        }
+
+        return new OkObjectResult(new RecomputeResult(tunesUpdated, settingsUpdated));
     }
 }

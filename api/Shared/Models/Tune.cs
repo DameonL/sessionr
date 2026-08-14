@@ -30,6 +30,14 @@ public class Tune
     /// <summary>Rough 0–100 difficulty estimate (higher = harder). See TuneHeuristics.</summary>
     public int Difficulty { get; set; } = 0;
 
+    /// <summary>
+    /// Comma-delimited signed semitone intervals between consecutive notes (repeats
+    /// collapsed), computed by TuneHeuristics/MelodyFingerprint from MasterAbcText.
+    /// Transposition-invariant fingerprint used by TuneMatchIndex to identify a tune
+    /// from a live-played snippet. Null until computed.
+    /// </summary>
+    public string? FingerprintIntervals { get; set; }
+
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<TuneAlias> Aliases { get; set; } = new List<TuneAlias>();
     public ICollection<TuneSetting> Settings { get; set; } = new List<TuneSetting>();

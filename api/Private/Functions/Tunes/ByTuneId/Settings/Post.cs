@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes.ByTuneId.Settings;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, TuneHeuristics heuristics)
 {
     /// <summary>POST /api/tunes/{tuneId}/settings — add an alternate setting to the tune.</summary>
     [Function("CreateTuneSetting")]
@@ -44,6 +45,8 @@ public class Post(AppDbContext db)
             SubmitterName = string.IsNullOrWhiteSpace(body.SubmitterName) ? "Anonymous" : body.SubmitterName.Trim(),
             VoteScore = 1
         };
+        var stats = heuristics.Compute(setting.AbcText, setting.Key, tune.TuneType);
+        setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
 

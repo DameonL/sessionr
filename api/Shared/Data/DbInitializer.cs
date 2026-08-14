@@ -13,6 +13,7 @@ public static class DbInitializer
     public static void InitializeDevDatabase(AppDbContext db)
     {
         db.Database.EnsureCreated();
+        EnsureSchemaIsCurrent(db);
 
         if (db.Tunes.Any())
         {
@@ -82,6 +83,13 @@ public static class DbInitializer
             new() { TuneId = tunes[3].TuneId, Name = "The Butterfly Slip Jig" }
         };
 
+        var tuneById = tunes.ToDictionary(t => t.TuneId);
+        foreach (var s in settings)
+        {
+            var stats = heuristics.Compute(s.AbcText, s.Key, tuneById[s.TuneId].TuneType);
+            s.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+        }
+
         db.TuneSettings.AddRange(settings);
         db.TuneAliases.AddRange(aliases);
         db.SaveChanges();
@@ -147,6 +155,26 @@ public static class DbInitializer
                 LastPracticed = lastPracticed,
                 TargetBpm = bpm,
             };
+        }
+    }
+
+    /// <summary>
+    /// EnsureCreated() only builds the schema when the SQLite file doesn't exist yet — it never
+    /// alters an existing file, so a dev db created before the model gained a column (e.g.
+    /// Tune.RepertoireCount, Tune.Difficulty) silently keeps the old schema and every query
+    /// touching that column throws "no such column" forever. Probe for that drift and rebuild
+    /// the file from scratch (re-seeding via the caller) so local dev self-heals instead.
+    /// </summary>
+    private static void EnsureSchemaIsCurrent(AppDbContext db)
+    {
+        try
+        {
+            db.Tunes.Select(t => new { t.RepertoireCount, t.CreatedAt, t.Difficulty }).Take(1).ToList();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            db.Database.EnsureDeleted();
+            db.Database.EnsureCreated();
         }
     }
 

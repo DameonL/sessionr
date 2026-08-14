@@ -76,6 +76,11 @@ public record GroupSessionDto(
 
 public record SaveEarTrainingProgressRequest(int PhraseIndex, int NotesRevealed, bool Completed);
 
+/// <summary>Ordered MIDI note numbers captured live from the mic (see pitchDetector.ts) to identify.</summary>
+public record TuneMatchRequest(List<int> Notes);
+
+public record TuneMatchResponse(List<TuneMatchCandidateDto> Candidates, bool HasConfidentMatch);
+
 public record TuneDto(Guid TuneId, string Title, string TuneType, string Key, int RepertoireCount, int Difficulty = 0);
 
 public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue);

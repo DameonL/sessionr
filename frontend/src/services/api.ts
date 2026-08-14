@@ -633,6 +633,26 @@ export const addTuneAlias = (tuneId: string, name: string) =>
     body: JSON.stringify({ name }),
   })
 
+export interface TuneMatchCandidate {
+  tuneId: string
+  title: string
+  tuneType: string
+  key: string
+  difficulty: number
+  /** 0-100. See api MelodyFingerprint.ConfidenceThresholdPercent for the "confident" cutoff. */
+  confidence: number
+  matchedTuneSettingId: string | null
+}
+
+export interface TuneMatchResult {
+  candidates: TuneMatchCandidate[]
+  hasConfidentMatch: boolean
+}
+
+/** Identifies a tune from an ordered sequence of MIDI notes captured live (see tuneMatcher.ts). */
+export const matchTune = (notes: number[]) =>
+  apiFetchPublic<TuneMatchResult>('/tunes/match', { method: 'POST', body: JSON.stringify({ notes }) })
+
 export const voteTuneSetting = (settingId: string, value: number) =>
   apiFetch<{ voteScore: number }>(`/tunes/settings/${settingId}/vote`, {
     method: 'POST',
