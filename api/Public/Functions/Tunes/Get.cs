@@ -125,10 +125,22 @@ public class Get(AppDbContext db)
     /// Reads the cached total tune count (kept in sync by LibraryStatsSupport on tune
     /// create/delete), lazily computing and persisting it the first time it's needed —
     /// e.g. right after this cache was introduced, before any create/delete has run yet.
+    /// Falls back to the live count if the LibraryStats container itself isn't provisioned
+    /// yet (Cosmos EnsureCreated doesn't retroactively add containers to an existing
+    /// database), so a cache/infra hiccup never breaks the actual search.
     /// </summary>
     private async Task<int> GetCachedTuneCountAsync()
     {
-        var stats = await db.LibraryStats.AsNoTracking().FirstOrDefaultAsync(s => s.LibraryStatsId == LibraryStats.SingletonId);
+        LibraryStats? stats;
+        try
+        {
+            stats = await db.LibraryStats.AsNoTracking().FirstOrDefaultAsync(s => s.LibraryStatsId == LibraryStats.SingletonId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[GetCachedTuneCountAsync] couldn't read LibraryStats, falling back to a live count:\n{ex}");
+            return await db.Tunes.Select(t => t.TuneId).CosmosCountAsync();
+        }
         if (stats is not null)
         {
             return stats.TuneCount;
