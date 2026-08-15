@@ -1,8 +1,10 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
 using SessionApp.Api.Services;
@@ -45,12 +47,17 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         await db.SaveChangesAsync();
         await LibraryStatsSupport.IncrementTuneCountAsync(db);
 
+        var submitterName = await db.Users.AsNoTracking()
+            .Where(u => u.UserId == callerUserId.Value)
+            .Select(u => u.DisplayName)
+            .FirstOrDefaultAsync();
+
         var setting = new TuneSetting
         {
             TuneId = tune.TuneId,
             Key = tune.Key,
             AbcText = tune.MasterAbcText,
-            SubmitterName = "System",
+            SubmitterName = string.IsNullOrWhiteSpace(submitterName) ? "Anonymous" : submitterName,
             VoteScore = 3
         };
         db.TuneSettings.Add(setting);
