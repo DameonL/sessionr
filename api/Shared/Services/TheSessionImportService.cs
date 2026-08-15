@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Functions;
 using SessionApp.Api.Models;
 
 namespace SessionApp.Api.Services;
@@ -124,6 +125,7 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         heuristics.Apply(tune);
         db.Tunes.Add(tune);
         await db.SaveChangesAsync();
+        await LibraryStatsSupport.IncrementTuneCountAsync(db);
 
         // Mirrors CreateTune's initial setting so imported tunes have at least one
         // TuneSetting to display/vote on/add-to-repertoire — without this, GetTuneDetails

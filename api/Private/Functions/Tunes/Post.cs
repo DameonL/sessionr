@@ -43,6 +43,7 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         heuristics.Apply(tune);
         db.Tunes.Add(tune);
         await db.SaveChangesAsync();
+        await LibraryStatsSupport.IncrementTuneCountAsync(db);
 
         var setting = new TuneSetting
         {

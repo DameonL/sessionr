@@ -35,9 +35,11 @@ public class Get(AppDbContext db)
         var key = req.Query["key"].ToString().Trim();
 
         var query = db.Tunes.AsNoTracking();
+        var hasFilter = false;
 
         if (!string.IsNullOrWhiteSpace(search))
         {
+            hasFilter = true;
             var searchLower = search.ToLower();
             var matchingAliasTuneIds = await db.TuneAliases
                 .AsNoTracking()
@@ -57,10 +59,12 @@ public class Get(AppDbContext db)
         }
         if (Enum.TryParse<TuneType>(type, ignoreCase: true, out var tuneType))
         {
+            hasFilter = true;
             query = query.Where(t => t.TuneType == tuneType);
         }
         if (!string.IsNullOrWhiteSpace(key))
         {
+            hasFilter = true;
             query = query.Where(t => t.Key == key);
         }
 
@@ -73,10 +77,17 @@ public class Get(AppDbContext db)
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        // Count before sorting: Cosmos's cross-partition query engine requires the ORDER BY
-        // property to be present in the SELECT projection, and this count narrows the
-        // projection down to just TuneId, so it must run against the unsorted query.
-        var totalCount = await query.Select(t => t.TuneId).CosmosCountAsync();
+        // An unfiltered browse (the common case — Newest/Popular tabs and the default
+        // library landing) always counts the whole collection, so use the maintained
+        // LibraryStats cache instead of fetching every TuneId just to count them.
+        // A filtered search's count depends on the filter, so it still has to be computed
+        // per-request — but count before sorting: Cosmos's cross-partition query engine
+        // requires the ORDER BY property to be present in the SELECT projection, and this
+        // count narrows the projection down to just TuneId, so it must run against the
+        // unsorted query.
+        var totalCount = hasFilter
+            ? await query.Select(t => t.TuneId).CosmosCountAsync()
+            : await GetCachedTuneCountAsync();
 
         if (sort == "popular")
         {
@@ -108,5 +119,33 @@ public class Get(AppDbContext db)
 
         var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<TuneDto>(results, totalCount, page, pageSize, hasMore));
+    }
+
+    /// <summary>
+    /// Reads the cached total tune count (kept in sync by LibraryStatsSupport on tune
+    /// create/delete), lazily computing and persisting it the first time it's needed —
+    /// e.g. right after this cache was introduced, before any create/delete has run yet.
+    /// </summary>
+    private async Task<int> GetCachedTuneCountAsync()
+    {
+        var stats = await db.LibraryStats.AsNoTracking().FirstOrDefaultAsync(s => s.LibraryStatsId == LibraryStats.SingletonId);
+        if (stats is not null)
+        {
+            return stats.TuneCount;
+        }
+
+        var count = await db.Tunes.Select(t => t.TuneId).CosmosCountAsync();
+        try
+        {
+            db.LibraryStats.Add(new LibraryStats { TuneCount = count });
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Benign race: another concurrent request already created the singleton. The
+            // freshly-computed count is still correct to return either way.
+            Console.Error.WriteLine($"[GetCachedTuneCountAsync] couldn't persist initial LibraryStats (likely a race, safe to ignore):\n{ex}");
+        }
+        return count;
     }
 }

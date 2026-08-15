@@ -26,6 +26,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<Tune> Tunes => Set<Tune>();
+    public DbSet<LibraryStats> LibraryStats => Set<LibraryStats>();
     public DbSet<UserTune> UserTunes => Set<UserTune>();
     public DbSet<Models.Set> Sets => Set<Models.Set>();
     public DbSet<SetItem> SetItems => Set<SetItem>();
