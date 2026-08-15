@@ -91,11 +91,20 @@ public class Get(AppDbContext db)
             query = query.OrderBy(t => t.Title);
         }
 
-        var results = await query
+        // Materialize full entities rather than projecting straight into TuneDto: tune documents
+        // created before RepertoireCount/CreatedAt/Difficulty existed on the model don't carry
+        // those properties in Cosmos (schemaless), and the Cosmos provider's projection shaper
+        // throws "Nullable object must have a value" reading them directly into a non-nullable
+        // DTO constructor arg. Plain entity materialization defaults missing properties instead,
+        // so build the DTO afterward in memory.
+        var tunes = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key, t.RepertoireCount, t.Difficulty))
             .ToListAsync();
+
+        var results = tunes
+            .Select(t => new TuneDto(t.TuneId, t.Title, t.TuneType.ToString(), t.Key, t.RepertoireCount, t.Difficulty))
+            .ToList();
 
         var hasMore = (page * pageSize) < totalCount;
         return new OkObjectResult(new PagedResult<TuneDto>(results, totalCount, page, pageSize, hasMore));
