@@ -26,12 +26,21 @@ public static class MelodyFingerprint
     /// <summary>Consecutive interval tokens hashed together for candidate narrowing.</summary>
     private const int ShingleLength = 5;
 
-    // Smith–Waterman scoring. An octave-off note (a known pitch-detector failure
-    // mode — see pitchDetector.ts) gets partial credit rather than a full penalty.
-    private const int ExactMatchScore = 2;
-    private const int OctaveErrorScore = 1;
-    private const int MismatchScore = -1;
-    private const int GapScore = -1;
+    // Smith-Waterman scoring, in doubled integer units so the affine gap costs
+    // below (which include a half-point extend cost) stay exact integers. An
+    // octave-off note (a known pitch-detector failure mode — see
+    // pitchDetector.ts) gets partial credit rather than a full penalty.
+    private const int ExactMatchScore = 4;
+    private const int OctaveErrorScore = 2;
+    private const int MismatchScore = -2;
+
+    // Affine gap costs (Gotoh's algorithm): opening a gap costs more than
+    // continuing one already open, so a burst of several consecutive noise
+    // notes — the common failure mode in a loud, busy session — is charged
+    // once for the burst rather than once per note. In real (halved) units
+    // this is gapOpen=-2, gapExtend=-0.5, versus a flat -1/note before.
+    private const int GapOpenScore = -4;
+    private const int GapExtendScore = -1;
 
     /// <summary>
     /// Collapses immediately-repeated pitches (A,A,B -> A,B) and diffs the rest into
@@ -85,9 +94,10 @@ public static class MelodyFingerprint
 
     /// <summary>
     /// Best-scoring contiguous local alignment of <paramref name="query"/> against
-    /// <paramref name="candidate"/> (Smith–Waterman). Local — not global — alignment
-    /// is what makes this work for a short excerpt of a longer, possibly multi-part
-    /// tune: the unmatched head/tail of the candidate isn't penalized.
+    /// <paramref name="candidate"/> (Smith–Waterman with affine gap costs, via
+    /// Gotoh's three-matrix formulation). Local — not global — alignment is what
+    /// makes this work for a short excerpt of a longer, possibly multi-part tune:
+    /// the unmatched head/tail of the candidate isn't penalized.
     /// </summary>
     public static AlignmentResult LocalAlign(int[] query, int[] candidate)
     {
@@ -95,10 +105,27 @@ public static class MelodyFingerprint
 
         var rows = query.Length + 1;
         var cols = candidate.Length + 1;
+
+        // H = best score ending in a match/mismatch (or a fresh restart at 0).
+        // E = best score ending in a gap against the candidate (query note with
+        //     no counterpart yet); F = best score ending in a gap against the
+        //     query (candidate note with no counterpart yet).
         var h = new int[rows, cols];
-        // Length of the alignment ending at each cell, tracked alongside the score
-        // so the winning cell's matched span can be reported without a full traceback.
-        var len = new int[rows, cols];
+        var e = new int[rows, cols];
+        var f = new int[rows, cols];
+        // Length of the alignment ending at each cell for each matrix, tracked
+        // alongside the score so the winning cell's matched span can be
+        // reported without a full traceback.
+        var hLen = new int[rows, cols];
+        var eLen = new int[rows, cols];
+        var fLen = new int[rows, cols];
+
+        // Row/col 0 represent "no notes consumed yet" — a gap can't already be
+        // open there, so extending from it must never look cheaper than opening
+        // a fresh one.
+        const int negInf = int.MinValue / 4;
+        for (var j = 0; j < cols; j++) e[0, j] = negInf;
+        for (var i = 0; i < rows; i++) f[i, 0] = negInf;
 
         var bestScore = 0;
         var bestLen = 0;
@@ -107,27 +134,51 @@ public static class MelodyFingerprint
         {
             for (var j = 1; j < cols; j++)
             {
+                var eOpen = h[i - 1, j] + GapOpenScore;
+                var eExtend = e[i - 1, j] + GapExtendScore;
+                if (eOpen >= eExtend)
+                {
+                    e[i, j] = eOpen;
+                    eLen[i, j] = hLen[i - 1, j] + 1;
+                }
+                else
+                {
+                    e[i, j] = eExtend;
+                    eLen[i, j] = eLen[i - 1, j] + 1;
+                }
+
+                var fOpen = h[i, j - 1] + GapOpenScore;
+                var fExtend = f[i, j - 1] + GapExtendScore;
+                if (fOpen >= fExtend)
+                {
+                    f[i, j] = fOpen;
+                    fLen[i, j] = hLen[i, j - 1] + 1;
+                }
+                else
+                {
+                    f[i, j] = fExtend;
+                    fLen[i, j] = fLen[i, j - 1] + 1;
+                }
+
                 var delta = query[i - 1] - candidate[j - 1];
                 var subScore = delta == 0 ? ExactMatchScore
                     : Math.Abs(delta) == 12 || Math.Abs(delta) == 24 ? OctaveErrorScore
                     : MismatchScore;
-
                 var diag = h[i - 1, j - 1] + subScore;
-                var up = h[i - 1, j] + GapScore;
-                var left = h[i, j - 1] + GapScore;
 
-                var best = Math.Max(0, Math.Max(diag, Math.Max(up, left)));
+                var best = 0;
+                var bestCellLen = 0;
+                if (diag > best) { best = diag; bestCellLen = hLen[i - 1, j - 1] + 1; }
+                if (e[i, j] > best) { best = e[i, j]; bestCellLen = eLen[i, j]; }
+                if (f[i, j] > best) { best = f[i, j]; bestCellLen = fLen[i, j]; }
+
                 h[i, j] = best;
-
-                len[i, j] = best == 0 ? 0
-                    : best == diag ? len[i - 1, j - 1] + 1
-                    : best == up ? len[i - 1, j] + 1
-                    : len[i, j - 1] + 1;
+                hLen[i, j] = best == 0 ? 0 : bestCellLen;
 
                 if (best > bestScore)
                 {
                     bestScore = best;
-                    bestLen = len[i, j];
+                    bestLen = bestCellLen;
                 }
             }
         }
@@ -146,7 +197,11 @@ public static class MelodyFingerprint
     {
         if (queryLength == 0) return 0;
 
-        const double minCoverage = 0.6;
+        // Raised from 0.6: a noisier session query needs more of itself to
+        // actually land in the winning alignment before a peak is trusted,
+        // without going so high it fights local alignment's own tolerance
+        // for a genuinely partial excerpt.
+        const double minCoverage = 0.65;
         var coverage = (double)result.MatchedLength / queryLength;
         if (coverage < minCoverage) return 0;
 

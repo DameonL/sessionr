@@ -1,4 +1,4 @@
-import { createPitchListener, type PitchListener } from './pitchDetector'
+import { createPitchListener, type PitchListener, type QualityFrame } from './pitchDetector'
 
 /**
  * Turns pitchDetector.ts's single-note callback into a rolling capture buffer
@@ -7,8 +7,12 @@ import { createPitchListener, type PitchListener } from './pitchDetector'
  * appends every stable note it hears, in order, until the caller stops it.
  */
 export interface SnippetCapture {
-  /** Starts the mic and capture loop. Rejects if mic access is denied. */
-  start(onNote?: (midi: number, count: number) => void): Promise<void>
+  /**
+   * Starts the mic and capture loop. Rejects if mic access is denied.
+   * `onQuality` fires every analyzed frame (not just accepted notes) — pass
+   * it through to let the caller show "too noisy" feedback in a loud session.
+   */
+  start(onNote?: (midi: number, count: number) => void, onQuality?: (q: QualityFrame) => void): Promise<void>
   /** Ordered MIDI notes captured so far. */
   notes(): number[]
   /** Clears the captured buffer without restarting the mic. */
@@ -24,12 +28,12 @@ export function createSnippetCapture(maxNotes = MAX_NOTES): SnippetCapture {
   const buffer: number[] = []
 
   return {
-    async start(onNote) {
+    async start(onNote, onQuality) {
       await listener.start((midi) => {
         if (buffer.length >= maxNotes) return
         buffer.push(midi)
         onNote?.(midi, buffer.length)
-      })
+      }, onQuality)
     },
 
     notes() {
