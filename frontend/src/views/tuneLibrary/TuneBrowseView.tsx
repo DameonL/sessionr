@@ -20,6 +20,7 @@ export function TuneBrowseView({ sort }: { sort: 'popular' | 'newest' }) {
       tunes={allTunes}
       isLoading={libraryQuery.isLoading}
       isError={libraryQuery.isError}
+      error={libraryQuery.error}
       hasMore={libraryQuery.hasNextPage}
       isFetchingMore={libraryQuery.isFetchingNextPage}
       onLoadMore={() => libraryQuery.fetchNextPage()}

@@ -17,6 +17,19 @@ public class Get(AppDbContext db)
     public async Task<IActionResult> SearchTunes(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tunes")] HttpRequest req)
     {
+        try
+        {
+            return await DoSearch(req);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[SearchTunes ERROR]\n{ex}");
+            return new ObjectResult(new { error = ex.Message, detail = ex.ToString() }) { StatusCode = 500 };
+        }
+    }
+
+    private async Task<IActionResult> DoSearch(HttpRequest req)
+    {
         var search = req.Query["search"].ToString().Trim();
         var type = req.Query["type"].ToString().Trim();
         var key = req.Query["key"].ToString().Trim();

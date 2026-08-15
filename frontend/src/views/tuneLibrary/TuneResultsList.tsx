@@ -10,6 +10,7 @@ export function TuneResultsList({
   tunes,
   isLoading,
   isError,
+  error,
   hasMore,
   isFetchingMore,
   onLoadMore,
@@ -18,6 +19,7 @@ export function TuneResultsList({
   tunes: TuneSummary[]
   isLoading: boolean
   isError: boolean
+  error?: unknown
   hasMore: boolean
   isFetchingMore: boolean
   onLoadMore: () => void
@@ -26,7 +28,11 @@ export function TuneResultsList({
   return (
     <>
       {isLoading && <div className="spinner-row"><Spinner /></div>}
-      {isError && <p className="error" style={{ marginTop: '1rem' }}>Could not load tunes.</p>}
+      {isError && (
+        <p className="error" style={{ marginTop: '1rem' }}>
+          Could not load tunes.{error instanceof Error && error.message ? ` (${error.message})` : ''}
+        </p>
+      )}
 
       <ul className="tune-list">
         {tunes.map((tune) => (
