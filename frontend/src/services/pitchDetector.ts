@@ -81,7 +81,18 @@ export function detectHz(buf: Float32Array, sampleRate: number): PitchFrame {
   if (rms < 1e-6) return { rms, clarity: null, hz: null }
 
   // Trim low-amplitude edges so the correlation sees the strong middle.
-  const threshold = 0.2
+  // Threshold is relative to this buffer's own peak, not an absolute value:
+  // a fixed absolute threshold (as this once was) only trims anything on a
+  // loud buffer — a real note at a realistic, quieter mic level never has a
+  // sample crossing it, so both loops below would run to completion and
+  // collapse the buffer to ~2 samples, destroying detection independent of
+  // any RMS/clarity gate a caller applies afterward.
+  let peak = 0
+  for (let i = 0; i < size; i++) {
+    const a = Math.abs(buf[i])
+    if (a > peak) peak = a
+  }
+  const threshold = peak * 0.2
   let r1 = 0
   let r2 = size - 1
   for (let i = 0; i < size / 2; i++) {
@@ -333,15 +344,22 @@ const RECORDER_STARTUP_MUTE_MS = 150
 
 export function createSampleRecorder(durationMs: number): SampleRecorder {
   const raw: RawFrame[] = []
-  let startedAt = 0
+  // Stamped on the first analyzed frame, not before starting the loop: mic
+  // permission can take an arbitrary, user-paced amount of time to resolve
+  // (especially the first time), and getUserMedia() runs inside loop.start()
+  // — stamping any earlier would make this clock start well before the mic
+  // is actually live, silently shortening the real capture window and
+  // desyncing from the UI's own timer (which only starts once start()
+  // resolves, i.e. once the mic is already live).
+  let startedAt: number | null = null
   let done = false
   let loop: ReturnType<typeof startMicFrameLoop> | null = null
 
   return {
     async start(onProgress) {
-      startedAt = performance.now()
       loop = startMicFrameLoop((frame) => {
         if (done) return
+        if (startedAt === null) startedAt = performance.now()
         const elapsed = performance.now() - startedAt
         if (elapsed >= durationMs) {
           done = true

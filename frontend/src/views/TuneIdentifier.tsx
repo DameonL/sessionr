@@ -205,7 +205,11 @@ export function TuneIdentifier() {
             />
           </div>
           <div className="progress-bar-container">
-            <div className="progress-bar" style={{ width: `${Math.min(100, level * 300)}%` }} />
+            {/* sqrt scale, not linear: real mic RMS for normal playing runs much
+                lower than a linear bar would suggest, which read as "silence"
+                even during legitimate playing. This just needs to move visibly
+                across realistic input levels, not be a calibrated meter. */}
+            <div className="progress-bar" style={{ width: `${Math.min(100, Math.sqrt(level) * 150)}%` }} />
           </div>
           <div className="detail-controls">
             <button onClick={finishRecording} disabled={!canStopEarly}>
@@ -230,7 +234,11 @@ export function TuneIdentifier() {
           </p>
 
           {matchMutation.isError && (
-            <p className="error">Couldn&apos;t reach the tune library — try again.</p>
+            <p className="error">
+              {matchMutation.error instanceof Error && matchMutation.error.message
+                ? matchMutation.error.message.replace(/^"|"$/g, '')
+                : "Couldn't reach the tune library — try again."}
+            </p>
           )}
 
           {!matchMutation.isError && capturedCount < MIN_NOTES_ADVISORY && (

@@ -10,7 +10,15 @@ namespace SessionApp.Api.Functions.Tunes;
 
 public class Match(TuneMatchIndex matchIndex)
 {
-    private const int MinNotes = 6;
+    // Only a sanity floor for a genuinely empty/near-empty submission (need at
+    // least 2 notes to form a single interval at all) — anything more is left
+    // to the matcher's own confidence scoring rather than a hard block here.
+    // A sparse-but-real capture should degrade to a low-confidence result,
+    // not an error; a prior higher value here rejected legitimate attempts
+    // whenever the classifier under-captured a real performance. Spurious
+    // high-confidence "matches" from a too-short query are guarded against
+    // in MelodyFingerprint.Confidence's own MinQueryLength floor, not here.
+    private const int MinNotes = 2;
     private const int MaxNotes = 300;
     private const int MinMidi = 40; // ~E2, below typical session-instrument range
     private const int MaxMidi = 96; // ~C7, above typical session-instrument range

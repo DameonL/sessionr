@@ -23,6 +23,16 @@ public static class MelodyFingerprint
     /// </summary>
     public const int ConfidenceThresholdPercent = 40;
 
+    /// <summary>
+    /// A query shorter than this (in intervals) can't produce a meaningful
+    /// confidence at all, regardless of coverage: a 1-interval query trivially
+    /// clears any coverage ratio by matching one coincidental interval
+    /// anywhere in a candidate — near-certain for a common interval against a
+    /// 50-150 note fingerprint — which without this floor produced a spurious
+    /// 100% "match" from as little as two arbitrary notes.
+    /// </summary>
+    private const int MinQueryLength = 4;
+
     /// <summary>Consecutive interval tokens hashed together for candidate narrowing.</summary>
     private const int ShingleLength = 5;
 
@@ -195,7 +205,7 @@ public static class MelodyFingerprint
     /// </summary>
     public static double Confidence(AlignmentResult result, int queryLength)
     {
-        if (queryLength == 0) return 0;
+        if (queryLength < MinQueryLength) return 0;
 
         // Raised from 0.6: a noisier session query needs more of itself to
         // actually land in the winning alignment before a peak is trusted,

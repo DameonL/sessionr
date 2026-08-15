@@ -31,15 +31,27 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         Guid TuneId, Guid? TuneSettingId, string Title, string TuneType,
         string Key, int Difficulty, int[] Intervals);
 
+    /// <summary>
+    /// Entries and their shingle index are always read and replaced together
+    /// as one immutable unit. They used to be two separate fields swapped by
+    /// two separate statements at the end of a rebuild — a concurrent reader
+    /// landing between those two writes could see a new entry list paired
+    /// with a stale shingle index (or vice versa), risking a wrong-tune match
+    /// or an out-of-range lookup. Bundling them here makes that impossible:
+    /// a reference write is atomic, so any reader sees either the fully-old
+    /// or fully-new pair, never a mix.
+    /// </summary>
+    private sealed record Snapshot(IReadOnlyList<IndexEntry> Entries, Dictionary<long, List<int>> ShingleIndex, DateTime BuiltAt);
+
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(30);
     private const int ShingleLength = 5;
     private const int MaxShortlist = 150;
     private const int FullSweepThreshold = 200;
 
     private readonly SemaphoreSlim _rebuildLock = new(1, 1);
-    private IReadOnlyList<IndexEntry> _entries = [];
-    private Dictionary<long, List<int>>? _shingleIndex;
-    private DateTime _builtAt = DateTime.MinValue;
+    // volatile so a rebuild published on one thread is visible to readers on
+    // another without them needing to take a lock.
+    private volatile Snapshot _snapshot = new([], new Dictionary<long, List<int>>(), DateTime.MinValue);
 
     /// <summary>Rebuilds the index now, regardless of the TTL. Used by the moderator refresh endpoint.</summary>
     public Task ForceRefreshAsync(CancellationToken ct = default) => RebuildAsync(ct);
@@ -47,13 +59,16 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
     public async Task<IReadOnlyList<TuneMatchCandidateDto>> MatchAsync(int[] queryIntervals, int topN = 5, CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct);
+        // Captured once so this whole request scores against one consistent
+        // snapshot even if a rebuild swaps _snapshot concurrently.
+        var snapshot = _snapshot;
 
-        if (queryIntervals.Length == 0 || _entries.Count == 0)
+        if (queryIntervals.Length == 0 || snapshot.Entries.Count == 0)
         {
             return [];
         }
 
-        var shortlist = BuildShortlist(queryIntervals);
+        var shortlist = BuildShortlist(snapshot, queryIntervals);
 
         var scored = shortlist
             .Select(entry => (entry, alignment: MelodyFingerprint.LocalAlign(queryIntervals, entry.Intervals)))
@@ -72,17 +87,17 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         return scored;
     }
 
-    private IEnumerable<IndexEntry> BuildShortlist(int[] queryIntervals)
+    private static IEnumerable<IndexEntry> BuildShortlist(Snapshot snapshot, int[] queryIntervals)
     {
-        if (_entries.Count <= FullSweepThreshold || _shingleIndex is null || queryIntervals.Length < ShingleLength)
+        if (snapshot.Entries.Count <= FullSweepThreshold || queryIntervals.Length < ShingleLength)
         {
-            return _entries;
+            return snapshot.Entries;
         }
 
         var votes = new Dictionary<int, int>();
         foreach (var hash in MelodyFingerprint.Shingles(queryIntervals, ShingleLength))
         {
-            if (!_shingleIndex.TryGetValue(hash, out var indices)) continue;
+            if (!snapshot.ShingleIndex.TryGetValue(hash, out var indices)) continue;
             foreach (var idx in indices)
             {
                 votes[idx] = votes.GetValueOrDefault(idx) + 1;
@@ -93,18 +108,19 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         {
             // No shingle overlap at all — fall back to a full sweep rather than
             // returning nothing (a noisy query might not share a single 5-gram).
-            return _entries;
+            return snapshot.Entries;
         }
 
         return votes
             .OrderByDescending(kv => kv.Value)
             .Take(MaxShortlist)
-            .Select(kv => _entries[kv.Key]);
+            .Select(kv => snapshot.Entries[kv.Key]);
     }
 
     private async Task EnsureFreshAsync(CancellationToken ct)
     {
-        if (_entries.Count > 0 && DateTime.UtcNow - _builtAt < RefreshInterval)
+        var snapshot = _snapshot;
+        if (snapshot.Entries.Count > 0 && DateTime.UtcNow - snapshot.BuiltAt < RefreshInterval)
         {
             return;
         }
@@ -117,7 +133,8 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         try
         {
             // Another caller may have just finished a rebuild while we waited.
-            if (_entries.Count > 0 && DateTime.UtcNow - _builtAt < RefreshInterval)
+            var current = _snapshot;
+            if (current.Entries.Count > 0 && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
             {
                 return;
             }
@@ -166,9 +183,8 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
                 }
             }
 
-            _entries = entries;
-            _shingleIndex = shingleIndex;
-            _builtAt = DateTime.UtcNow;
+            // Single atomic swap: readers always see a matched Entries/ShingleIndex pair.
+            _snapshot = new Snapshot(entries, shingleIndex, DateTime.UtcNow);
         }
         finally
         {

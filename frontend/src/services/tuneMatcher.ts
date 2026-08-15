@@ -26,8 +26,14 @@ import { createSampleRecorder, hzToMidi, requiredStableFrames, type RawFrame, ty
 export const SAMPLE_DURATION_MS = 20000
 
 // Defaults below are untuned against real hardware/room recordings — this
-// dev environment can't produce one. Treat as a starting point pending a
-// real-mic quiet-room + noisy-pub validation pass, not final numbers.
+// dev environment can't produce one. Loosened once already after a field
+// report of real solo playing (two repeats of an 8-bar part) still yielding
+// too few accepted notes to match: actual mic RMS/clarity levels off typical
+// device hardware run lower than the values these were first guessed
+// against. Treat as a starting point pending a proper real-mic quiet-room +
+// noisy-pub validation pass, not final numbers — if under-capture keeps
+// showing up, loosen further; the matcher tolerates extra wrong notes far
+// better than it tolerates missing real ones.
 
 /** Percentile of whole-clip RMS used as the ambient noise-floor estimate. */
 const NOISE_PERCENTILE = 0.2
@@ -35,13 +41,13 @@ const NOISE_PERCENTILE = 0.2
  *  than a live gate's margin would need: a percentile is a stable order
  *  statistic with nothing to poison, and a missed note costs far more here
  *  (the matcher tolerates a few wrong notes far better than total silence). */
-const RMS_MARGIN = 2.0
-const ABSOLUTE_RMS_FLOOR = 0.01
+const RMS_MARGIN = 1.5
+const ABSOLUTE_RMS_FLOOR = 0.005
 /** Low, static backstop against clearly non-tonal loud events (a table bang,
  *  chair scrape) — deliberately not adaptive to the clip's own distribution,
  *  so it can't reproduce the earlier feedback-loop bug in miniature. The
  *  RMS-vs-floor threshold above is the primary signal/noise discriminator. */
-const MIN_CLARITY = 0.3
+const MIN_CLARITY = 0.15
 
 /** Reproduces the live loop's re-arm window: a brief flicker mid-note
  *  shouldn't split one sustained note into two. */
@@ -103,32 +109,27 @@ interface Run {
  * decides and isn't stuck being pessimistic about a rocky attack.
  */
 export function groupNotes(frames: ClassifiedFrame[]): NoteEvent[] {
+  // The gap check has to happen in this same pass, not a later "merge
+  // adjacent runs" pass: a bare skip-on-reject here (with no gap awareness)
+  // would let two temporally distant occurrences of the same pitch — a
+  // sustained note, then unrelated noise, then the same pitch recurring
+  // much later, e.g. a repeated motif — silently fuse into one run before
+  // any later pass gets a chance to keep them separate.
   const runs: Run[] = []
   for (const f of frames) {
     if (!f.accepted || f.midi === null) continue
     const last = runs[runs.length - 1]
-    if (last && last.midi === f.midi) {
+    const lastFrame = last?.frames[last.frames.length - 1]
+    const gap = lastFrame ? f.tMs - lastFrame.tMs : Infinity
+    if (last && last.midi === f.midi && gap < SILENCE_REARM_MS) {
       last.frames.push(f)
     } else {
       runs.push({ midi: f.midi, frames: [f] })
     }
   }
 
-  const merged: Run[] = []
-  for (const run of runs) {
-    const last = merged[merged.length - 1]
-    if (last && last.midi === run.midi) {
-      const gap = run.frames[0].tMs - last.frames[last.frames.length - 1].tMs
-      if (gap < SILENCE_REARM_MS) {
-        last.frames.push(...run.frames)
-        continue
-      }
-    }
-    merged.push({ midi: run.midi, frames: [...run.frames] })
-  }
-
   const notes: NoteEvent[] = []
-  for (const run of merged) {
+  for (const run of runs) {
     const clarities = run.frames.map((f) => f.clarity ?? 0)
     const needed = requiredStableFrames(median(clarities))
     if (run.frames.length < needed) continue
