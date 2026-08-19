@@ -1,16 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { fileURLToPath } from 'url'
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      'next/link': path.resolve(__dirname, './src/utils/nextCompat.tsx'),
-      'next/navigation': path.resolve(__dirname, './src/utils/nextCompat.tsx'),
-      'next/dynamic': path.resolve(__dirname, './src/utils/nextCompat.tsx'),
-      'next/image': path.resolve(__dirname, './src/utils/nextCompat.tsx'),
-      '@': path.resolve(__dirname, './src'),
+      'next/link': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
+      'next/navigation': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
+      'next/dynamic': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
+      'next/image': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
+      '@': path.resolve(rootDir, './src'),
     },
   },
   server: {
