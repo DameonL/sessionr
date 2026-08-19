@@ -1,15 +1,12 @@
-"use client";
-
-import { redirect } from 'next/navigation'
+import { Navigate } from 'react-router-dom'
 import { GroupAdminSettings } from '../../components/GroupAdminSettings'
 import { useGroupDetail } from './groupDetailContext'
 
 export function GroupSettingsPanel() {
-  const { groupId, userId, isAdmin, isOwner, details, invalidate } = useGroupDetail()
+  const { groupId, userId, isOwner, isAdmin, details, invalidate } = useGroupDetail()
 
-  // Guard direct navigation to /group/[id]/settings by non-admins.
   if (!isAdmin) {
-    redirect(`/group/${groupId}`)
+    return <Navigate to={`/group/${groupId}`} replace />
   }
 
   return (

@@ -20,10 +20,64 @@ import {
 } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
+import { isPreloading, preloadOfflineData, preloadStatus } from '../services/offlineWarming'
 import { BadgeModal } from '../components/BadgeModal'
 import { QRCodeModal } from '../components/QRCodeModal'
 import { QRScannerModal } from '../components/QRScannerModal'
 import { Spinner } from '../components/Spinner'
+
+function OfflinePreloadCard() {
+  const loading = useSignal(isPreloading)
+  const status = useSignal(preloadStatus)
+
+  const handlePreload = async () => {
+    const res = await preloadOfflineData()
+    if (res.success) {
+      showToast(`Preloaded ${res.itemCount} repertoire items and audio for offline use!`, 'success')
+    } else if (res.error) {
+      showToast(`Offline preload error: ${res.error}`, 'error')
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: '2rem', padding: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span>⚡</span>
+            <span>Make Available Offline</span>
+          </h3>
+          <p className="tune-meta" style={{ margin: '0.35rem 0 0 0' }}>
+            Download your full repertoire, custom sets, practice queue, and soundfonts into local cache so sessionr functions 100% offline.
+          </p>
+        </div>
+
+        <button onClick={handlePreload} disabled={loading} style={{ whiteSpace: 'nowrap' }}>
+          {loading ? 'Preloading...' : '📥 Preload Offline Data'}
+        </button>
+      </div>
+
+      {status && (
+        <div style={{ marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+            <span>{status.message}</span>
+            <span>{status.percent}%</span>
+          </div>
+          <div style={{ width: '100%', height: '8px', background: 'var(--surface-2)', borderRadius: '4px', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${status.percent}%`,
+                height: '100%',
+                background: status.error ? '#ef4444' : '#3b82f6',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
 
@@ -441,6 +495,8 @@ export function Profile() {
           </p>
         )}
       </div>
+
+      <OfflinePreloadCard />
 
       {profileQuery.data?.username && (
         <QRCodeModal

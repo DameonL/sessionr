@@ -1,19 +1,16 @@
-const CACHE_NAME = 'sessionapp-cache-v2';
+const CACHE_NAME = 'sessionapp-cache-v3';
 const SOUNDFONT_CACHE_NAME = 'sessionapp-soundfont-v1';
 
 const PRECACHE_ASSETS = [
   '/',
-  '/repertoire',
-  '/practice/queue',
-  '/practice/sets',
-  '/practice/ear',
-  '/sets',
-  '/tunes',
+  '/index.html',
   '/manifest.webmanifest',
   '/favicon.ico',
+  '/favicon.svg',
   '/icons.svg',
   '/icon-192x192.png',
   '/icon-512x512.png',
+  '/apple-touch-icon.png',
 ];
 
 const SOUNDFONT_BASE = 'https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM';
@@ -102,10 +99,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-First strategy for static JS/CSS and local assets
+  // Cache-First strategy for static JS/CSS and local assets (Vite assets & Next chunks)
   const isStaticAsset =
+    url.pathname.startsWith('/assets/') ||
     url.pathname.startsWith('/_next/static/') ||
-    url.pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|woff2|mp3|wav|json|webmanifest)$/);
+    url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2|mp3|wav|json|webmanifest)$/);
 
   if (isStaticAsset) {
     event.respondWith(
@@ -127,25 +125,49 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-First strategy for page documents to allow offline fallback
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        if (networkResponse.status === 200) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
+  // Network-First strategy for SPA document navigation with App Shell fallback
+  const isNavigation = event.request.mode === 'navigate' || event.request.destination === 'document';
+
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
           }
-          return caches.match('/');
-        });
-      })
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // Single-Page App (SPA) fallback: return index.html shell
+            return caches.match('/index.html').then((indexRes) => {
+              return indexRes || caches.match('/');
+            });
+          });
+        })
+    );
+    return;
+  }
+
+  // Default Stale-While-Revalidate for other GET resources
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return networkResponse;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
+    })
   );
 });
