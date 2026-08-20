@@ -373,7 +373,7 @@ export interface RepertoireItem {
   status: string
   lastPracticed: string | null
   targetBpm: number | null
-  abc: string
+  abc?: string
   abcText?: string
   hasCustomAbc: boolean
   /** Rough 0–100 difficulty estimate (higher = harder). */
@@ -618,8 +618,8 @@ export const addToRepertoire = (tuneId: string, tuneSettingId?: string) =>
     body: JSON.stringify({ tuneId, tuneSettingId }),
   })
 
-export const getTuneDetails = (tuneId: string, userId: string) =>
-  userId ? apiFetch<TuneDetails>(`/tunes/${tuneId}`) : apiFetchPublic<TuneDetails>(`/tunes/${tuneId}`)
+export const getTuneDetails = (tuneId: string, _userId?: string) =>
+  apiFetchPublic<TuneDetails>(`/tunes/${tuneId}`)
 
 export const addTuneSetting = (tuneId: string, key: string, abc: string, submitterName: string) =>
   apiFetch<TuneSetting>(`/tunes/${tuneId}/settings`, {

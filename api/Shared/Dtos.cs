@@ -102,15 +102,11 @@ public record RepertoireItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    [property: JsonPropertyName("abcText")] string AbcText,
+    [property: JsonPropertyName("abcText"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AbcText,
     bool HasCustomAbc,
     int Difficulty = 0,
     int? StartingMidi = null,
-    int? EndingMidi = null)
-{
-    [JsonPropertyName("abc")]
-    public string Abc => AbcText;
-}
+    int? EndingMidi = null);
 
 /// <summary>Lightweight repertoire row for the scrolling list view — no ABC/settings payload.</summary>
 public record RepertoireListItemDto(
@@ -140,11 +136,7 @@ public record PracticeQueueItemDto(
     DateTime? LastPracticed,
     int? TargetBpm,
     [property: JsonPropertyName("abcText")] string AbcText,
-    string Reason)
-{
-    [JsonPropertyName("abc")]
-    public string Abc => AbcText;
-}
+    string Reason);
 
 public record SuggestNextRequest(List<Guid> UserTuneIds);
 

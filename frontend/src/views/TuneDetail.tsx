@@ -9,6 +9,7 @@ import {
   TUNE_STATUSES,
   formatTuneType,
   getRepertoireItem,
+  getTuneDetails,
   isToday,
   logPractice,
   parseServerDate,
@@ -50,6 +51,12 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     retry: false,
   })
   const item = itemQuery.data
+
+  const tuneDetailsQuery = useQuery({
+    queryKey: ['tune-details', item?.tuneId],
+    queryFn: () => getTuneDetails(item!.tuneId),
+    enabled: !!item && !item.hasCustomAbc,
+  })
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['repertoire-item', id] })
@@ -105,6 +112,9 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     )
   }
   const practicedToday = item.lastPracticed != null && isToday(item.lastPracticed)
+  const effectiveAbc = item.hasCustomAbc
+    ? (item.abcText ?? item.abc ?? '')
+    : (tuneDetailsQuery.data?.settings[0]?.abcText ?? '')
 
   return (
     <section>
@@ -121,7 +131,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
       {editingAbc === null ? (
         <>
           <TunePlayer
-            abc={item.abc}
+            abc={effectiveAbc}
             tuneId={item.userTuneId}
             targetBpm={item.targetBpm}
             tuneType={item.tuneType}
@@ -131,7 +141,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
             logPracticeLabel="✓ Mark practiced"
           />
           <div className="detail-controls">
-            <button onClick={() => setEditingAbc(item.abc)}>✎ Edit setting</button>
+            <button onClick={() => setEditingAbc(effectiveAbc)}>✎ Edit setting</button>
             <button className="secondary" onClick={() => setShowSettingsModal(true)}>⚙ Alternate Settings & Names</button>
             {item.hasCustomAbc && (
               <button onClick={() => saveAbcMutation.mutate('')}>Revert to master setting</button>

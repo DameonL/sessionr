@@ -67,7 +67,7 @@ function buildOneSet(
       title: item.title,
       tuneType: item.tuneType,
       key: item.key,
-      abc: item.abc,
+      abc: item.abcText ?? item.abc ?? '',
       repetitions: REPETITIONS_PER_TUNE,
     }
   })

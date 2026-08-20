@@ -71,8 +71,8 @@ export function TuneSettingsModal({
 
   // Fetch full details of the tune
   const { data: details, isPending, isError, refetch } = useQuery({
-    queryKey: ['tune-details', tuneId, userId],
-    queryFn: () => getTuneDetails(tuneId, userId),
+    queryKey: ['tune-details', tuneId],
+    queryFn: () => getTuneDetails(tuneId),
     enabled: authStatus !== 'pending',
   })
 

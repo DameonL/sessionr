@@ -70,7 +70,7 @@ export default function MedleySetsPage() {
         title: s.title,
         tuneType: s.tuneType,
         key: s.key,
-        abc: repItem.abc,
+        abc: repItem.abcText ?? repItem.abc ?? '',
         repetitions: 2,
       },
     ])
@@ -101,7 +101,7 @@ export default function MedleySetsPage() {
           title: repItem.title,
           tuneType: repItem.tuneType,
           key: repItem.key,
-          abc: repItem.abc,
+          abc: repItem.abcText ?? repItem.abc ?? '',
           repetitions: 2,
         })
       }
@@ -119,7 +119,7 @@ export default function MedleySetsPage() {
             title: repItem.title,
             tuneType: repItem.tuneType,
             key: repItem.key,
-            abc: repItem.abc,
+            abc: repItem.abcText ?? repItem.abc ?? '',
             repetitions: 2,
           })
         }
@@ -142,7 +142,7 @@ export default function MedleySetsPage() {
             title: repItem.title,
             tuneType: repItem.tuneType,
             key: repItem.key,
-            abc: repItem.abc,
+            abc: repItem.abcText ?? repItem.abc ?? '',
             repetitions: 2,
           })
         }

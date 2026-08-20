@@ -81,7 +81,6 @@ public class Post(AppDbContext db)
             await db.SaveChangesAsync();
 
             var effectiveKey = selectedSetting != null ? selectedSetting.Key : tune.Key;
-            var effectiveAbc = selectedSetting != null ? selectedSetting.AbcText : tune.MasterAbcText;
 
             return new OkObjectResult(new RepertoireItemDto(
                 userTune.UserTuneId,
@@ -92,7 +91,7 @@ public class Post(AppDbContext db)
                 userTune.Status.ToString(),
                 userTune.LastPracticed,
                 userTune.TargetBpm,
-                effectiveAbc,
+                null,
                 false,
                 tune.Difficulty,
                 tune.StartingMidi,

@@ -56,8 +56,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const [editAbc, setEditAbc] = useState('')
 
   const { data: details, isPending, isError, refetch } = useQuery({
-    queryKey: ['tune-details', id, userId],
-    queryFn: () => getTuneDetails(id, userId),
+    queryKey: ['tune-details', id],
+    queryFn: () => getTuneDetails(id),
     enabled: authStatus !== 'pending',
   })
 

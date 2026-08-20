@@ -97,7 +97,6 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
         await SetSupport.PopulateTuneAndSettingAsync(db, new[] { userTune });
 
         var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
-        var effectiveAbc = userTune.CustomAbcText ?? (userTune.TuneSetting != null ? userTune.TuneSetting.AbcText : userTune.Tune.MasterAbcText);
 
         return new OkObjectResult(new RepertoireItemDto(
             userTune.UserTuneId,
@@ -108,7 +107,7 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
             userTune.Status.ToString(),
             userTune.LastPracticed,
             userTune.TargetBpm,
-            effectiveAbc,
+            userTune.CustomAbcText,
             userTune.CustomAbcText != null,
             userTune.Tune.Difficulty,
             userTune.Tune.StartingMidi,

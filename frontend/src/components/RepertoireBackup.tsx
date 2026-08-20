@@ -55,7 +55,7 @@ export function exportToCSV(items: RepertoireItem[]): string {
       csvEscape(item.key),
       csvEscape(item.status),
       csvEscape(item.targetBpm),
-      csvEscape(item.abc),
+      csvEscape(item.abcText ?? item.abc ?? ''),
     ]
     lines.push(row.join(','))
   }
@@ -180,7 +180,7 @@ export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) 
         key: item.key,
         status: item.status,
         targetBpm: item.targetBpm,
-        abc: item.abc,
+        abc: item.abcText ?? item.abc ?? '',
       }))
       const json = JSON.stringify(exportItems, null, 2)
       const blob = new Blob([json], { type: 'application/json;charset=utf-8;' })

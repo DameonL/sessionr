@@ -99,7 +99,7 @@ public class Get(AppDbContext db)
                 ut.Status.ToString(),
                 ut.LastPracticed,
                 ut.TargetBpm,
-                ut.CustomAbcText ?? (ut.TuneSetting != null ? ut.TuneSetting.AbcText : ut.Tune.MasterAbcText),
+                ut.CustomAbcText,
                 ut.CustomAbcText != null,
                 ut.Tune.Difficulty,
                 ut.Tune.StartingMidi,
