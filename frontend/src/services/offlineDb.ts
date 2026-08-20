@@ -117,6 +117,27 @@ export async function cachePutResponse(url: string, body: unknown): Promise<void
 }
 
 /**
+ * Wipes the URL-keyed GET cache.
+ *
+ * Entries are keyed purely by URL, carry no user scoping and no TTL, so on a
+ * shared browser the previous user's repertoire/sets/dashboard responses would
+ * otherwise stay readable through doFetch's handleUnreachable fallback. Called
+ * on sign-out and whenever the verified userId differs from the one the UI was
+ * optimistically painted with. The pending/failed mutation queues are left
+ * alone — they're keyed to work already done and must still replay.
+ */
+export async function clearOfflineHttpCache(): Promise<void> {
+  try {
+    const db = await openDb()
+    const tx = db.transaction(HTTP_CACHE_STORE, 'readwrite')
+    tx.objectStore(HTTP_CACHE_STORE).clear()
+    await txDone(tx)
+  } catch {
+    // Best-effort — an unavailable IndexedDB shouldn't break sign-out.
+  }
+}
+
+/**
  * Merges `patch` into any cached GET response that represents this
  * repertoire item — the singular item cache entry, any paged repertoire
  * list, and the practice queue array — so offline views reflect the change

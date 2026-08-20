@@ -5,16 +5,27 @@ import { usePathname, useRouter } from '@/utils/routerCompat'
 import { InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser, ApiError, UnauthenticatedError } from '../services/api'
-import { loginRequest } from '../services/authConfig'
-import { authStatus, currentUserId, currentUserProfile, getBearerToken, setTokenAcquisitionHelper, showToast } from '../state/appState'
+import { loginRequest, msalConfig } from '../services/authConfig'
+import {
+  clearAuthSession,
+  clearSnapshot,
+  corroborateSnapshot,
+  hydrateAuthFromSnapshot,
+  isAuthStorageKey,
+  readSnapshot,
+  writeSnapshot,
+} from '../services/authSnapshot'
+import { clearOfflineHttpCache } from '../services/offlineDb'
+import { queryClient } from '../services/queryClient'
+import { abandonTokenAcquisition, authSource, authStatus, currentUserId, currentUserProfile, getBearerToken, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
 }
 
 // MsalProvider must always receive a real instance (it calls instance.getLogger() synchronously
-// on every render), but the real PublicClientApplication isn't constructed until /api/config and
-// pca.initialize() resolve. Rendering under a Fragment until then and swapping to <MsalProvider>
+// on every render), but the real PublicClientApplication isn't usable until pca.initialize()
+// resolves. Rendering under a Fragment until then and swapping to <MsalProvider>
 // once ready changes the wrapper's element type, which makes React unmount and remount the whole
 // children tree (NavBar + the active page) partway through every page load — silently doubling
 // every userId-keyed data fetch that happens to be in flight at that moment. Using this
@@ -36,50 +47,31 @@ function isJwtExpired(token: string, bufferSeconds = 30): boolean {
   }
 }
 
-// Fetches the runtime MSAL config with a hard timeout + one retry. A *hung*
-// (as opposed to rejected) fetch would otherwise leave pcaInstance null forever
-// and freeze the whole app on blank 'pending' screens.
-async function fetchMsalConfig(): Promise<any> {
-  const attempt = async () => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    try {
-      const res = await fetch('/api/config', { signal: controller.signal })
-      // Treat a non-2xx response as a failure so it falls through to the
-      // cached-config fallback rather than being parsed into a bogus config.
-      if (!res.ok) throw new Error(`/api/config responded ${res.status}`)
-      return await res.json()
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-  try {
-    return await attempt()
-  } catch {
-    return await attempt()
-  }
+// Paint the signed-in UI on the very first frame for a user whose credentials
+// are already cached, instead of waiting out the serial initialize() ->
+// handleRedirectPromise() -> acquireTokenSilent -> /users/me chain below.
+// Runs at module evaluation — before React renders — because
+// useSignal seeds its useState from sig.value, so the first render already sees
+// the signed-in state with no extra render. A useEffect (or even a
+// useLayoutEffect) would be one paint too late, which is exactly the blank
+// frame this removes. Everything below reconciles the guess against the server.
+if (typeof window !== 'undefined') {
+  void hydrateAuthFromSnapshot()
 }
 
-// The MSAL config is static, non-secret public-client data derived from the
-// server's MSAL_* env vars. Caching the last good copy in localStorage (the same
-// store MSAL uses for its own token cache) lets a later *offline* start reuse it
-// to initialize MSAL locally instead of hard-failing on the /api/config fetch.
-const MSAL_CONFIG_CACHE_KEY = 'sessionapp_msal_config'
-
-function readCachedMsalConfig(): any | null {
-  try {
-    const raw = window.localStorage.getItem(MSAL_CONFIG_CACHE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function persistMsalConfig(config: any): void {
-  try {
-    window.localStorage.setItem(MSAL_CONFIG_CACHE_KEY, JSON.stringify(config))
-  } catch {
-    // Best-effort — storage full/blocked shouldn't break bootstrap.
+/**
+ * Tears down an optimistically-hydrated *display* without erasing the snapshot.
+ *
+ * Used on the bootstrap paths where MSAL can't mint tokens at all this load: a
+ * name and avatar over a UI where nothing can load is worse than showing signed
+ * out. But a local/config failure is not a sign-out, so the snapshot stays on
+ * disk and a later healthy load can hydrate from it again.
+ */
+function abandonOptimisticSession(): void {
+  if (authSource.value === 'snapshot') {
+    currentUserId.value = ''
+    currentUserProfile.value = null
+    authSource.value = 'none'
   }
 }
 
@@ -93,40 +85,58 @@ let syncInProgress = false
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
-  const [configError, setConfigError] = useState(false)
   const [syncingUser, setSyncingUser] = useState<string | null>(null)
+  const [freshInteractiveSignIn, setFreshInteractiveSignIn] = useState(false)
 
   useEffect(() => {
     let cancelled = false;
 
-    // Safety net: if the MSAL bootstrap never settles (hung config fetch, a
-    // wedged interaction), don't leave the whole app frozen on blank 'pending'
-    // screens — fall back to anonymous and invite a retry.
+    // Safety net: if the MSAL bootstrap never settles (a wedged initialize(),
+    // a wedged interaction), don't leave the whole app frozen on blank
+    // 'pending' screens — fall back to anonymous and invite a retry.
     const pendingSafetyTimer = setTimeout(() => {
+      if (!helperRegistered) {
+        // MSAL never came up, so nothing will ever mint a token this load.
+        // Release anyone waiting on the token gate instead of making them sit
+        // out its full ceiling on top of doFetch's own timeout.
+        abandonTokenAcquisition();
+      }
       // Don't pre-empt an in-flight sync/retry: a cold backend can take longer
       // than this to answer GET /users/me, and the retry loop will settle the
       // status itself. Only rescue a genuinely wedged bootstrap.
-      if (authStatus.value === 'pending' && !syncInProgress) {
+      if (syncInProgress) return;
+
+      if (authStatus.value === 'pending') {
         authStatus.value = 'anonymous';
         showToast('Sign-in is taking longer than expected. Please try again.', 'info');
+      } else if (authSource.value === 'snapshot' && !helperRegistered) {
+        // Optimistically hydrated, but the bootstrap wedged before it could
+        // register a token helper — a name and avatar over a UI where nothing
+        // can ever load. Show signed out instead. Gating on helperRegistered
+        // matters: a healthy *offline* load also settles at 'snapshot' without
+        // reaching 'verified', and that session must survive.
+        abandonOptimisticSession();
+        authStatus.value = 'anonymous';
       }
     }, 15000);
 
     const registerTokenHelper = (pca: PublicClientApplication) => {
       let redirectInProgress = false;
 
-      setTokenAcquisitionHelper(async (forceRefresh = false) => {
-        const accounts = pca.getAllAccounts();
-        if (accounts.length === 0) {
+      // Optimistic hydration means a dozen userId-keyed queries can reach this
+      // at once on the first paint, with cachedToken still cold. MSAL dedupes
+      // the underlying network call, but the 4s race below is per-caller —
+      // unshared, a single slow silent refresh would lose a dozen independent
+      // races and hand every caller null. forceRefresh deliberately opts out so
+      // doFetch's 401 retry can never be answered by a stale in-flight result.
+      let inFlight: Promise<string | null> | null = null;
+
+      const acquire = async (forceRefresh: boolean): Promise<string | null> => {
+        const activeAccount = pca.getActiveAccount() || pca.getAllAccounts()[0];
+        if (!activeAccount) {
           cachedToken = null;
           return null;
         }
-
-        if (!forceRefresh && cachedToken && !isJwtExpired(cachedToken, 30)) {
-          return cachedToken;
-        }
-
-        const activeAccount = pca.getActiveAccount() || accounts[0];
         // Set only when the IdP explicitly signals interaction is required, which
         // is the sole condition (with being online) that permits a redirect.
         let interactionRequired = false;
@@ -193,56 +203,47 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           }
         }
         return null;
+      };
+
+      setTokenAcquisitionHelper(async (forceRefresh = false) => {
+        const accounts = pca.getAllAccounts();
+        if (accounts.length === 0) {
+          cachedToken = null;
+          return null;
+        }
+
+        if (!forceRefresh && cachedToken && !isJwtExpired(cachedToken, 30)) {
+          return cachedToken;
+        }
+
+        if (forceRefresh) return acquire(true);
+
+        if (!inFlight) {
+          const run = acquire(false);
+          inFlight = run;
+          const release = () => { if (inFlight === run) inFlight = null; };
+          // then(release, release) rather than finally() so a rejection is
+          // observed here too and can't surface as an unhandled rejection —
+          // callers still see the original promise, rejection and all.
+          run.then(release, release);
+        }
+        return inFlight;
       });
     };
 
+    // True only on the return leg of an interactive sign-in redirect — the one
+    // case where the blocking "Completing sign-in" modal is the right UI,
+    // because there is nothing else on screen yet.
+    let cameFromRedirect = false;
+    // Whether the bootstrap got far enough to hand a working token helper to
+    // the rest of the app. Read by the safety timer above.
+    let helperRegistered = false;
+
     const bootstrap = async () => {
-      let config: any = null;
-      // Whether /api/config actually answered (even with mock/empty config) vs.
-      // the fetch throwing (offline / server unreachable). Only a real answer
-      // distinguishes a genuine misconfiguration from a network failure.
-      let serverResponded = false;
-      try {
-        config = await fetchMsalConfig();
-        serverResponded = true;
-      } catch (err) {
-        console.warn('Failed to fetch MSAL config, falling back to cache:', err);
-        config = readCachedMsalConfig();
-      }
-
-      if (cancelled) return;
-
-      if (!config?.clientId || config.clientId === 'MOCK_CLIENT_ID') {
-        authStatus.value = 'anonymous';
-        // Show the blocking "Misconfigured" screen ONLY when the server actually
-        // responded with mock/empty config. A thrown fetch (offline / server
-        // down) with no cached fallback just renders the app anonymously so the
-        // offline stack (SW cache, IndexedDB cache, offline banner) can run.
-        if (serverResponded) setConfigError(true);
-        return;
-      }
-
-      // Refresh the cache so a later offline start can reuse this config.
-      // Harmless when `config` itself came from the cache.
-      persistMsalConfig(config);
-
-      const authority = config.tenantId
-        ? `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantId}/`
-        : `https://${config.tenantSubdomain}.ciamlogin.com/${config.tenantSubdomain}.onmicrosoft.com/`;
-
-      const msalConfigObj = {
-        auth: {
-          clientId: config.clientId,
-          authority,
-          redirectUri: config.redirectUri || window.location.origin + "/",
-          knownAuthorities: [`${config.tenantSubdomain}.ciamlogin.com`],
-        },
-        cache: {
-          cacheLocation: "localStorage"
-        }
-      };
-
-      const pca = new PublicClientApplication(msalConfigObj);
+      // The config is bundled (services/authConfig.ts), so MSAL can be
+      // constructed on the spot — nothing to fetch, nothing to cache, and no
+      // network round trip in front of the serial chain below.
+      const pca = new PublicClientApplication(msalConfig);
       try {
         await pca.initialize();
         // Consume any pending redirect response BEFORE rendering MSAL-aware UI,
@@ -258,6 +259,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         const redirectResult = await pca.handleRedirectPromise({ navigateToLoginRequestUrl: false });
         if (redirectResult?.account) {
           pca.setActiveAccount(redirectResult.account);
+          cameFromRedirect = true;
         } else if (!pca.getActiveAccount()) {
           const existing = pca.getAllAccounts()[0];
           if (existing) pca.setActiveAccount(existing);
@@ -265,6 +267,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       } catch (err) {
         console.error('MSAL initialization failed:', err);
         if (cancelled) return;
+        abandonTokenAcquisition();
+        abandonOptimisticSession();
         authStatus.value = 'anonymous';
         return;
       }
@@ -272,57 +276,46 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       if (cancelled) return;
 
       registerTokenHelper(pca);
+      helperRegistered = true;
+      // Latch, never unset: StrictMode runs this effect twice in dev, and
+      // handleRedirectPromise is single-consumption, so the second pass sees
+      // null and would otherwise silently flip the modal decision back off.
+      if (cameFromRedirect) setFreshInteractiveSignIn(true);
       setPcaInstance(pca);
     };
+
+    // A sign-out in another tab empties MSAL's account index and clears our
+    // snapshot. msal-react *may* pick that up via MSAL's own BroadcastChannel
+    // and re-render accounts, but that's an implementation detail we shouldn't
+    // depend on for a shared-browser safety property. The storage event is the
+    // direct signal and it's free.
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || !isAuthStorageKey(e.key)) return;
+      if (authStatus.value !== 'authenticated') return;
+      const snap = readSnapshot();
+      if (snap && corroborateSnapshot(snap) !== 'no-account') return;
+      cachedToken = null;
+      clearAuthSession();
+      authStatus.value = 'anonymous';
+      queryClient.clear();
+      void clearOfflineHttpCache();
+    };
+    window.addEventListener('storage', onStorage);
 
     bootstrap();
 
     return () => {
       cancelled = true;
       clearTimeout(pendingSafetyTimer);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
-
-  if (configError) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: '#090d16',
-        color: '#fff',
-        fontFamily: 'sans-serif',
-        padding: '2rem'
-      }}>
-        <div style={{
-          maxWidth: '500px',
-          background: '#1e1e1e',
-          border: '1px solid #dc2626',
-          borderRadius: '8px',
-          padding: '2rem',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
-        }}>
-          <h2 style={{ color: '#ef6461', marginTop: 0 }}>Authentication Misconfigured</h2>
-          <p>MSAL could not be initialized because the required environment variables are missing.</p>
-          <p style={{ color: '#9e9e9e', fontSize: '0.9rem' }}>
-            Please ensure you have defined the following variables in your environment (e.g. in your hosting portal settings or locally in a gitignored <code>frontend/.env.local</code> file):
-          </p>
-          <ul style={{ color: '#4dd0a5', fontSize: '0.9rem' }}>
-            <li><code>MSAL_CLIENT_ID</code></li>
-            <li><code>MSAL_TENANT_SUBDOMAIN</code></li>
-            <li><code>MSAL_TENANT_ID</code></li>
-            <li><code>MSAL_REDIRECT_URI</code></li>
-          </ul>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <MsalProvider instance={pcaInstance ?? placeholderPca}>
       {pcaInstance && (
         <MsalBackgroundSync
+          showBlockingModal={freshInteractiveSignIn}
           onSyncStart={(name) => setSyncingUser(name)}
           onSyncEnd={() => setSyncingUser(null)}
         />
@@ -346,12 +339,18 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 }
 
 interface MsalBackgroundSyncProps {
+  /**
+   * Whether this load is the return leg of an interactive sign-in, and so
+   * whether the blocking "Completing sign-in" overlay applies. A reload —
+   * optimistically hydrated or not — must never be covered by it.
+   */
+  showBlockingModal: boolean
   onSyncStart: (displayName: string) => void
   onSyncEnd: () => void
 }
 
 /** Keeps the shared signals in sync with the active MSAL account, notifying status to parent. */
-function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps) {
+function MsalBackgroundSync({ showBlockingModal, onSyncStart, onSyncEnd }: MsalBackgroundSyncProps) {
   const { accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const router = useRouter()
@@ -369,9 +368,16 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
     }
 
     if (!isAuthenticated || accounts.length === 0) {
-      // MSAL has no authenticated account — genuinely signed out.
+      // A fully-initialized MSAL reporting no account is authoritative, and it
+      // beats an optimistic guess: initialize() is what prunes cache entries
+      // that no longer decrypt and what absorbs a sign-out performed in another
+      // tab. So erase the snapshot too, or the next load would guess wrong
+      // again. This runs as soon as inProgress settles — no network — so the
+      // window in which a stale identity is on screen is the local MSAL init.
+      if (authSource.value === 'snapshot') clearSnapshot()
       currentUserId.value = ''
       currentUserProfile.value = null
+      authSource.value = 'none'
       authStatus.value = 'anonymous'
       onSyncEnd()
       return
@@ -391,6 +397,7 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
     const setAnonymous = () => {
       currentUserId.value = ''
       currentUserProfile.value = null
+      authSource.value = 'none'
       authStatus.value = 'anonymous'
     }
 
@@ -427,19 +434,34 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
           if (cached) {
             currentUserId.value = cached.userId
             currentUserProfile.value = cached
+            // Deliberately 'snapshot', not 'verified', and deliberately no
+            // writeSnapshot(): a cached response is not verification, and
+            // re-stamping savedAt would let a snapshot stay young forever
+            // without ever reaching the server.
+            authSource.value = 'snapshot'
             authStatus.value = 'authenticated'
+          } else if (authSource.value === 'snapshot') {
+            // Nothing cached, but a plausible profile is already on screen and
+            // MSAL still holds the account. Keeping it beats blanking the UI
+            // while offline.
           } else {
             setAnonymous()
           }
         } catch {
-          if (!cancelled) setAnonymous()
+          // getCurrentUser throws offline when nothing is cached for it yet.
+          // Same rule as the branch above: keep an already-painted session
+          // rather than blanking the UI over a connectivity failure.
+          if (!cancelled && authSource.value !== 'snapshot') setAnonymous()
         } finally {
           if (!cancelled) syncInProgress = false
         }
         return
       }
 
-      onSyncStart(displayName)
+      // Only a genuine interactive sign-in gets the blocking overlay. On a
+      // reload the hydrated UI is already usable, and an un-hydrated reload has
+      // the existing 'pending' placeholders plus this loop's own failure toast.
+      if (showBlockingModal) onSyncStart(displayName)
       try {
         for (let attempt = 0; attempt < MAX_ATTEMPTS && !cancelled; attempt++) {
           try {
@@ -456,9 +478,24 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
             if (cancelled) return
 
             if (profile) {
+              const optimisticUserId = authSource.value === 'snapshot' ? currentUserId.value : null
+
               currentUserId.value = profile.userId
               currentUserProfile.value = profile
+              authSource.value = 'verified'
               authStatus.value = 'authenticated'
+              writeSnapshot(activeAccount.homeAccountId, profile)
+
+              if (optimisticUserId && optimisticUserId !== profile.userId) {
+                // We painted the wrong user. Every userId-keyed query key
+                // changes with currentUserId so react-query refetches under the
+                // new key by itself — but the previous user's responses are
+                // still sitting in both the query cache and the URL-keyed
+                // IndexedDB HTTP cache, which has no user scoping at all.
+                queryClient.clear()
+                void clearOfflineHttpCache()
+              }
+
               if (!profile.username && pathname !== '/profile') {
                 showToast('Please choose a username to continue.', 'info')
                 router.replace('/profile')
@@ -470,7 +507,14 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
           } catch (err) {
             if (cancelled) return
             if (isDefinitiveAuthFailure(err)) {
-              setAnonymous()
+              const wasOptimistic = authSource.value === 'snapshot'
+              clearAuthSession()
+              authStatus.value = 'anonymous'
+              if (wasOptimistic) {
+                // The user was looking at a signed-in UI a moment ago; a silent
+                // swap to "Sign In" reads as a bug. Name what happened.
+                showToast('Your session has expired. Please sign in again.', 'info')
+              }
               return
             }
             // Transient (network/timeout/5xx/cold start) — retry with backoff.
@@ -484,8 +528,20 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
           // connectivity problem, not a logout, so the user doesn't think their
           // session vanished.
           console.error('Failed to sync user with DB after retries; backend unreachable.')
-          setAnonymous()
-          showToast("Couldn't reach the server to finish signing you in. Please try again.", 'error')
+          if (authSource.value === 'snapshot') {
+            // Same reasoning as the offline branch above: an unreachable
+            // backend is a connectivity failure, not a sign-out. MSAL still
+            // holds the account and still mints tokens, so leave the optimistic
+            // session standing — each query surfaces its own error or falls
+            // back to its own cache — rather than yanking a signed-in user to a
+            // signed-out UI over a cold start. authSource stays 'snapshot', so
+            // a later successful sync can still promote it and nothing
+            // downstream mistakes this for verification.
+            showToast("Couldn't reach the server. Showing your last known profile.", 'info')
+          } else {
+            setAnonymous()
+            showToast("Couldn't reach the server to finish signing you in. Please try again.", 'error')
+          }
         }
       } finally {
         if (!cancelled) {
@@ -502,7 +558,7 @@ function MsalBackgroundSync({ onSyncStart, onSyncEnd }: MsalBackgroundSyncProps)
       syncInProgress = false
       onSyncEnd()
     }
-  }, [isAuthenticated, accounts, inProgress])
+  }, [isAuthenticated, accounts, inProgress, showBlockingModal])
 
   return null
 }

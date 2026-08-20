@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react'
 import Link from '@/utils/routerCompat'
 import { usePathname } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
-import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
+import { clearAuthSession } from '../services/authSnapshot'
+import { clearOfflineHttpCache } from '../services/offlineDb'
+import { queryClient } from '../services/queryClient'
+import { authStatus, currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
 import { NetworkStatusBanner } from './NetworkStatusBanner'
 
 const NAV_LINKS = [
@@ -135,7 +138,20 @@ function MsalAuthWidget() {
       </Link>
       <button
         className="secondary btn-sm"
-        onClick={() => instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))}
+        onClick={() => {
+          // Clear before handing control to MSAL: logoutRedirect() navigates
+          // away, so anything queued after it may never run. This is what stops
+          // the next load from optimistically painting the just-signed-out
+          // user. Belt-and-braces — a completed logout also empties MSAL's
+          // account index, which alone would fail corroboration — but it covers
+          // a logout that is blocked or cancelled. The IndexedDB GET cache is
+          // keyed by URL with no user scoping, so it goes too.
+          clearAuthSession()
+          authStatus.value = 'anonymous'
+          queryClient.clear()
+          void clearOfflineHttpCache()
+          instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))
+        }}
       >
         Sign Out
       </button>

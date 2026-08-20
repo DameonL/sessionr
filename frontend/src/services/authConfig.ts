@@ -1,7 +1,19 @@
 import { Configuration, PopupRequest } from "@azure/msal-browser";
 
-const tenantSubdomain = process.env.MSAL_TENANT_SUBDOMAIN || "sessionapp";
-const tenantId = process.env.MSAL_TENANT_ID;
+/**
+ * MSAL public-client configuration.
+ *
+ * These four values used to be served at runtime from /api/config (a Next.js
+ * route handler, removed in the Vite migration). They are non-secret
+ * identifiers that ship in the bundle either way — serving them over the wire
+ * protected nothing and put a network round trip in front of every cold start,
+ * so they live here instead. Changing any of them requires a rebuild, and
+ * invalidates every cached MSAL session (see msalConfigFingerprint below).
+ */
+const clientId = "94e2edf0-d97b-4d48-b7c3-c66ec38fee3e";
+const tenantSubdomain = "sessionapp";
+// Left empty, the authority falls back to the {subdomain}.onmicrosoft.com form.
+const tenantId = "e81c8bac-33ef-463d-9ff5-8a6920b1ccbc";
 
 const authority = tenantId
   ? `https://${tenantSubdomain}.ciamlogin.com/${tenantId}/`
@@ -9,11 +21,11 @@ const authority = tenantId
 
 export const msalConfig: Configuration = {
   auth: {
-    clientId: process.env.MSAL_CLIENT_ID || "MOCK_CLIENT_ID",
+    clientId,
     authority,
-    redirectUri: typeof window !== "undefined"
-      ? (process.env.MSAL_REDIRECT_URI || window.location.origin + "/")
-      : (process.env.MSAL_REDIRECT_URI || "/"),
+    // Derived rather than hardcoded so dev (localhost:5173) and prod
+    // (sessionr.org) both work off one value.
+    redirectUri: window.location.origin + "/",
     knownAuthorities: [
       `${tenantSubdomain}.ciamlogin.com`
     ]
@@ -25,6 +37,18 @@ export const msalConfig: Configuration = {
     cacheLocation: "localStorage"
   }
 };
+
+/**
+ * Identifies the config this bundle was built with.
+ *
+ * Changing clientId or the tenant makes MSAL's entire localStorage token cache
+ * worthless, and with it the auth snapshot that is corroborated against that
+ * cache — MSAL's account-key index is not clientId-scoped, so a stale account
+ * left by the old clientId still corroborates, and the snapshot would paint a
+ * session whose tokens can never be minted. authSnapshot.ts stamps this into
+ * every snapshot and refuses to read one that doesn't match.
+ */
+export const msalConfigFingerprint = `${clientId}|${tenantSubdomain}|${tenantId}`;
 
 export const loginRequest: PopupRequest = {
   scopes: ["openid", "profile", "User.Read", "api://94e2edf0-d97b-4d48-b7c3-c66ec38fee3e/access_as_user"]

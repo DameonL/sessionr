@@ -30,10 +30,81 @@ export const currentUserProfile = new Signal<UserProfile | null>(null);
 export type AuthStatus = 'pending' | 'authenticated' | 'anonymous';
 export const authStatus = new Signal<AuthStatus>('pending');
 
-export let getBearerToken: (forceRefresh?: boolean) => Promise<string | null> = async () => null;
+/**
+ * How the current 'authenticated' status was arrived at.
+ *   'none'      – not signed in (or torn down)
+ *   'snapshot'  – optimistically hydrated from localStorage; NOT yet verified
+ *   'verified'  – GET /users/me answered on this page load
+ *
+ * AuthProvider's reconciliation reads this to decide what it is allowed to tear
+ * down: an unverified guess may be corrected freely, but a connectivity failure
+ * must never be mistaken for a sign-out. See services/authSnapshot.ts.
+ */
+export type AuthSource = 'none' | 'snapshot' | 'verified';
+export const authSource = new Signal<AuthSource>('none');
 
-export function setTokenAcquisitionHelper(helper: (forceRefresh?: boolean) => Promise<string | null>) {
-  getBearerToken = helper;
+type TokenHelper = (forceRefresh?: boolean) => Promise<string | null>;
+
+let tokenHelper: TokenHelper | null = null;
+let settleHelperGate: (() => void) | null = null;
+const tokenHelperGate = new Promise<void>((resolve) => {
+  settleHelperGate = resolve;
+});
+
+/**
+ * Ceiling on how long a caller waits for AuthProvider's MSAL bootstrap. Kept
+ * below AuthProvider's 15s pending-safety timer so a wedged bootstrap surfaces
+ * as "signed out" rather than as requests hanging until doFetch's own 20s
+ * REQUEST_TIMEOUT_MS piles on top of it.
+ */
+const TOKEN_HELPER_WAIT_MS = 10_000;
+
+/**
+ * Acquires a bearer token, waiting for AuthProvider to install the real helper
+ * if it hasn't yet.
+ *
+ * The wait is the point. Before optimistic hydration, every private-API call
+ * was gated behind `authStatus !== 'pending'`, which only flipped after the
+ * helper had been registered — so answering `null` before then was safe because
+ * it could never happen. Hydration paints the signed-in UI on the first frame,
+ * which unblocks those userId-keyed queries hundreds of milliseconds before the
+ * PublicClientApplication exists. Answering `null` there would push them into
+ * doFetch's `isPrivateApi && !token` branch — UnauthenticatedError for most, a
+ * null profile for /users/me, and a silent offline-cache read for GETs — and
+ * react-query caches those failures rather than retrying once a token appears.
+ */
+export async function getBearerToken(forceRefresh = false): Promise<string | null> {
+  if (!tokenHelper) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      tokenHelperGate,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, TOKEN_HELPER_WAIT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    // Re-read: the helper may have been registered while we were waiting.
+    if (!tokenHelper) return null;
+  }
+  return tokenHelper(forceRefresh);
+}
+
+export function setTokenAcquisitionHelper(helper: TokenHelper) {
+  tokenHelper = helper;
+  settleHelperGate?.();
+}
+
+/**
+ * Releases anyone waiting on the gate above from a terminal bootstrap path that
+ * will never produce a helper (MSAL init failure, the 15s safety timer), so
+ * they fail fast instead of sitting out the full ceiling.
+ *
+ * Idempotent, and it does not *prevent* a helper arriving later —
+ * getBearerToken re-reads `tokenHelper` after the race, so only the calls in
+ * flight at this instant get null.
+ */
+export function abandonTokenAcquisition() {
+  settleHelperGate?.();
 }
 
 export function useSignal<T>(sig: Signal<T>): T {
