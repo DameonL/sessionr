@@ -10,7 +10,7 @@ import { Configuration, PopupRequest } from "@azure/msal-browser";
  * so they live here instead. Changing any of them requires a rebuild, and
  * invalidates every cached MSAL session (see msalConfigFingerprint below).
  */
-const clientId = "94e2edf0-d97b-4d48-b7c3-c66ec38fee3e";
+const clientId = "e46c5cc6-6dd4-445c-8ad2-31279ffc87e4";
 // The CIAM login domain prefix. NOT the app name — it must match the tenant
 // below, or discovery fails with AADSTS500210 ("Domain name does not match
 // with the tenant identifier").
