@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sessionapp-cache-v3';
+const CACHE_NAME = 'sessionapp-cache-v4';
 const SOUNDFONT_CACHE_NAME = 'sessionapp-soundfont-v1';
 
 const PRECACHE_ASSETS = [
@@ -117,6 +117,19 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseClone);
             });
+          } else if (networkResponse.status === 404) {
+            // A static asset returned 404, indicating an app rebuild/deployment occurred
+            // and the client tab is requesting stale build chunks.
+            console.warn('[SW] Stale static asset 404 detected (app rebuild):', event.request.url);
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.delete('/index.html');
+              cache.delete('/');
+            });
+            self.clients.matchAll({ type: 'window' }).then((clients) => {
+              clients.forEach((client) => {
+                client.postMessage({ type: 'STALE_ASSET_404', url: event.request.url });
+              });
+            });
           }
           return networkResponse;
         });
@@ -130,7 +143,7 @@ self.addEventListener('fetch', (event) => {
 
   if (isNavigation) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-cache' })
         .then((networkResponse) => {
           if (networkResponse.status === 200) {
             const responseClone = networkResponse.clone();
