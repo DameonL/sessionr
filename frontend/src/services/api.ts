@@ -94,13 +94,15 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   }
 
   let token: string | null = null
-  try {
-    token = await getBearerToken(isRetry)
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
+  if (isPrivateApi) {
+    try {
+      token = await getBearerToken(isRetry)
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+    } catch (err) {
+      console.error('Failed to get bearer token', err)
     }
-  } catch (err) {
-    console.error('Failed to get bearer token', err)
   }
 
   const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
