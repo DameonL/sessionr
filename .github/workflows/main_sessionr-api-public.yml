@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'api/Public/**'
+      - 'api/Shared/**'
+      - '.github/workflows/main_sessionr-api-public.yml'
   workflow_dispatch:
 
 env:
