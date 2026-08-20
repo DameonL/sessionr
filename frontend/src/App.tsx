@@ -11,6 +11,7 @@ import { GroupSetDetail } from './views/GroupSetDetail'
 import { Groups } from './views/Groups'
 import { Landing } from './views/Landing'
 import { ModeratorView } from './views/ModeratorView'
+import { NotFound } from './views/NotFound'
 import { Profile } from './views/Profile'
 import { PublicProfile } from './views/PublicProfile'
 import { Repertoire } from './views/Repertoire'
@@ -139,6 +140,7 @@ export function App() {
                   <Route path="session" element={<SessionPage />} />
                   <Route path="sets" element={<SetsPage />} />
                   <Route path="ear" element={<EarPage />} />
+                  <Route path="*" element={<NotFound />} />
                 </Routes>
               </PracticeLayout>
             } />
@@ -162,6 +164,7 @@ export function App() {
                   <Route path="activity" element={<GroupActivityPanel />} />
                   <Route path="members" element={<GroupMembersPanel />} />
                   <Route path="settings" element={<GroupSettingsPanel />} />
+                  <Route path="*" element={<NotFound />} />
                 </Routes>
               </GroupDetailLayout>
             } />
@@ -186,8 +189,8 @@ export function App() {
               }
             />
 
-            {/* Catch-all fallback redirecting to home */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* Catch-all: show a branded 404 rather than silently bouncing to home */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
       </Providers>

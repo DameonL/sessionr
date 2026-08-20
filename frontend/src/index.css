@@ -1592,5 +1592,52 @@ a.stat:hover {
   }
 }
 
+/* --- Not Found (404) --- */
+.not-found {
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.not-found-logo {
+  width: 96px;
+  height: auto;
+  opacity: 0.85;
+}
+
+.not-found-code {
+  margin: 0.5rem 0 0;
+  font-size: 4rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.not-found-title {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.not-found .tune-meta {
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.not-found-path {
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  word-break: break-all;
+}
+
+.not-found-actions {
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.not-found-primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 
 
