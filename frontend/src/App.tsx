@@ -24,6 +24,9 @@ import TunesSearchPage from './app/tunes/page'
 import TunesPopularPage from './app/tunes/popular/page'
 import TunesNewestPage from './app/tunes/newest/page'
 
+// Tune Identifier
+import IdentifyPage from './app/identify/page'
+
 // Group Panels & Layout
 import GroupDetailLayout from './app/group/[groupId]/layout'
 import { GroupOverviewPanel } from './views/group/GroupOverviewPanel'
@@ -112,6 +115,9 @@ export function App() {
             <Route path="/tunes/newest" element={<TunesNewestPage />} />
             <Route path="/tunes/popular" element={<TunesPopularPage />} />
             <Route path="/tunes/:tuneId" element={<TuneLibraryDetailRoute />} />
+
+            {/* Tune Identifier */}
+            <Route path="/identify" element={<IdentifyPage />} />
 
             {/* Sets */}
             <Route
