@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'

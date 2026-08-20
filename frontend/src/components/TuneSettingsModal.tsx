@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from 'react'
+import { lazy, useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import dynamic from 'next/dynamic'
+import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
   addTuneSetting,
@@ -17,7 +17,7 @@ import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
 import { Spinner } from './Spinner'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
-const SheetMusic = dynamic(() => import('./SheetMusic').then((m) => m.SheetMusic), { ssr: false })
+const SheetMusic = lazy(() => import('./SheetMusic').then((m) => ({ default: m.SheetMusic })))
 
 interface TuneSettingsModalProps {
   tuneId: string

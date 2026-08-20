@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { loginRequest } from '../services/authConfig'

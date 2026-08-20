@@ -3,8 +3,8 @@
 import { useState } from 'react'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import Link from '@/utils/routerCompat'
+import { useSearchParams } from '@/utils/routerCompat'
 import {
   acceptFriendRequest,
   cancelFriendRequest,

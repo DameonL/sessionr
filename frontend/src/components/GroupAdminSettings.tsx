@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/utils/routerCompat'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { GroupDetails, updateGroupInfo, replaceGroupSchedules, deleteGroup } from '../services/api'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from './GroupScheduleBuilder'

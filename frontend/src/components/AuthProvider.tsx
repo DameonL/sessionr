@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter } from '@/utils/routerCompat'
 import { InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser, ApiError, UnauthenticatedError } from '../services/api'

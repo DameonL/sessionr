@@ -13,11 +13,7 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"],
-      "next/link": ["./src/utils/nextCompat.tsx"],
-      "next/navigation": ["./src/utils/nextCompat.tsx"],
-      "next/dynamic": ["./src/utils/nextCompat.tsx"],
-      "next/image": ["./src/utils/nextCompat.tsx"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

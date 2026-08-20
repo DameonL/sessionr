@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import Link from "next/link";
+import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
 import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoice } from "../services/band";

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react'
+import { lazy, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import { useRouter } from '@/utils/routerCompat'
+import Link from '@/utils/routerCompat'
+import dynamic from '@/utils/routerCompat'
 import {
   TUNE_STATUSES,
   formatTuneType,
@@ -23,7 +23,7 @@ import { DebouncedNumberInput } from '../components/DebouncedNumberInput'
 import { Spinner } from '../components/Spinner'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
-const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
+const TunePlayer = lazy(() => import('../components/TunePlayer').then((m) => ({ default: m.TunePlayer })))
 
 const FOLD_NOTE_OPTIONS = [
   { midi: 55, name: 'G3 (lowest fiddle G)' },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/utils/routerCompat'
 import jsQR from 'jsqr'
 import { Dialog } from './Dialog'
 import { showToast } from '../state/appState'

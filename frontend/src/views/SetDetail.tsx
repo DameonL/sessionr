@@ -1,13 +1,14 @@
+import { lazy } from 'react'
 "use client";
 
 import { useQuery } from '@tanstack/react-query'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import Link from '@/utils/routerCompat'
+import dynamic from '@/utils/routerCompat'
 import { getSet } from '../services/api'
 import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
-const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
+const SetPlayer = lazy(() => import('../components/SetPlayer').then((m) => ({ default: m.SetPlayer })))
 
 /** Bookmarkable page for a full set: /set/{setId} */
 export function SetDetail({ setId }: { setId?: string }) {

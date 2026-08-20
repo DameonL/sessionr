@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from 'react'
+import { lazy, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import Link from '@/utils/routerCompat'
+import dynamic from '@/utils/routerCompat'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
@@ -22,7 +22,7 @@ import { parseSuggestionReason } from '../services/suggestions'
 import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
-const SetPlayer = dynamic(() => import('../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
+const SetPlayer = lazy(() => import('../components/SetPlayer').then((m) => ({ default: m.SetPlayer })))
 
 interface DraftItem {
   userTuneId: string

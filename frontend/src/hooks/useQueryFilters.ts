@@ -1,5 +1,5 @@
 "use client";
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from '@/utils/routerCompat'
 import { useCallback } from 'react'
 
 /** Read/write filter state to the URL query string (bookmarkable, back-friendly).

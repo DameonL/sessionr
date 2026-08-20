@@ -2,8 +2,8 @@
 
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import Link from '@/utils/routerCompat'
+import { useRouter } from '@/utils/routerCompat'
 import { createTune, formatTuneType, TUNE_TYPES } from '../../services/api'
 import { extractKeyFromAbc, extractTitleFromAbc, validateAbc } from '../../services/abcTools'
 import { useAuthStatus, showToast } from '../../state/appState'

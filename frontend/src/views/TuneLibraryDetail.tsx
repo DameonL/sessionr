@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from 'react'
+import { lazy, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import Link from '@/utils/routerCompat'
+import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
   addTuneSetting,
@@ -17,13 +17,13 @@ import {
   moderatorDeleteTuneAlias,
 } from '../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/utils/routerCompat'
 import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
 import { Spinner } from '../components/Spinner'
 
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
-const TunePlayer = dynamic(() => import('../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
+const TunePlayer = lazy(() => import('../components/TunePlayer').then((m) => ({ default: m.TunePlayer })))
 
 /** Public, login-agnostic tune page: view every setting, play and practice along, no account needed. */
 export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {

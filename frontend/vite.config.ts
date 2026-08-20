@@ -9,10 +9,6 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      'next/link': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
-      'next/navigation': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
-      'next/dynamic': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
-      'next/image': path.resolve(rootDir, './src/utils/nextCompat.tsx'),
       '@': path.resolve(rootDir, './src'),
     },
   },

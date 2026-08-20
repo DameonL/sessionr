@@ -1,6 +1,6 @@
 "use client";
 
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import { formatTuneType, type TuneSummary } from '../../services/api'
 import { InfiniteScrollSentinel } from '../../components/InfiniteScrollSentinel'
 import { Spinner } from '../../components/Spinner'

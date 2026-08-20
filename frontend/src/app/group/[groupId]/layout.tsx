@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
-import { useRouter, useSearchParams, usePathname, useParams } from 'next/navigation'
+import Link from '@/utils/routerCompat'
+import { useRouter, useSearchParams, usePathname, useParams } from '@/utils/routerCompat'
 import { getGroupDetails, joinGroup, leaveGroup } from '../../../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../../../state/appState'
 import { GroupDetailProvider } from '../../../views/group/groupDetailContext'

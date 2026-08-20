@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,

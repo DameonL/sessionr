@@ -8,9 +8,8 @@ import {
 } from 'react-router-dom'
 
 /**
- * Next.js -> React Router Compatibility Adapter
- * Allows existing Next.js component imports (next/link, next/navigation, next/dynamic, next/image)
- * to work seamlessly in a Vite Single-Page Application (SPA).
+ * Router Compatibility Adapter for SPA rendering.
+ * Provides Link, useRouter, usePathname, useSearchParams, useParams, dynamic, redirect, and Image.
  */
 
 export function Link({
@@ -80,22 +79,22 @@ export function redirect(url: string): never {
   throw new Error(`Redirecting to ${url}`)
 }
 
-export function dynamic<P = any>(
+export function dynamic(
   loader: () => Promise<any>,
   options?: any
-): React.ComponentType<P> {
+): React.ComponentType<any> {
   const LazyComponent = lazy(async () => {
     const mod = await loader()
     return 'default' in mod && mod.default ? mod : { default: mod }
   })
 
-  return function DynamicWrapper(props: any) {
-    return (
-      <Suspense fallback={options?.loading ? <options.loading /> : null}>
-        <LazyComponent {...props} />
-      </Suspense>
-    )
-  } as unknown as React.ComponentType<P>
+  const DynamicWrapper = (props: any) => (
+    <Suspense fallback={options?.loading ? <options.loading /> : null}>
+      <LazyComponent {...props} />
+    </Suspense>
+  )
+
+  return DynamicWrapper as unknown as React.ComponentType<any>
 }
 
 export function Image({

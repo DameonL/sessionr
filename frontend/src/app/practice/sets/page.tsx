@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from 'react'
+import { lazy, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import dynamic from 'next/dynamic'
+import dynamic from '@/utils/routerCompat'
 import {
   formatTuneType,
   getFullRepertoire,
@@ -23,7 +23,7 @@ interface SetDraftItem {
 }
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
-const SetPlayer = dynamic(() => import('../../../components/SetPlayer').then((m) => m.SetPlayer), { ssr: false })
+const SetPlayer = lazy(() => import('../../../components/SetPlayer').then((m) => ({ default: m.SetPlayer })))
 
 export default function MedleySetsPage() {
   const userId = useSignal(currentUserId)

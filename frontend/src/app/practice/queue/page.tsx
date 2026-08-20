@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from 'react'
+import { lazy, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import Link from '@/utils/routerCompat'
+import dynamic from '@/utils/routerCompat'
 import {
   formatTuneType,
   getPracticeQueue,
@@ -14,7 +14,7 @@ import { showBadgeToasts } from '../../../services/badges'
 import { Spinner } from '../../../components/Spinner'
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
-const TunePlayer = dynamic(() => import('../../../components/TunePlayer').then((m) => m.TunePlayer), { ssr: false })
+const TunePlayer = lazy(() => import('../../../components/TunePlayer').then((m) => ({ default: m.TunePlayer })))
 
 export default function DailyQueuePage() {
   const userId = useSignal(currentUserId)

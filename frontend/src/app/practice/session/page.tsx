@@ -1,18 +1,14 @@
-"use client";
-
-import { useState } from 'react'
+import { lazy, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import dynamic from 'next/dynamic'
 import { getFullRepertoire, logPractice } from '../../../services/api'
 import { generateVirtualSession, type SessionTune, type VirtualSession } from '../../../services/virtualSession'
 import { currentUserId, showToast, useSignal } from '../../../state/appState'
 import { showBadgeToasts } from '../../../services/badges'
 import { Spinner } from '../../../components/Spinner'
 
-// Dynamically import VirtualSessionPlayer to prevent abcjs SSR errors
-const VirtualSessionPlayer = dynamic(
-  () => import('../../../components/VirtualSessionPlayer').then((m) => m.VirtualSessionPlayer),
-  { ssr: false },
+// Dynamically import VirtualSessionPlayer
+const VirtualSessionPlayer = lazy(
+  () => import('../../../components/VirtualSessionPlayer').then((m) => ({ default: m.VirtualSessionPlayer })),
 )
 
 type Phase = 'idle' | 'playing' | 'summary'

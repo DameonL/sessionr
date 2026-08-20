@@ -1,6 +1,6 @@
 "use client";
 
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 
 /** Login-agnostic landing page: browse and play tunes, and find session groups, without an account. */
 export function Landing() {

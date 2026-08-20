@@ -1,7 +1,7 @@
 "use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from '@/utils/routerCompat';
+import { usePathname } from '@/utils/routerCompat';
 import { useEffect } from 'react';
 import { RequireAuth } from '../../components/RequireAuth';
 

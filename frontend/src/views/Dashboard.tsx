@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import {
   formatTuneType,
   getActivityFeed,

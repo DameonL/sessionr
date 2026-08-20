@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from 'react'
+import { lazy, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import dynamic from 'next/dynamic'
+import dynamic from '@/utils/routerCompat'
 import {
   formatTuneType,
   getFullRepertoire,
@@ -11,7 +11,7 @@ import { currentUserId, useSignal } from '../../../state/appState'
 import { Spinner } from '../../../components/Spinner'
 
 // Dynamically import EarTrainer to prevent abcjs SSR errors
-const EarTrainer = dynamic(() => import('../../../components/EarTrainer').then((m) => m.EarTrainer), { ssr: false })
+const EarTrainer = lazy(() => import('../../../components/EarTrainer').then((m) => ({ default: m.EarTrainer })))
 
 export default function EarTrainingPage() {
   const userId = useSignal(currentUserId)

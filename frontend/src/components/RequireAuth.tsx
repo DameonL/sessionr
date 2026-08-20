@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from 'react'
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
 
 /** Gates inherently personal pages (repertoire, sets, practice room) behind sign-in. */

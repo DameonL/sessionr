@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import Link from 'next/link'
+import Link from '@/utils/routerCompat'
 import { addToRepertoire, formatTuneType, matchTune, type TuneMatchCandidate } from '../services/api'
 import { classifyClip, createTuneSample, groupNotes, SAMPLE_DURATION_MS, type TuneSample } from '../services/tuneMatcher'
 import type { RawFrame } from '../services/pitchDetector'

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import Link from '@/utils/routerCompat'
+import { usePathname } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
 import { NetworkStatusBanner } from './NetworkStatusBanner'
