@@ -11,7 +11,10 @@ import { Configuration, PopupRequest } from "@azure/msal-browser";
  * invalidates every cached MSAL session (see msalConfigFingerprint below).
  */
 const clientId = "94e2edf0-d97b-4d48-b7c3-c66ec38fee3e";
-const tenantSubdomain = "sessionapp";
+// The CIAM login domain prefix. NOT the app name — it must match the tenant
+// below, or discovery fails with AADSTS500210 ("Domain name does not match
+// with the tenant identifier").
+const tenantSubdomain = "sessionr";
 // Left empty, the authority falls back to the {subdomain}.onmicrosoft.com form.
 const tenantId = "e81c8bac-33ef-463d-9ff5-8a6920b1ccbc";
 
