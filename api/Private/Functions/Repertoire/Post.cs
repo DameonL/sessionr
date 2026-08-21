@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -67,6 +68,15 @@ public class Post(AppDbContext db)
                     return new BadRequestObjectResult("TuneSettingId does not belong to the given tune.");
                 }
             }
+            else
+            {
+                // No explicit choice: pin the community favourite now rather than leaving the entry
+                // unpinned, so later votes by other users don't change the notes under this user.
+                selectedSetting = (await db.TuneSettings.AsNoTracking().Where(s => s.TuneId == body.TuneId).ToListAsync())
+                    .OrderByDescending(s => s.VoteScore)
+                    .ThenBy(s => s.TuneSettingId)
+                    .FirstOrDefault();
+            }
 
             var userTune = new UserTune
             {
@@ -80,22 +90,10 @@ public class Post(AppDbContext db)
             tune.RepertoireCount++;
             await db.SaveChangesAsync();
 
-            var effectiveKey = selectedSetting != null ? selectedSetting.Key : tune.Key;
+            userTune.Tune = tune;
+            userTune.TuneSetting = selectedSetting;
 
-            return new OkObjectResult(new RepertoireItemDto(
-                userTune.UserTuneId,
-                userTune.TuneId,
-                tune.Title,
-                tune.TuneType.ToString(),
-                effectiveKey,
-                userTune.Status.ToString(),
-                userTune.LastPracticed,
-                userTune.TargetBpm,
-                null,
-                false,
-                tune.Difficulty,
-                tune.StartingMidi,
-                tune.EndingMidi));
+            return new OkObjectResult(RepertoireSupport.ToItemDto(userTune));
         }
         catch (Exception ex)
         {

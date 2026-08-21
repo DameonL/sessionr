@@ -73,6 +73,8 @@ public class Get(AppDbContext db)
 
         if (summary)
         {
+            // The list view deliberately skips ResolveUnpinnedSettingsAsync: it needs no ABC, so
+            // unpinned rows just report the tune's own key and no submitter.
             var listItems = pageItems
                 .Select(ut => new RepertoireListItemDto(
                     ut.UserTuneId,
@@ -83,28 +85,16 @@ public class Get(AppDbContext db)
                     ut.Status.ToString(),
                     ut.LastPracticed,
                     ut.TargetBpm,
-                    ut.Tune.Difficulty))
+                    ut.Tune.Difficulty,
+                    ut.TuneSetting?.TuneSettingId,
+                    ut.TuneSetting?.SubmitterName))
                 .ToList();
 
             return new OkObjectResult(new PagedResult<RepertoireListItemDto>(listItems, totalCount, page, pageSize, hasMore));
         }
 
-        var items = pageItems
-            .Select(ut => new RepertoireItemDto(
-                ut.UserTuneId,
-                ut.TuneId,
-                ut.Tune.Title,
-                ut.Tune.TuneType.ToString(),
-                ut.TuneSetting != null ? ut.TuneSetting.Key : ut.Tune.Key,
-                ut.Status.ToString(),
-                ut.LastPracticed,
-                ut.TargetBpm,
-                ut.CustomAbcText,
-                ut.CustomAbcText != null,
-                ut.Tune.Difficulty,
-                ut.Tune.StartingMidi,
-                ut.Tune.EndingMidi))
-            .ToList();
+        await RepertoireSupport.ResolveUnpinnedSettingsAsync(db, pageItems);
+        var items = pageItems.Select(RepertoireSupport.ToItemDto).ToList();
 
         return new OkObjectResult(new PagedResult<RepertoireItemDto>(items, totalCount, page, pageSize, hasMore));
     }

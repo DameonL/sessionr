@@ -73,7 +73,16 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
                 : body.CustomAbcText.Trim();
         }
 
-        if (body.TuneSettingId is not null)
+        if (body.ClearTuneSetting)
+        {
+            if (body.TuneSettingId is not null)
+            {
+                return new BadRequestObjectResult("Send either TuneSettingId or ClearTuneSetting, not both.");
+            }
+            // Un-pinned entries follow the tune's top-voted setting (see RepertoireSupport).
+            userTune.TuneSettingId = null;
+        }
+        else if (body.TuneSettingId is not null)
         {
             var settingBelongs = await db.TuneSettings
                 .Where(s => s.TuneSettingId == body.TuneSettingId && s.TuneId == userTune.TuneId)
@@ -94,24 +103,11 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
         }
 
         // Tune/TuneSetting are separate Cosmos documents; stitch them onto the tracked UserTune for the response.
-        await SetSupport.PopulateTuneAndSettingAsync(db, new[] { userTune });
+        var single = new[] { userTune };
+        await SetSupport.PopulateTuneAndSettingAsync(db, single);
+        await RepertoireSupport.ResolveUnpinnedSettingsAsync(db, single);
 
-        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
-
-        return new OkObjectResult(new RepertoireItemDto(
-            userTune.UserTuneId,
-            userTune.TuneId,
-            userTune.Tune.Title,
-            userTune.Tune.TuneType.ToString(),
-            effectiveKey,
-            userTune.Status.ToString(),
-            userTune.LastPracticed,
-            userTune.TargetBpm,
-            userTune.CustomAbcText,
-            userTune.CustomAbcText != null,
-            userTune.Tune.Difficulty,
-            userTune.Tune.StartingMidi,
-            userTune.Tune.EndingMidi));
+        return new OkObjectResult(RepertoireSupport.ToItemDto(userTune));
     }
 
     private async Task RecordTuneLearnedFeedEventsAsync(Guid userId, Guid tuneId)

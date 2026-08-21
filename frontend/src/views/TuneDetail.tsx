@@ -9,7 +9,6 @@ import {
   TUNE_STATUSES,
   formatTuneType,
   getRepertoireItem,
-  getTuneDetails,
   isToday,
   logPractice,
   parseServerDate,
@@ -51,12 +50,6 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     retry: false,
   })
   const item = itemQuery.data
-
-  const tuneDetailsQuery = useQuery({
-    queryKey: ['tune-details', item?.tuneId],
-    queryFn: () => getTuneDetails(item!.tuneId),
-    enabled: !!item && !item.hasCustomAbc,
-  })
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['repertoire-item', id] })
@@ -112,9 +105,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
     )
   }
   const practicedToday = item.lastPracticed != null && isToday(item.lastPracticed)
-  const effectiveAbc = item.hasCustomAbc
-    ? (item.abcText ?? item.abc ?? '')
-    : (tuneDetailsQuery.data?.settings[0]?.abcText ?? '')
+  const effectiveAbc = item.abcText ?? item.abc ?? ''
 
   return (
     <section>
@@ -125,7 +116,11 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
       </div>
       <p className="tune-meta">
         {formatTuneType(item.tuneType)} · {item.key}
-        {item.hasCustomAbc && ' · custom setting'}
+        {item.hasCustomAbc
+          ? ' · custom setting'
+          : item.settingSubmitterName
+            ? ` · setting by ${item.settingSubmitterName}${item.isPinnedSetting ? '' : ' (community default)'}`
+            : ''}
       </p>
 
       {editingAbc === null ? (
@@ -201,6 +196,8 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
           tuneId={item.tuneId}
           userId={userId}
           userTuneId={item.userTuneId}
+          currentTuneSettingId={item.tuneSettingId}
+          isPinnedSetting={item.isPinnedSetting}
           onClose={() => setShowSettingsModal(false)}
           onAdded={invalidate}
         />

@@ -191,6 +191,7 @@ export function Repertoire() {
               <span className="tune-title">{item.title}</span>
               <span className="tune-meta">
                 {formatTuneType(item.tuneType)} · {item.key}
+                {item.settingSubmitterName && ` · setting by ${item.settingSubmitterName}`}
               </span>
               <span className={`badge badge-${item.status.toLowerCase()}`}>{item.status}</span>
             </Link>

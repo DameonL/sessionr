@@ -297,10 +297,16 @@ async function queueOfflineMutation<T>(method: string, url: string, path: string
     const userTuneId = /\/repertoire\/items\/([^/]+)$/.exec(path)?.[1]
     if (userTuneId && typeof init?.body === 'string') {
       const patch = JSON.parse(init.body) as Record<string, unknown>
-      const merged = await patchCachedRepertoireItem(url, userTuneId, patch)
-      if (merged) {
-        showToast('Change saved offline. Will sync when back online.', 'info')
-        return merged as unknown as T
+      // A setting switch changes the effective key and ABC, and only the server can resolve those
+      // — merging the raw patch would leave the cache showing the old notes under the new setting.
+      // The mutation is already queued above; just don't fabricate an optimistic response for it.
+      const changesSetting = 'tuneSettingId' in patch || 'clearTuneSetting' in patch
+      if (!changesSetting) {
+        const merged = await patchCachedRepertoireItem(url, userTuneId, patch)
+        if (merged) {
+          showToast('Change saved offline. Will sync when back online.', 'info')
+          return merged as unknown as T
+        }
       }
     }
   }
@@ -383,6 +389,11 @@ export interface RepertoireItem {
   /** First/last note of the master ABC as absolute MIDI; used for set-medley joins. */
   startingMidi?: number | null
   endingMidi?: number | null
+  /** The setting this entry shows — the user's pin, or the tune's top-voted setting when unpinned. */
+  tuneSettingId?: string | null
+  settingSubmitterName?: string | null
+  /** True when the user explicitly chose the setting; false when it was resolved from votes. */
+  isPinnedSetting?: boolean
 }
 
 /** Lightweight repertoire row for the scrolling list — no ABC. Fetch getRepertoireItem for that. */
@@ -397,6 +408,9 @@ export interface RepertoireListItem {
   targetBpm: number | null
   /** Rough 0–100 difficulty estimate (higher = harder). */
   difficulty?: number
+  /** Only populated when the entry pins a setting; the list view doesn't resolve unpinned ones. */
+  tuneSettingId?: string | null
+  settingSubmitterName?: string | null
 }
 
 export interface PracticeQueueItem {
@@ -666,12 +680,23 @@ export const getMyTuneVotes = (tuneId: string) =>
 
 export const updateUserTune = (
   userTuneId: string,
-  patch: { status?: string; targetBpm?: number; customAbcText?: string; tuneSettingId?: string },
+  patch: {
+    status?: string
+    targetBpm?: number
+    customAbcText?: string
+    tuneSettingId?: string
+    /** Un-pins the setting so the entry follows the tune's top-voted one. Mutually exclusive with tuneSettingId. */
+    clearTuneSetting?: boolean
+  },
 ) =>
   apiFetch<RepertoireItem>(`/repertoire/items/${userTuneId}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
+
+/** Drops the pinned setting so the entry follows the tune's community default again. */
+export const clearUserTuneSetting = (userTuneId: string) =>
+  updateUserTune(userTuneId, { clearTuneSetting: true })
 
 export const logPractice = (userTuneId: string) =>
   apiFetch<{ userTuneId: string; lastPracticed: string; newBadges: string[] }>(

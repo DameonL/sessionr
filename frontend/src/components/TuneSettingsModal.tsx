@@ -11,6 +11,7 @@ import {
   voteTuneSetting,
   addToRepertoire,
   updateUserTune,
+  clearUserTuneSetting,
   formatTuneType,
 } from '../services/api'
 import { useAuthStatus, currentUserProfile, useSignal } from '../state/appState'
@@ -26,6 +27,10 @@ interface TuneSettingsModalProps {
   onClose: () => void
   onAdded: () => void
   userTuneId?: string
+  /** The setting currently in effect, so it can be marked and previewed first. */
+  currentTuneSettingId?: string | null
+  /** False when currentTuneSettingId was resolved from votes rather than chosen by the user. */
+  isPinnedSetting?: boolean
   /** Overrides the default repertoire add/switch action (e.g. for a group's master tune list). */
   onSelectSetting?: (settingId: string) => Promise<unknown>
   /** Label for the per-setting action button; defaults based on userTuneId/onSelectSetting. */
@@ -38,6 +43,8 @@ export function TuneSettingsModal({
   onClose,
   onAdded,
   userTuneId,
+  currentTuneSettingId,
+  isPinnedSetting,
   onSelectSetting,
   actionLabel,
 }: TuneSettingsModalProps) {
@@ -55,8 +62,9 @@ export function TuneSettingsModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  // undefined = no explicit user choice yet (show the first/most-popular setting);
-  // null = user explicitly collapsed everything; string = user explicitly expanded that setting.
+  // undefined = no explicit user choice yet (show the setting currently in effect, falling back to
+  // the first/most-popular one); null = user explicitly collapsed everything; string = user
+  // explicitly expanded that setting.
   const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
 
   // Submit new setting states
@@ -95,6 +103,15 @@ export function TuneSettingsModal({
         return addToRepertoire(tuneId, settingId)
       }
     },
+    onSuccess: () => {
+      onAdded()
+      onClose()
+    },
+  })
+
+  // Un-pin: fall back to whatever setting the community has voted to the top
+  const useDefaultMutation = useMutation({
+    mutationFn: () => clearUserTuneSetting(userTuneId!),
     onSuccess: () => {
       onAdded()
       onClose()
@@ -237,18 +254,25 @@ export function TuneSettingsModal({
           <h3>Select a Setting to Add</h3>
           <div className="settings-list-container">
             {details.settings.map((s, index) => {
+              const isCurrent = currentTuneSettingId === s.tuneSettingId
+              const defaultPreviewed = currentTuneSettingId ? isCurrent : index === 0
               const isPreviewed =
-                previewSettingId === undefined ? index === 0 : previewSettingId === s.tuneSettingId
+                previewSettingId === undefined ? defaultPreviewed : previewSettingId === s.tuneSettingId
               const userVoteValue = myVotes?.[s.tuneSettingId] ?? s.userVoteValue ?? 0
               const hasUpvoted = userVoteValue === 1
               const hasDownvoted = userVoteValue === -1
 
               return (
-                <div key={s.tuneSettingId} className="setting-card">
+                <div key={s.tuneSettingId} className={`setting-card${isCurrent ? ' is-current' : ''}`}>
                   <div className="setting-card-header">
                     <div>
                       <span className="setting-key-badge">Key: {s.key}</span>
                       <span className="setting-submitter text-muted">by {s.submitterName}</span>
+                      {isCurrent && (
+                        <span className="badge badge-active current-setting-badge">
+                          {isPinnedSetting === false ? 'Community default' : 'Current setting'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="setting-actions">
@@ -281,9 +305,11 @@ export function TuneSettingsModal({
                       <button
                         className="add-setting-action"
                         onClick={() => actionMutation.mutate(s.tuneSettingId)}
-                        disabled={actionMutation.isPending}
+                        disabled={actionMutation.isPending || (isCurrent && isPinnedSetting !== false)}
                       >
-                        {actionLabel ?? (userTuneId !== undefined ? 'Switch to this setting' : '+ Add this setting')}
+                        {isCurrent && isPinnedSetting !== false
+                          ? 'In use'
+                          : actionLabel ?? (userTuneId !== undefined ? 'Switch to this setting' : '+ Add this setting')}
                       </button>
                     </div>
                   </div>
@@ -300,6 +326,24 @@ export function TuneSettingsModal({
             })}
           </div>
         </div>
+
+        {userTuneId !== undefined && !onSelectSetting && isPinnedSetting && (
+          <div className="modal-section">
+            <button
+              className="secondary w-full"
+              onClick={() => useDefaultMutation.mutate()}
+              disabled={useDefaultMutation.isPending}
+            >
+              Use the community default setting
+            </button>
+            <p className="tune-meta" style={{ marginTop: '0.35rem', fontSize: '0.8rem' }}>
+              Un-pins this tune so it follows whichever setting is voted highest.
+            </p>
+            {useDefaultMutation.isError && (
+              <p className="error">{(useDefaultMutation.error as Error).message}</p>
+            )}
+          </div>
+        )}
 
         {/* Submit Setting Section */}
         <div className="modal-section submit-setting-section">

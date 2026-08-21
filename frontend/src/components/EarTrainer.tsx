@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import abcjs from 'abcjs'
 import {
   getEarTrainingProgress,
-  getTuneDetails,
   logPractice,
   saveEarTrainingProgress,
   type RepertoireItem,
@@ -57,14 +56,8 @@ export function EarTrainer({ item }: EarTrainerProps) {
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
 
-  const tuneDetailsQuery = useQuery({
-    queryKey: ['tune-details', item.tuneId],
-    queryFn: () => getTuneDetails(item.tuneId),
-    enabled: !item.hasCustomAbc,
-  })
-  const abcText = item.hasCustomAbc
-    ? (item.abcText ?? item.abc ?? '')
-    : (tuneDetailsQuery.data?.settings[0]?.abcText ?? '')
+  // The server resolves custom ABC -> the entry's setting -> the tune's master ABC.
+  const abcText = item.abcText ?? item.abc ?? ''
 
   const tune = useMemo(() => buildEarTrainingTune(abcText), [abcText])
 

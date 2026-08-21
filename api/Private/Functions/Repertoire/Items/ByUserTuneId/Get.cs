@@ -33,23 +33,10 @@ public class Get(AppDbContext db)
             return new NotFoundResult();
         }
 
-        await SetSupport.PopulateTuneAndSettingAsync(db, new[] { userTune });
+        var single = new[] { userTune };
+        await SetSupport.PopulateTuneAndSettingAsync(db, single);
+        await RepertoireSupport.ResolveUnpinnedSettingsAsync(db, single);
 
-        var effectiveKey = userTune.TuneSetting != null ? userTune.TuneSetting.Key : userTune.Tune.Key;
-
-        return new OkObjectResult(new RepertoireItemDto(
-            userTune.UserTuneId,
-            userTune.TuneId,
-            userTune.Tune.Title,
-            userTune.Tune.TuneType.ToString(),
-            effectiveKey,
-            userTune.Status.ToString(),
-            userTune.LastPracticed,
-            userTune.TargetBpm,
-            userTune.CustomAbcText,
-            userTune.CustomAbcText != null,
-            userTune.Tune.Difficulty,
-            userTune.Tune.StartingMidi,
-            userTune.Tune.EndingMidi));
+        return new OkObjectResult(RepertoireSupport.ToItemDto(userTune));
     }
 }

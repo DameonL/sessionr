@@ -1072,6 +1072,16 @@ a.stat:hover {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* The setting this repertoire entry is currently playing. */
+.setting-card.is-current {
+  border-color: var(--accent);
+}
+
+.current-setting-badge {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}
+
 .setting-card-header {
   display: flex;
   justify-content: space-between;

@@ -23,7 +23,11 @@ public record TunebookImportResultDto(
 
 public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 
-public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null);
+/// <summary>
+/// Partial repertoire-item update. <c>ClearTuneSetting</c> exists because System.Text.Json cannot
+/// distinguish an absent property from an explicit <c>null</c>, so un-pinning needs its own flag.
+/// </summary>
+public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null, bool ClearTuneSetting = false);
 
 public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments, string? Username);
 
@@ -106,7 +110,12 @@ public record RepertoireItemDto(
     bool HasCustomAbc,
     int Difficulty = 0,
     int? StartingMidi = null,
-    int? EndingMidi = null);
+    int? EndingMidi = null,
+    // The setting this entry is showing — the user's pin, or the tune's top-voted setting when unpinned.
+    Guid? TuneSettingId = null,
+    string? SettingSubmitterName = null,
+    // True when the user explicitly chose this setting; false when it was resolved from votes.
+    bool IsPinnedSetting = false);
 
 /// <summary>Lightweight repertoire row for the scrolling list view — no ABC/settings payload.</summary>
 public record RepertoireListItemDto(
@@ -118,7 +127,9 @@ public record RepertoireListItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    int Difficulty = 0);
+    int Difficulty = 0,
+    Guid? TuneSettingId = null,
+    string? SettingSubmitterName = null);
 
 /// <summary>Aggregate repertoire counts for the dashboard — computed via SQL GroupBy, not client-side.</summary>
 public record RepertoireStatsDto(
