@@ -37,7 +37,14 @@ public static class AzureDirectoryAuthorization
         var trimmedDisplayName = !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim() : null;
 
         var byOid = await db.Users.FirstOrDefaultAsync(u => u.UserId == userId);
-        var byEmail = (byOid == null && normalizedEmail != null)
+
+        // Look the email up when it could actually change the outcome: either there is no oid
+        // match to fall back on, or there is one whose stored email disagrees with the token's
+        // and we are about to overwrite it. In the steady state — oid known, email unchanged —
+        // this costs no extra query. It must not be skipped whenever byOid is non-null, which
+        // is what previously made the ambiguity check below unreachable.
+        var emailMayCollide = normalizedEmail != null && (byOid == null || byOid.Email != normalizedEmail);
+        var byEmail = emailMayCollide
             ? await db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail)
             : null;
 
@@ -47,6 +54,10 @@ public static class AzureDirectoryAuthorization
 
             if (byEmail != null && byEmail.UserId != byOid.UserId)
             {
+                // The oid says one account, the email says another. Trust the oid — it is the
+                // stable identifier — and leave the email alone: copying it across would give
+                // two users the same address, which Cosmos has no unique index to prevent and
+                // which would then make the email-lookup path resolve arbitrarily.
                 Console.Error.WriteLine(
                     $"EnsureUserExistsAsync: identity ambiguity — oid {userId} -> user {byOid.UserId}, " +
                     $"email {normalizedEmail} -> different user {byEmail.UserId}. Using the oid match.");
