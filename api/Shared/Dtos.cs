@@ -127,9 +127,7 @@ public record RepertoireListItemDto(
     string Status,
     DateTime? LastPracticed,
     int? TargetBpm,
-    int Difficulty = 0,
-    Guid? TuneSettingId = null,
-    string? SettingSubmitterName = null);
+    int Difficulty = 0);
 
 /// <summary>Aggregate repertoire counts for the dashboard — computed via SQL GroupBy, not client-side.</summary>
 public record RepertoireStatsDto(

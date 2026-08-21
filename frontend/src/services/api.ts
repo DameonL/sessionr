@@ -408,9 +408,6 @@ export interface RepertoireListItem {
   targetBpm: number | null
   /** Rough 0–100 difficulty estimate (higher = harder). */
   difficulty?: number
-  /** Only populated when the entry pins a setting; the list view doesn't resolve unpinned ones. */
-  tuneSettingId?: string | null
-  settingSubmitterName?: string | null
 }
 
 export interface PracticeQueueItem {
