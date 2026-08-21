@@ -1,5 +1,8 @@
 import type abcjs from 'abcjs'
 
+/** Also defined in components/instruments.ts, which re-strikes long notes at the same value. */
+const EIGHTH_NOTE_DURATION = 0.125
+
 /**
  * Returns true for compound meters (6/8, 9/8, 12/8), where the beat divides into three
  * and the lilt lengthens the first of each group of three — the jig/slip jig/slide feel.
@@ -49,13 +52,22 @@ export function applyCustomTripletSwing(tracks: abcjs.NoteMapTrack[], swingPerce
 
       const minD = Math.min(d0, d1, d2)
       const maxD = Math.max(d0, d1, d2)
+      const meanD = (d0 + d1 + d2) / 3
 
-      const isTriplet = minD > 0.005 && maxD / minD <= 1.4
+      // Only lilt groups that move in eighths — the melody's three-per-beat. The chord and
+      // bass tracks step in dotted quarters, and three of those also look "near-equal" to the
+      // ratio test; re-timing them drags the accompaniment off the melody's grid. abcjs's own
+      // swing has the same property, moving only notes that sit off the beat.
+      const isTriplet =
+        minD > 0.005 &&
+        maxD / minD <= 1.4 &&
+        Math.abs(meanD - EIGHTH_NOTE_DURATION) < EIGHTH_NOTE_DURATION * 0.4
 
       if (isTriplet) {
         const s3 = s2 + d2
         const totalD = s3 - s0
-        const baseD = totalD / 3
+        // totalD is exactly d0 + d1 + d2, so this is the mean step tested above.
+        const baseD = meanD
 
         const newD0 = baseD * (1 + 0.35 * swingRatio)
         const newStart1 = s0 + newD0

@@ -89,14 +89,24 @@ export function shouldSubdivideInstrument(instrument: number | string): boolean 
   return false
 }
 
+/** Also defined in services/swing.ts, which gates the jig lilt on the same note value. */
 const EIGHTH_NOTE_DURATION = 0.125
-const EPSILON = 0.0001
 
 /**
- * Subdivides any notes in a sequence track that are strictly longer than 1/8th note
- * (duration > 0.125 whole notes) into consecutive 1/8th notes that add up to the
- * original note duration, so plucked/decaying instruments re-strike instead of
- * fading to silence.
+ * How generously a duration is counted as a whole number of eighths. A note has to be
+ * worth ~1.75 eighths before it re-strikes at all, so a swing-lengthened eighth (1.35
+ * eighths) and a dotted eighth (1.5) each stay a single strike.
+ */
+const SPLIT_TOLERANCE = 0.25
+
+/**
+ * Re-strikes long notes as repeated eighths, so plucked/decaying instruments don't fade
+ * to silence part-way through. A note worth two or more eighths is divided into that many
+ * *equal* parts; anything shorter is left alone.
+ *
+ * Equal division matters: chopping at fixed 0.125 boundaries (as this once did) leaves the
+ * remainder as its own note, so a swung eighth became 0.125 + 0.04375 and a dotted eighth
+ * became 0.125 + 0.0625 — an audible double strike on every lilted note in a jig.
  *
  * Rewrites the track in place and returns nothing: abcjs's sequenceCallback discards
  * whatever the callback returns and goes on using its own noteMapTracks (see
@@ -107,16 +117,16 @@ export function subdivideLongNotes(track: abcjs.NoteMapTrack): void {
   const newTrack: abcjs.NoteMapTrack = []
   for (const note of track) {
     const duration = note.end - note.start
-    if (duration > EIGHTH_NOTE_DURATION + EPSILON) {
-      let currentStart = note.start
-      while (currentStart < note.end - EPSILON) {
-        const currentEnd = Math.min(currentStart + EIGHTH_NOTE_DURATION, note.end)
+    const parts = Math.floor(duration / EIGHTH_NOTE_DURATION + SPLIT_TOLERANCE)
+    if (parts >= 2) {
+      const step = duration / parts
+      for (let i = 0; i < parts; i++) {
         newTrack.push({
           ...note,
-          start: currentStart,
-          end: currentEnd,
+          start: note.start + i * step,
+          // Land the last part exactly on the original end rather than on accumulated float.
+          end: i === parts - 1 ? note.end : note.start + (i + 1) * step,
         })
-        currentStart = currentEnd
       }
     } else {
       newTrack.push(note)
