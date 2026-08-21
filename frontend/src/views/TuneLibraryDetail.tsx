@@ -7,8 +7,6 @@ import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
   getMyTuneVotes,
-  addTuneSetting,
-  addTuneAlias,
   voteTuneSetting,
   addToRepertoire,
   formatTuneType,
@@ -19,8 +17,10 @@ import {
 } from '../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal, showToast } from '../state/appState'
 import { useRouter } from '@/utils/routerCompat'
-import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
 import { Spinner } from '../components/Spinner'
+import { Dialog } from '../components/Dialog'
+import { NewSettingForm } from '../components/NewSettingForm'
+import { TuneAliases } from '../components/TuneAliases'
 
 
 // Dynamically import TunePlayer to prevent abcjs SSR errors
@@ -37,13 +37,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   // undefined = no explicit user choice yet (show the first/most-popular setting);
   // null = user explicitly hid the player; string = user explicitly picked that setting.
   const [practicingSettingId, setPracticingSettingId] = useState<string | null | undefined>(undefined)
-  const [showNewSettingForm, setShowNewSettingForm] = useState(false)
   const [newSettingKey, setNewSettingKey] = useState('')
-  const [newSettingAbc, setNewSettingAbc] = useState('')
   const [newSettingSubmitter, setNewSettingSubmitter] = useState('')
-  const [settingError, setSettingError] = useState<string | null>(null)
-  const [newAliasName, setNewAliasName] = useState('')
-  const [aliasError, setAliasError] = useState<string | null>(null)
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
 
   const profile = useSignal(currentUserProfile)
@@ -105,30 +100,6 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     },
   })
 
-  const addSettingMutation = useMutation({
-    mutationFn: (newSetting: { key: string; abc: string; submitterName: string }) =>
-      addTuneSetting(id, newSetting.key, newSetting.abc, newSetting.submitterName),
-    onSuccess: () => {
-      refetch()
-      setNewSettingKey('')
-      setNewSettingAbc('')
-      setNewSettingSubmitter('')
-      setShowNewSettingForm(false)
-      setSettingError(null)
-    },
-    onError: (err) => setSettingError(err.message || 'Failed to submit setting.'),
-  })
-
-  const addAliasMutation = useMutation({
-    mutationFn: (name: string) => addTuneAlias(id, name),
-    onSuccess: () => {
-      refetch()
-      setNewAliasName('')
-      setAliasError(null)
-    },
-    onError: (err) => setAliasError(err.message || 'Failed to add alternate name.'),
-  })
-
   const addToRepertoireMutation = useMutation({
     mutationFn: (settingId: string) => addToRepertoire(id, settingId),
     onSuccess: () => {
@@ -141,29 +112,6 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     const activeVote = myVotes?.[settingId] ?? currentVote
     const nextVoteValue = activeVote === targetVote ? 0 : targetVote
     voteMutation.mutate({ settingId, value: nextVoteValue })
-  }
-
-  const handleSettingSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const validation = validateAbc(newSettingAbc)
-    if (!validation.isValid) {
-      setSettingError(validation.error || 'Invalid ABC notation.')
-      return
-    }
-    const trimmedAbc = validation.trimmedAbc
-    const detectedKey = extractKeyFromAbc(trimmedAbc) || details?.key || 'C'
-    const submitterName = profile?.displayName?.trim() || 'Anonymous'
-    addSettingMutation.mutate({
-      key: detectedKey,
-      abc: trimmedAbc,
-      submitterName,
-    })
-  }
-
-  const handleAliasSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newAliasName.trim()) return
-    addAliasMutation.mutate(newAliasName.trim())
   }
 
   if (isPending) {
@@ -219,81 +167,59 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
         )}
       </div>
 
-      {showEditModal && (
-        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="modal-card" style={{ maxWidth: '650px', width: '100%', padding: '1.75rem' }}>
-            <h2 style={{ marginTop: 0 }}>Edit Master Tune: {details.title}</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Title</label>
-                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required />
-              </div>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Tune Type</label>
-                  <input type="text" value={editType} onChange={(e) => setEditType(e.target.value)} required />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Key</label>
-                  <input type="text" value={editKey} onChange={(e) => setEditKey(e.target.value)} required />
-                </div>
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem' }}>Master ABC Notation</label>
-                <textarea
-                  rows={8}
-                  value={editAbc}
-                  onChange={(e) => setEditAbc(e.target.value)}
-                  style={{ width: '100%', fontFamily: 'monospace', resize: 'vertical' }}
-                  required
-                />
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <button type="button" className="secondary" onClick={() => setShowEditModal(false)}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => updateTuneMutation.mutate()}
-                  disabled={updateTuneMutation.isPending || !editTitle.trim() || !editAbc.trim()}
-                >
-                  {updateTuneMutation.isPending ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
+      <Dialog
+        isOpen={showEditModal}
+        title={`Edit Master Tune: ${details.title}`}
+        onClose={() => setShowEditModal(false)}
+        maxWidth="650px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <label>
+            Title
+            <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required />
+          </label>
+          <div className="form-row">
+            <label>
+              Tune Type
+              <input type="text" value={editType} onChange={(e) => setEditType(e.target.value)} required />
+            </label>
+            <label>
+              Key
+              <input type="text" value={editKey} onChange={(e) => setEditKey(e.target.value)} required />
+            </label>
+          </div>
+          <label>
+            Master ABC Notation
+            <textarea
+              className="abc-textarea"
+              rows={8}
+              value={editAbc}
+              onChange={(e) => setEditAbc(e.target.value)}
+              required
+            />
+          </label>
+          <div className="form-actions">
+            <button type="button" className="secondary" onClick={() => setShowEditModal(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => updateTuneMutation.mutate()}
+              disabled={updateTuneMutation.isPending || !editTitle.trim() || !editAbc.trim()}
+            >
+              {updateTuneMutation.isPending ? 'Saving…' : 'Save Changes'}
+            </button>
           </div>
         </div>
-      )}
+      </Dialog>
 
-
-      {/* Alternate Names */}
-      <div className="modal-section alternate-names-section" style={{ marginTop: '1.5rem' }}>
-        <h3>Alternate Names</h3>
-        <div className="alias-container">
-          {details.aliases.length === 0 ? (
-            <span className="tune-meta italic">No alternate names registered yet.</span>
-          ) : (
-            details.aliases.map((alias, i) => (
-              <span key={i} className="badge badge-learning alias-badge">{alias}</span>
-            ))
-          )}
-        </div>
-        <form onSubmit={handleAliasSubmit} className="add-alias-form" style={{ marginTop: '0.75rem' }}>
-          <input
-            type="text"
-            placeholder="Add alternate name..."
-            value={newAliasName}
-            onChange={(e) => setNewAliasName(e.target.value)}
-            disabled={addAliasMutation.isPending}
-            style={{ flex: 1, padding: '0.35rem 0.6rem', fontSize: '0.85rem' }}
-          />
-          <button type="submit" disabled={addAliasMutation.isPending || !newAliasName.trim()}>
-            + Add Name
-          </button>
-        </form>
-        {aliasError && <p className="error" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>{aliasError}</p>}
-      </div>
+      <TuneAliases
+        tuneId={id}
+        aliases={details.aliases}
+        onAdded={refetch}
+        style={{ marginTop: '1.5rem' }}
+      />
 
       {/* Settings */}
       <div className="modal-section" style={{ marginTop: '1.5rem' }}>
@@ -379,42 +305,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
         </div>
       </div>
 
-      {/* Submit a new setting */}
       <div className="modal-section submit-setting-section" style={{ marginTop: '1.5rem' }}>
-        {!showNewSettingForm ? (
-          <button className="secondary w-full" onClick={() => setShowNewSettingForm(true)}>
-            + Submit an Alternate Setting
-          </button>
-        ) : (
-          <form onSubmit={handleSettingSubmit} className="new-setting-form">
-            <h4>Submit alternate setting</h4>
-            <div className="tune-meta" style={{ marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <span>Key: <strong>{extractKeyFromAbc(newSettingAbc) || (details ? details.key : 'Auto-detected from K:')}</strong></span>
-              <span>Submitter: <strong>{profile?.displayName || 'Anonymous'}</strong></span>
-            </div>
-            <label>
-              ABC Notation
-              <textarea
-                placeholder="Paste ABC text here..."
-                value={newSettingAbc}
-                onChange={(e) => setNewSettingAbc(e.target.value)}
-                rows={6}
-                required
-              />
-            </label>
-
-            {settingError && <p className="error">{settingError}</p>}
-
-            <div className="form-actions">
-              <button type="button" className="secondary" onClick={() => setShowNewSettingForm(false)}>
-                Cancel
-              </button>
-              <button type="submit" disabled={addSettingMutation.isPending}>
-                Submit Setting
-              </button>
-            </div>
-          </form>
-        )}
+        <NewSettingForm tuneId={id} fallbackKey={details.key} onSubmitted={refetch} />
       </div>
     </section>
   )

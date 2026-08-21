@@ -14,6 +14,7 @@ export function ToastContainer() {
           <span style={{ flex: 1 }}>{toast.message}</span>
           <button
             className="toast-close"
+            aria-label="Dismiss notification"
             onClick={() => {
               activeToasts.value = activeToasts.value.filter((t) => t.id !== toast.id)
             }}

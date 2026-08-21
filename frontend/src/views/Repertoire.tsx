@@ -6,7 +6,6 @@ import Link from '@/utils/routerCompat'
 import {
   TUNE_STATUSES,
   TUNE_TYPES,
-  addToRepertoire,
   formatTuneType,
   getRepertoireList,
   importFromTheSession,
@@ -70,11 +69,6 @@ export function Repertoire() {
   })
 
   const [selectedTuneIdForModal, setSelectedTuneIdForModal] = useState<string | null>(null)
-
-  const addMutation = useMutation({
-    mutationFn: (tuneId: string) => addToRepertoire(tuneId),
-    onSuccess: () => invalidate(),
-  })
 
   const importMutation = useMutation({
     mutationFn: importFromTheSession,
@@ -243,7 +237,10 @@ export function Repertoire() {
                       disabled={importMutation.isPending}
                       onClick={() => importMutation.mutate(result.theSessionId)}
                     >
-                      ⬇ Import
+                      {/* One mutation drives every row, so say which row is actually working. */}
+                      {importMutation.isPending && importMutation.variables === result.theSessionId
+                        ? 'Importing…'
+                        : '⬇ Import'}
                     </button>
                   </li>
                 ))}

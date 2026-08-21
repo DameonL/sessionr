@@ -73,13 +73,22 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* Keyboard focus was relying entirely on the UA default ring, which is close to invisible on
+   this dark palette. Mouse users are unaffected — :focus-visible only fires for keyboard focus. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 button.danger {
   color: var(--danger);
   border-color: var(--danger);
 }
 
 input,
-select {
+select,
+textarea {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -364,6 +373,15 @@ label {
     min-height: 42px;
   }
 
+  /* iOS Safari zooms the viewport when a field under 16px takes focus, and does not zoom back
+     out. The ABC fields are the ones people actually type into on a phone. */
+  input,
+  select,
+  textarea,
+  .abc-textarea {
+    font-size: 16px;
+  }
+
   .detail-controls,
   .player-controls {
     gap: 0.5rem;
@@ -556,6 +574,11 @@ button.toggled {
 
 .rusty {
   color: var(--rust);
+}
+
+/* Marks a library result the user already has, so they don't open it to find out. */
+.in-repertoire {
+  color: var(--accent);
 }
 
 .set-card {
@@ -764,6 +787,50 @@ a.stat:hover {
   flex-direction: row;
   align-items: center;
   gap: 0.4rem;
+}
+
+/* Both tool groups label themselves the same way, so they share a baseline and type. */
+.editor-tool-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The commit actions sit above the preview and stay pinned while it is scrolled, so saving never
+   means scrolling back past a full sheet of music. */
+.editor-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 80;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.6rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.editor-preview-heading {
+  margin: 1.25rem 0 0.25rem;
+}
+
+/* Irreversible actions, kept away from the routine controls above them. */
+.danger-zone {
+  margin-top: 2rem;
+  padding: 1rem;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.danger-zone p {
+  margin: 0.5rem 0 0;
+}
+
+.danger-zone-heading {
+  margin-top: 0;
+  color: var(--danger);
 }
 
 .tooltip {
@@ -1104,10 +1171,25 @@ a.stat:hover {
   font-size: 0.85rem;
 }
 
+/* Key, submitter, current-setting badge and the vote pill — one wrapping line of card metadata. */
+.setting-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Preview and the primary action, kept apart from the metadata above so three control clusters
+   don't share one row and wrap unpredictably on a narrow screen. */
 .setting-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.settings-list-footer {
+  margin-top: 0.75rem;
 }
 
 .vote-controls {
@@ -1187,6 +1269,15 @@ a.stat:hover {
 
 .new-setting-form h4 {
   margin: 0;
+}
+
+/* The auto-detected key and submitter, shown above the ABC field. */
+.new-setting-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
 }
 
 .form-row {

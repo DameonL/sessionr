@@ -31,7 +31,6 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
   const [addTitle, setAddTitle] = useState('')
   const [addType, setAddType] = useState('Reel')
   const [addAbc, setAddAbc] = useState('')
-  const [addKeyOverride, setAddKeyOverride] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
   const lastAutoTitleRef = useRef('')
 
@@ -41,7 +40,6 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
       setShowAddModal(false)
       setAddTitle('')
       setAddAbc('')
-      setAddKeyOverride('')
       setAddError(null)
       lastAutoTitleRef.current = ''
       showToast('Tune added to library!', 'success')
@@ -84,9 +82,9 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
       return
     }
     const trimmedAbc = validation.trimmedAbc
-    const derivedKey = addKeyOverride.trim() || extractKeyFromAbc(trimmedAbc)
+    const derivedKey = extractKeyFromAbc(trimmedAbc)
     if (!derivedKey) {
-      setAddError('Key could not be detected from ABC notation. Please include a K: header (e.g. K:G) or enter a key.')
+      setAddError('The key could not be read from the ABC. Please include a K: header, e.g. K:G.')
       return
     }
     createTuneMutation.mutate({
@@ -127,8 +125,33 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
       {children}
 
       {/* Add Tune Modal */}
-      <Dialog isOpen={showAddModal} title="Add a New Tune" onClose={() => setShowAddModal(false)} maxWidth="540px">
+      <Dialog
+        isOpen={showAddModal}
+        title="Add a New Tune"
+        onClose={() => setShowAddModal(false)}
+        // A pasted tune is easy to lose to a stray click on the backdrop and tedious to re-fetch.
+        onRequestClose={() =>
+          !addAbc.trim() && !addTitle.trim()
+            ? true
+            : confirm('Discard this tune? What you have entered will be lost.')
+        }
+        maxWidth="540px"
+      >
         <form onSubmit={handleAddTuneSubmit}>
+          {/* ABC leads, because Title and Key are read out of it as it is pasted. */}
+          <label style={{ display: 'block', marginBottom: '1rem' }}>
+            ABC Notation
+            <textarea
+              placeholder="Paste ABC text here (must include K: header, e.g. K:D)..."
+              value={addAbc}
+              onChange={(e) => handleAbcChange(e.target.value)}
+              rows={8}
+              required
+              className="abc-textarea"
+              style={{ display: 'block', marginTop: '0.35rem' }}
+            />
+          </label>
+
           <label style={{ display: 'block', marginBottom: '1rem' }}>
             Title
             <input
@@ -141,8 +164,8 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
             />
           </label>
 
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-            <label style={{ flex: 1 }}>
+          <div className="form-row" style={{ marginBottom: '1rem', alignItems: 'end' }}>
+            <label>
               Tune Type
               <select
                 value={addType}
@@ -154,19 +177,11 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
                 ))}
               </select>
             </label>
+            {/* The key that will actually be saved, which was invisible until after submitting. */}
+            <div className="new-setting-meta" style={{ flex: 1 }}>
+              <span>Key: <strong>{extractKeyFromAbc(addAbc) || 'Read from the K: header'}</strong></span>
+            </div>
           </div>
-
-          <label style={{ display: 'block', marginBottom: '1rem' }}>
-            ABC Notation
-            <textarea
-              placeholder="Paste ABC text here (must include K: header, e.g. K:D)..."
-              value={addAbc}
-              onChange={(e) => handleAbcChange(e.target.value)}
-              rows={6}
-              required
-              style={{ display: 'block', width: '100%', marginTop: '0.35rem', fontFamily: 'monospace' }}
-            />
-          </label>
 
           {addError && <p className="error" style={{ marginBottom: '1rem' }}>{addError}</p>}
 

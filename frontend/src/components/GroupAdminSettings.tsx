@@ -263,9 +263,9 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
 
       {/* 4. Danger Zone: Delete Group (Owner Only) */}
       {isOwner && (
-        <div className="card" style={{ padding: '1.5rem', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid var(--danger)' }}>
-          <h3 style={{ marginTop: 0, color: 'var(--danger)' }}>⚠️ Danger Zone</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+        <div className="danger-zone">
+          <h3 className="danger-zone-heading">⚠️ Danger Zone</h3>
+          <p className="tune-meta" style={{ marginBottom: '1rem' }}>
             As the owner, you can permanently delete this group, its meeting schedules, shared sets, and membership records. This action cannot be undone.
           </p>
 

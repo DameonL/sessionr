@@ -1,22 +1,22 @@
 "use client";
 
-import { lazy, useEffect, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { lazy, useState } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
   getMyTuneVotes,
-  addTuneSetting,
-  addTuneAlias,
   voteTuneSetting,
   addToRepertoire,
   updateUserTune,
   clearUserTuneSetting,
   formatTuneType,
 } from '../services/api'
-import { useAuthStatus, currentUserProfile, useSignal } from '../state/appState'
-import { extractKeyFromAbc, validateAbc } from '../services/abcTools'
+import { useAuthStatus, showToast } from '../state/appState'
 import { Spinner } from './Spinner'
+import { Dialog } from './Dialog'
+import { NewSettingForm } from './NewSettingForm'
+import { TuneAliases } from './TuneAliases'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
 const SheetMusic = lazy(() => import('./SheetMusic').then((m) => ({ default: m.SheetMusic })))
@@ -48,35 +48,15 @@ export function TuneSettingsModal({
   onSelectSetting,
   actionLabel,
 }: TuneSettingsModalProps) {
-  const queryClient = useQueryClient()
   const authStatus = useAuthStatus()
-  const profile = useSignal(currentUserProfile)
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  // Anonymous visitors can browse and preview settings; every write here needs an account, and
+  // the 401 that used to follow was invisible.
+  const isAnonymous = authStatus === 'anonymous'
 
   // undefined = no explicit user choice yet (show the setting currently in effect, falling back to
   // the first/most-popular one); null = user explicitly collapsed everything; string = user
   // explicitly expanded that setting.
   const [previewSettingId, setPreviewSettingId] = useState<string | null | undefined>(undefined)
-
-  // Submit new setting states
-  const [showNewSettingForm, setShowNewSettingForm] = useState(false)
-  const [newSettingKey, setNewSettingKey] = useState('')
-  const [newSettingAbc, setNewSettingAbc] = useState('')
-  const [newSettingSubmitter, setNewSettingSubmitter] = useState('')
-  const [settingError, setSettingError] = useState<string | null>(null)
-
-  // Submit new alias states
-  const [newAliasName, setNewAliasName] = useState('')
-  const [aliasError, setAliasError] = useState<string | null>(null)
 
   // Fetch full details of the tune
   const { data: details, isPending, isError, refetch } = useQuery({
@@ -107,6 +87,9 @@ export function TuneSettingsModal({
       onAdded()
       onClose()
     },
+    // The modal's primary action. It closes itself on success, so on failure it has to say so —
+    // otherwise nothing moves and the only feedback is that clicking again does nothing either.
+    onError: (err: Error) => showToast(err.message || 'Could not apply that setting.', 'error'),
   })
 
   // Un-pin: fall back to whatever setting the community has voted to the top
@@ -126,36 +109,7 @@ export function TuneSettingsModal({
       refetch()
       refetchMyVotes()
     },
-  })
-
-  // Add setting mutation
-  const addSettingMutation = useMutation({
-    mutationFn: (newSetting: { key: string; abc: string; submitterName: string }) =>
-      addTuneSetting(tuneId, newSetting.key, newSetting.abc, newSetting.submitterName),
-    onSuccess: () => {
-      refetch()
-      setNewSettingKey('')
-      setNewSettingAbc('')
-      setNewSettingSubmitter('')
-      setShowNewSettingForm(false)
-      setSettingError(null)
-    },
-    onError: (err) => {
-      setSettingError(err.message || 'Failed to submit setting.')
-    },
-  })
-
-  // Add alias mutation
-  const addAliasMutation = useMutation({
-    mutationFn: (name: string) => addTuneAlias(tuneId, name),
-    onSuccess: () => {
-      refetch()
-      setNewAliasName('')
-      setAliasError(null)
-    },
-    onError: (err) => {
-      setAliasError(err.message || 'Failed to add alternate name.')
-    },
+    onError: (err: Error) => showToast(err.message || 'Could not record your vote.', 'error'),
   })
 
   const handleVote = (settingId: string, currentVote: number, targetVote: number) => {
@@ -165,170 +119,119 @@ export function TuneSettingsModal({
     voteMutation.mutate({ settingId, value: nextVoteValue })
   }
 
-  const handleSettingSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const validation = validateAbc(newSettingAbc)
-    if (!validation.isValid) {
-      setSettingError(validation.error || 'Invalid ABC notation.')
-      return
-    }
-    const trimmedAbc = validation.trimmedAbc
-    const detectedKey = extractKeyFromAbc(trimmedAbc) || (details ? details.key : '') || 'C'
-    const submitterName = profile?.displayName?.trim() || 'Anonymous'
-    addSettingMutation.mutate({
-      key: detectedKey,
-      abc: trimmedAbc,
-      submitterName,
-    })
-  }
-
-  const handleAliasSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newAliasName.trim()) return
-    addAliasMutation.mutate(newAliasName.trim())
-  }
-
   if (isPending) {
     return (
-      <div className="modal-backdrop" onClick={onClose}>
-        <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
-          <div className="spinner-row"><Spinner /></div>
-        </div>
-      </div>
+      <Dialog isOpen title="Loading tune…" onClose={onClose}>
+        <div className="spinner-row"><Spinner /></div>
+      </Dialog>
     )
   }
 
   if (isError || !details) {
     return (
-      <div className="modal-backdrop" onClick={onClose}>
-        <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
-          <p className="error">Could not load tune details.</p>
-          <button onClick={onClose}>Close</button>
-        </div>
-      </div>
+      <Dialog isOpen title="Tune settings" onClose={onClose}>
+        <p className="error">Could not load tune details.</p>
+        <button onClick={onClose}>Close</button>
+      </Dialog>
     )
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content card tune-settings-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h1 style={{ margin: 0 }}>{details.title}</h1>
-            <span className="tune-meta">{formatTuneType(details.tuneType)}</span>
-          </div>
-          <button className="close-button" onClick={onClose}>✕</button>
-        </div>
+    <Dialog
+      isOpen
+      title={details.title}
+      onClose={onClose}
+      className="tune-settings-modal"
+      maxWidth="680px"
+    >
+      <p className="tune-meta" style={{ marginTop: 0 }}>{formatTuneType(details.tuneType)}</p>
 
-        {/* Alternate Names Section */}
-        <div className="modal-section alternate-names-section">
-          <h3>Alternate Names</h3>
-          <div className="alias-container">
-            {details.aliases.length === 0 ? (
-              <span className="tune-meta italic">No alternate names registered yet.</span>
-            ) : (
-              details.aliases.map((alias, i) => (
-                <span key={i} className="badge badge-learning alias-badge">{alias}</span>
-              ))
-            )}
-          </div>
+      {/* Settings List */}
+      <div className="modal-section">
+        <h3>Select a Setting to Add</h3>
+        <div className="settings-list-container">
+          {details.settings.map((s, index) => {
+            const isCurrent = currentTuneSettingId === s.tuneSettingId
+            const defaultPreviewed = currentTuneSettingId ? isCurrent : index === 0
+            const isPreviewed =
+              previewSettingId === undefined ? defaultPreviewed : previewSettingId === s.tuneSettingId
+            const userVoteValue = myVotes?.[s.tuneSettingId] ?? s.userVoteValue ?? 0
+            const hasUpvoted = userVoteValue === 1
+            const hasDownvoted = userVoteValue === -1
 
-          <form onSubmit={handleAliasSubmit} className="add-alias-form" style={{ marginTop: '0.75rem' }}>
-            <input
-              type="text"
-              placeholder="Add alternate name..."
-              value={newAliasName}
-              onChange={(e) => setNewAliasName(e.target.value)}
-              disabled={addAliasMutation.isPending}
-              style={{ flex: 1, padding: '0.35rem 0.6rem', fontSize: '0.85rem' }}
-            />
-            <button type="submit" disabled={addAliasMutation.isPending || !newAliasName.trim()}>
-              + Add Name
-            </button>
-          </form>
-          {aliasError && <p className="error" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>{aliasError}</p>}
-        </div>
-
-        {/* Settings List */}
-        <div className="modal-section">
-          <h3>Select a Setting to Add</h3>
-          <div className="settings-list-container">
-            {details.settings.map((s, index) => {
-              const isCurrent = currentTuneSettingId === s.tuneSettingId
-              const defaultPreviewed = currentTuneSettingId ? isCurrent : index === 0
-              const isPreviewed =
-                previewSettingId === undefined ? defaultPreviewed : previewSettingId === s.tuneSettingId
-              const userVoteValue = myVotes?.[s.tuneSettingId] ?? s.userVoteValue ?? 0
-              const hasUpvoted = userVoteValue === 1
-              const hasDownvoted = userVoteValue === -1
-
-              return (
-                <div key={s.tuneSettingId} className={`setting-card${isCurrent ? ' is-current' : ''}`}>
-                  <div className="setting-card-header">
-                    <div>
-                      <span className="setting-key-badge">Key: {s.key}</span>
-                      <span className="setting-submitter text-muted">by {s.submitterName}</span>
-                      {isCurrent && (
-                        <span className="badge badge-active current-setting-badge">
-                          {isPinnedSetting === false ? 'Community default' : 'Current setting'}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="setting-actions">
-                      {/* Voting buttons */}
-                      <div className="vote-controls">
-                        <button
-                          className={`vote-btn upvote-btn ${hasUpvoted ? 'active' : ''}`}
-                          onClick={() => handleVote(s.tuneSettingId, userVoteValue, 1)}
-                          title="Upvote"
-                        >
-                          ▲
-                        </button>
-                        <span className="vote-score">{s.voteScore}</span>
-                        <button
-                          className={`vote-btn downvote-btn ${hasDownvoted ? 'active' : ''}`}
-                          onClick={() => handleVote(s.tuneSettingId, userVoteValue, -1)}
-                          title="Downvote"
-                        >
-                          ▼
-                        </button>
-                      </div>
-
+            return (
+              <div key={s.tuneSettingId} className={`setting-card${isCurrent ? ' is-current' : ''}`}>
+                <div className="setting-card-header">
+                  <div className="setting-card-meta">
+                    <span className="setting-key-badge">Key: {s.key}</span>
+                    <span className="setting-submitter text-muted">by {s.submitterName}</span>
+                    {isCurrent && (
+                      <span className="badge badge-active current-setting-badge">
+                        {isPinnedSetting === false ? 'Community default' : 'Current setting'}
+                      </span>
+                    )}
+                    <div className="vote-controls">
                       <button
-                        className="preview-btn secondary"
-                        onClick={() => setPreviewSettingId(isPreviewed ? null : s.tuneSettingId)}
+                        className={`vote-btn upvote-btn ${hasUpvoted ? 'active' : ''}`}
+                        onClick={() => handleVote(s.tuneSettingId, userVoteValue, 1)}
+                        disabled={isAnonymous || voteMutation.isPending}
+                        title={isAnonymous ? 'Sign in to vote' : 'Upvote'}
+                        aria-label={`Upvote the setting by ${s.submitterName}`}
+                        aria-pressed={hasUpvoted}
                       >
-                        {isPreviewed ? 'Hide Sheet' : 'Preview'}
+                        ▲
                       </button>
-
+                      <span className="vote-score">{s.voteScore}</span>
                       <button
-                        className="add-setting-action"
-                        onClick={() => actionMutation.mutate(s.tuneSettingId)}
-                        disabled={actionMutation.isPending || (isCurrent && isPinnedSetting !== false)}
+                        className={`vote-btn downvote-btn ${hasDownvoted ? 'active' : ''}`}
+                        onClick={() => handleVote(s.tuneSettingId, userVoteValue, -1)}
+                        disabled={isAnonymous || voteMutation.isPending}
+                        title={isAnonymous ? 'Sign in to vote' : 'Downvote'}
+                        aria-label={`Downvote the setting by ${s.submitterName}`}
+                        aria-pressed={hasDownvoted}
                       >
-                        {isCurrent && isPinnedSetting !== false
-                          ? 'In use'
-                          : actionLabel ?? (userTuneId !== undefined ? 'Switch to this setting' : '+ Add this setting')}
+                        ▼
                       </button>
                     </div>
                   </div>
 
-                  {/* Sheet Music Preview */}
-                  {isPreviewed && (
-                    <div className="setting-sheet-preview">
-                      <SheetMusic abcString={s.abcText} />
-                      <pre className="abc-code-block">{s.abcText}</pre>
-                    </div>
-                  )}
+                  <div className="setting-actions">
+                    <button
+                      className="preview-btn secondary"
+                      onClick={() => setPreviewSettingId(isPreviewed ? null : s.tuneSettingId)}
+                    >
+                      {isPreviewed ? 'Hide Sheet' : 'Preview'}
+                    </button>
+
+                    <button
+                      className="add-setting-action"
+                      onClick={() => actionMutation.mutate(s.tuneSettingId)}
+                      disabled={
+                        isAnonymous || actionMutation.isPending || (isCurrent && isPinnedSetting !== false)
+                      }
+                      title={isAnonymous ? 'Sign in to add this tune' : undefined}
+                    >
+                      {isCurrent && isPinnedSetting !== false
+                        ? 'In use'
+                        : actionLabel ?? (userTuneId !== undefined ? 'Switch to this setting' : '+ Add this setting')}
+                    </button>
+                  </div>
                 </div>
-              )
-            })}
-          </div>
+
+                {/* Sheet Music Preview */}
+                {isPreviewed && (
+                  <div className="setting-sheet-preview">
+                    <SheetMusic abcString={s.abcText} />
+                    <pre className="abc-code-block">{s.abcText}</pre>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         {userTuneId !== undefined && !onSelectSetting && isPinnedSetting && (
-          <div className="modal-section">
+          <div className="settings-list-footer">
             <button
               className="secondary w-full"
               onClick={() => useDefaultMutation.mutate()}
@@ -344,45 +247,17 @@ export function TuneSettingsModal({
             )}
           </div>
         )}
-
-        {/* Submit Setting Section */}
-        <div className="modal-section submit-setting-section">
-          {!showNewSettingForm ? (
-            <button className="secondary w-full" onClick={() => setShowNewSettingForm(true)}>
-              + Submit an Alternate Setting
-            </button>
-          ) : (
-            <form onSubmit={handleSettingSubmit} className="new-setting-form">
-              <h4>Submit alternate setting</h4>
-              <div className="tune-meta" style={{ marginBottom: '0.75rem', fontSize: '0.85rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                <span>Key: <strong>{extractKeyFromAbc(newSettingAbc) || (details ? details.key : 'Auto-detected from K:')}</strong></span>
-                <span>Submitter: <strong>{profile?.displayName || 'Anonymous'}</strong></span>
-              </div>
-              <label>
-                ABC Notation
-                <textarea
-                  placeholder="Paste ABC text here..."
-                  value={newSettingAbc}
-                  onChange={(e) => setNewSettingAbc(e.target.value)}
-                  rows={6}
-                  required
-                />
-              </label>
-
-              {settingError && <p className="error">{settingError}</p>}
-
-              <div className="form-actions">
-                <button type="button" className="secondary" onClick={() => setShowNewSettingForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" disabled={addSettingMutation.isPending}>
-                  Submit Setting
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
       </div>
-    </div>
+
+      <TuneAliases tuneId={tuneId} aliases={details.aliases} onAdded={refetch} />
+
+      {isAnonymous ? (
+        <p className="tune-meta">Sign in to add this tune, vote on settings, or submit your own.</p>
+      ) : (
+        <div className="modal-section submit-setting-section">
+          <NewSettingForm tuneId={tuneId} fallbackKey={details.key} onSubmitted={refetch} />
+        </div>
+      )}
+    </Dialog>
   )
 }
