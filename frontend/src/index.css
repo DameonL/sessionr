@@ -1568,6 +1568,13 @@ a.stat:hover {
   padding: 1.5rem;
 }
 
+/* Stands in for the player toolbar until abcjs has engraved the staff, so the
+   page doesn't jump when the real controls replace it. */
+.player-loading {
+  align-items: center;
+  min-height: 5.5rem;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

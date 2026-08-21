@@ -13,6 +13,7 @@ import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePl
 import { getDefaultTargetBpm } from "../services/api";
 import { applyCustomTripletSwing, isDupleMeter } from "../services/swing";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
+import { Spinner } from "./Spinner";
 import {
   MetronomeControls,
   StaffLine,
@@ -154,12 +155,22 @@ export function SetPlayer({
   trainerRef.current = trainer;
   const [passCount, setPassCount] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * False until abcjs has actually engraved the items. The controls are hidden
+   * behind a spinner until then: a caller can hand us items whose `abc` is still
+   * empty (a repertoire item served from the offline cache before the ABC has
+   * arrived), and a toolbar that looks ready over a blank staff invites a Play
+   * that computes zero-length durations and silently does nothing.
+   */
+  const [sheetReady, setSheetReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isFullscreenRef = useRef(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const isSingle = isSingleTune || items.length === 1;
+  const hasRenderableAbc = items.length > 0 && items.every((i) => i.abc.trim() !== "");
+  const isReady = hasRenderableAbc && sheetReady;
   const isBandMode = bandPrefs.mode === "band";
 
   /**
@@ -294,6 +305,12 @@ export function SetPlayer({
   useEffect(() => {
     noteTimingsRef.current = [];
     tuneLinesRef.current = [];
+    if (!hasRenderableAbc) {
+      // Nothing to engrave yet — leave the spinner up rather than rendering an
+      // empty staff under a live toolbar. Re-runs when the ABC arrives.
+      setSheetReady(false);
+      return;
+    }
     const savedTempo = loadTunePlaybackPrefs(tuneKey);
     const hasSavedTempo = savedTempo.tempoPercent !== 100 || savedTempo.swingPercent !== 0;
     visualObjsRef.current = items.map((item, index) => {
@@ -325,8 +342,9 @@ export function SetPlayer({
       }
       return visualObj;
     });
+    setSheetReady(true);
     return () => stop(false);
-  }, [itemsKey, targetBpm]);
+  }, [itemsKey, targetBpm, hasRenderableAbc]);
 
   function checkAutoScroll(tuneIndex: number, ev: { top?: number }) {
     if (!isFullscreenRef.current || typeof ev.top !== "number") return;
@@ -656,6 +674,9 @@ export function SetPlayer({
   }
 
   async function play(targetBpmParam?: number, keepPosition = positionSec > 0) {
+    // The controls are hidden until isReady, but fullscreen/keyboard paths and a
+    // mid-flight items change can still get here before the staff exists.
+    if (!isReady) return;
     const wasStopped = status === "stopped";
     stop(keepPosition);
     const mySession = playSessionRef.current;
@@ -928,7 +949,7 @@ export function SetPlayer({
 
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
-      {isFullscreen && (
+      {isFullscreen && isReady && (
         <div className={`fullscreen-controls ${showFsControls ? "" : "hidden"}`}>
           <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())} title={status === "playing" ? "Pause" : "Play"}>
             {status === "playing" ? "⏸" : "▶"}
@@ -988,6 +1009,13 @@ export function SetPlayer({
         </div>
       )}
 
+      {!isReady && (
+        <div className="player-loading spinner-row" role="status" aria-live="polite">
+          <Spinner />
+        </div>
+      )}
+
+      {isReady && (<>
       <div className="player-controls primary-controls">
         <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())}>
           {status === "playing" ? "⏸ Pause" : isSingle ? "▶ Play" : "▶ Play set"}
@@ -1108,8 +1136,9 @@ export function SetPlayer({
         </div>
         <span className="time-label">{formatTime(currentTotalSec)}</span>
       </div>
+      </>)}
 
-      {showAdvanced && (
+      {isReady && showAdvanced && (
         <div className="advanced-controls-panel">
           <div className="advanced-section">
             <h4 className="advanced-section-title">Playback & Tempo</h4>
