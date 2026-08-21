@@ -54,7 +54,7 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
     private volatile Snapshot _snapshot = new([], new Dictionary<long, List<int>>(), DateTime.MinValue);
 
     /// <summary>Rebuilds the index now, regardless of the TTL. Used by the moderator refresh endpoint.</summary>
-    public Task ForceRefreshAsync(CancellationToken ct = default) => RebuildAsync(ct);
+    public Task ForceRefreshAsync(CancellationToken ct = default) => RebuildAsync(ct, force: true);
 
     public async Task<IReadOnlyList<TuneMatchCandidateDto>> MatchAsync(int[] queryIntervals, int topN = 5, CancellationToken ct = default)
     {
@@ -124,17 +124,23 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         {
             return;
         }
-        await RebuildAsync(ct);
+        await RebuildAsync(ct, force: false);
     }
 
-    private async Task RebuildAsync(CancellationToken ct)
+    /// <param name="force">
+    /// Skips the "someone else just rebuilt" short-circuit. A TTL-driven rebuild wants that
+    /// short-circuit — several requests arriving on a cold index should produce one rebuild, not
+    /// one each. An explicit refresh must not take it: the caller is asking precisely because the
+    /// library changed underneath a snapshot that is still, by the clock, perfectly fresh.
+    /// </param>
+    private async Task RebuildAsync(CancellationToken ct, bool force)
     {
         await _rebuildLock.WaitAsync(ct);
         try
         {
             // Another caller may have just finished a rebuild while we waited.
             var current = _snapshot;
-            if (current.Entries.Count > 0 && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
+            if (!force && current.Entries.Count > 0 && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
             {
                 return;
             }
