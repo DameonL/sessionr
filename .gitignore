@@ -1,6 +1,6 @@
 # --- .NET / Azure Functions (api) ---
-api/**/bin/
-api/**/obj/
+**/bin/
+**/obj/
 api/**/local.settings.json
 api/sessionapp.dev.db*
 /sessionapp.dev.db*
@@ -22,3 +22,5 @@ npm-debug.log*
 .vscode
 
 .next
+# Test artifacts
+TestResults/

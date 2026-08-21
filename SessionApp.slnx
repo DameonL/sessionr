@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/api/" />
+  <Folder Name="/api/Private/">
+    <Project Path="api/Private/SessionApp.Api.Private.csproj" />
+  </Folder>
+  <Folder Name="/api/Public/">
+    <Project Path="api/Public/SessionApp.Api.Public.csproj" />
+  </Folder>
+  <Folder Name="/api/Shared/">
+    <Project Path="api/Shared/SessionApp.Api.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SessionApp.Api.IntegrationTests/SessionApp.Api.IntegrationTests.csproj" />
+    <Project Path="tests/SessionApp.Api.TestSupport/SessionApp.Api.TestSupport.csproj" />
+    <Project Path="tests/SessionApp.Api.UnitTests/SessionApp.Api.UnitTests.csproj" />
+  </Folder>
+</Solution>

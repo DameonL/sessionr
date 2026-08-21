@@ -18,10 +18,21 @@ public static class DbSetup
 {
     /// <summary>Registers AppDbContext and returns whether it's running against local SQLite (vs. Cosmos DB).</summary>
     public static bool AddSessionAppDbContext(this IServiceCollection services)
-    {
         // Only a genuine Cosmos connection string may drive the runtime context.
-        var cosmosConnectionString = Environment.GetEnvironmentVariable("CosmosConnectionString")
-            ?? Environment.GetEnvironmentVariable("MongoConnectionString");
+        => services.AddSessionAppDbContext(
+            Environment.GetEnvironmentVariable("CosmosConnectionString")
+                ?? Environment.GetEnvironmentVariable("MongoConnectionString"),
+            Environment.GetEnvironmentVariable("CosmosDatabaseName"));
+
+    /// <summary>
+    /// Registers AppDbContext against an explicitly supplied Cosmos connection string, falling back to
+    /// local SQLite when it is null or blank. The parameterless overload above supplies the values from
+    /// the environment; tests pass them directly so they can point the *same* registration path at a
+    /// throwaway Cosmos emulator database without mutating process-wide environment variables.
+    /// </summary>
+    public static bool AddSessionAppDbContext(
+        this IServiceCollection services, string? cosmosConnectionString, string? databaseName)
+    {
         var useSqlite = string.IsNullOrWhiteSpace(cosmosConnectionString);
 
         services.AddDbContext<AppDbContext>(options =>
@@ -39,7 +50,7 @@ public static class DbSetup
             }
             else
             {
-                var dbName = Environment.GetEnvironmentVariable("CosmosDatabaseName") ?? "sessionr";
+                var dbName = string.IsNullOrWhiteSpace(databaseName) ? "sessionr" : databaseName;
                 options.UseCosmos(cosmosConnectionString!, dbName, cosmos =>
                 {
                     // Gateway mode is the recommended connection mode for Azure Functions: Direct mode

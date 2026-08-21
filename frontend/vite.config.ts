@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
@@ -29,5 +30,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+  },
+  test: {
+    // jsdom rather than node: several of the services under test touch localStorage or window
+    // at module scope, so they cannot even be imported in a bare node environment.
+    environment: 'jsdom',
+    globals: true,
+    include: ['src/**/*.test.ts'],
   },
 })
