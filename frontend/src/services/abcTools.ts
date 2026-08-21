@@ -28,16 +28,35 @@ const ROOT_PITCHES: Record<string, number> = {
   'b': 11,
 }
 
+/**
+ * Distance from the mode's tonic to the major key sharing its signature, in steps around the
+ * circle of fifths (E dorian is two flats-ward of E major, i.e. D major's signature).
+ *
+ * Must stay complete with respect to every canonical value MODE_ALIASES can produce: both
+ * transposeAbc and earTraining feed parseKeyDetails' output straight back into
+ * parseKeySignature, so a mode this table doesn't know silently falls back to the parallel
+ * *major*'s accidentals. Mirrors MajorPitchClass in api/Shared/Services/TuneHeuristics.cs.
+ */
 const MODE_SHIFTS: Record<string, number> = {
+  lyd: 1,
+  lydian: 1,
   maj: 0,
   major: 0,
+  ion: 0,
+  ionian: 0,
   mix: -1,
   mixolydian: -1,
   dor: -2,
   dorian: -2,
   min: -3,
   minor: -3,
+  m: -3,
+  aeo: -3,
   aeolian: -3,
+  phr: -4,
+  phrygian: -4,
+  loc: -5,
+  locrian: -5,
 }
 
 const ROOT_TO_SHARPS: Record<string, number> = {
@@ -61,19 +80,49 @@ const ROOT_TO_SHARPS: Record<string, number> = {
   cb: -7,
 }
 
+/** Every spelling of a mode ABC is written in, mapped to the canonical abbreviation we emit. */
 const MODE_ALIASES: Record<string, string> = {
   maj: 'maj',
   major: 'maj',
+  ion: 'maj',
+  ionian: 'maj',
   min: 'min',
   minor: 'min',
   m: 'min',
+  aeo: 'min',
+  aeolian: 'min',
   mix: 'mix',
   mixolydian: 'mix',
   dor: 'dor',
   dorian: 'dor',
-  aeolian: 'min',
+  phr: 'phr',
   phrygian: 'phr',
+  lyd: 'lyd',
   lydian: 'lyd',
+  loc: 'loc',
+  locrian: 'loc',
+}
+
+/**
+ * Resolves a mode suffix against a lookup table, longest matching alias first.
+ *
+ * The length ordering is the point, not a detail: these tables are scanned by prefix, so a
+ * short entry that happens to prefix a longer one shadows it entirely if it is reached first.
+ * That is what made every mixolydian tune parse as minor — 'm' sat above 'mix', so "mix"
+ * matched 'm' and stopped. Picking the longest match makes the result independent of the
+ * order the entries happen to be declared in.
+ */
+function matchMode<T>(modeText: string, table: Record<string, T>): T | undefined {
+  const clean = modeText.toLowerCase().replace(/\s+/g, '')
+  if (!clean) return undefined
+
+  let bestAlias: string | undefined
+  for (const alias of Object.keys(table)) {
+    if (clean.startsWith(alias) && (bestAlias === undefined || alias.length > bestAlias.length)) {
+      bestAlias = alias
+    }
+  }
+  return bestAlias === undefined ? undefined : table[bestAlias]
 }
 
 export function parseKeySignature(kStr: string): { root: string; sharps: number } | null {
@@ -87,15 +136,8 @@ export function parseKeySignature(kStr: string): { root: string; sharps: number 
   const baseSharps = ROOT_TO_SHARPS[root]
   if (baseSharps === undefined) return null
 
-  let modeShift = 0
-  if (modePart) {
-    for (const [mName, shift] of Object.entries(MODE_SHIFTS)) {
-      if (modePart.startsWith(mName)) {
-        modeShift = shift
-        break
-      }
-    }
-  }
+  // An unrecognized suffix falls back to major, the same as no suffix at all.
+  const modeShift = modePart ? matchMode(modePart, MODE_SHIFTS) ?? 0 : 0
 
   return { root, sharps: baseSharps + modeShift }
 }
@@ -112,14 +154,7 @@ export function parseKeyDetails(kStr: string) {
   const rootPitch = ROOT_PITCHES[rootKey]
   if (rootPitch === undefined) return null
 
-  let mode = 'maj'
-  const cleanMode = modeStr.toLowerCase().replace(/\s+/g, '')
-  for (const [alias, canonical] of Object.entries(MODE_ALIASES)) {
-    if (cleanMode.startsWith(alias)) {
-      mode = canonical
-      break
-    }
-  }
+  const mode = matchMode(modeStr, MODE_ALIASES) ?? 'maj'
 
   return { root, mode, rootPitch }
 }
@@ -164,7 +199,11 @@ function midiToAbcNote(midi: number, newSharps: number): string {
     if (needed > 6) needed -= 12
     if (needed < -6) needed += 12
 
-    if (Math.abs(needed) < Math.abs(bestVal)) {
+    // A black key sits a semitone from two letters, so the accidental count ties and the key
+    // signature decides: in a flat key Db is _D, not the ^C the letter order would otherwise pick.
+    const tie = Math.abs(needed) === Math.abs(bestVal)
+    const preferred = tie && (newSharps < 0 ? needed < bestVal : needed > bestVal)
+    if (Math.abs(needed) < Math.abs(bestVal) || preferred) {
       bestVal = needed
       bestLetter = letter
     }
@@ -301,20 +340,115 @@ function transposeLine(line: string, interval: number, oldSharps: number, newSha
   return result
 }
 
-export function transposeAbc(abcText: string, targetRoot: string): string {
-  const lines = abcText.split('\n')
-  let keyLineIdx = -1
-  let keyDetails: ReturnType<typeof parseKeyDetails> = null
+/**
+ * Every spelling of a pitch class we are willing to name a key after, best-first.
+ *
+ * Deliberately narrower than ROOT_PITCHES: it omits D#, G# and A#, whose ROOT_TO_SHARPS entries
+ * carry their flat twins' signatures rather than their own (D# major is nine sharps, not three
+ * flats), so choosing one would name a key whose accidentals we then get wrong. Where two honest
+ * spellings exist the mode decides between them, and the first entry breaks a tie.
+ */
+const KEY_ROOT_SPELLINGS: Record<number, string[]> = {
+  0: ['C'],
+  1: ['Db', 'C#'],
+  2: ['D'],
+  3: ['Eb'],
+  4: ['E'],
+  5: ['F'],
+  6: ['F#', 'Gb'],
+  7: ['G'],
+  8: ['Ab'],
+  9: ['A'],
+  10: ['Bb'],
+  11: ['B', 'Cb'],
+}
 
+/**
+ * Names a pitch class as a key root, picking the spelling that gives the mode the fewest
+ * accidentals — C# dorian (five sharps) rather than Db dorian (seven flats).
+ */
+function spellKeyRoot(pitchClass: number, mode: string): string {
+  const candidates = KEY_ROOT_SPELLINGS[pitchClass] ?? ['C']
+  const modeShift = MODE_SHIFTS[mode] ?? 0
+
+  let best = candidates[0]
+  let bestSharps = Math.abs((ROOT_TO_SHARPS[best.toLowerCase()] ?? 0) + modeShift)
+  for (const candidate of candidates.slice(1)) {
+    const sharps = Math.abs((ROOT_TO_SHARPS[candidate.toLowerCase()] ?? 0) + modeShift)
+    if (sharps < bestSharps) {
+      best = candidate
+      bestSharps = sharps
+    }
+  }
+  return best
+}
+
+function findKeyLine(lines: string[]) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
     if (line.toLowerCase().startsWith('k:')) {
-      keyLineIdx = i
-      const kStr = line.slice(2).trim()
-      keyDetails = parseKeyDetails(kStr)
-      break
+      return { keyLineIdx: i, keyDetails: parseKeyDetails(line.slice(2).trim()) }
     }
   }
+  return { keyLineIdx: -1, keyDetails: null as ReturnType<typeof parseKeyDetails> }
+}
+
+/**
+ * Rewrites the key header and shifts every note by `semitones`.
+ *
+ * The header is derived from `newKeyStr` rather than from the interval, so a caller shifting by a
+ * whole number of octaves passes the unchanged key back in and only the notes move.
+ */
+function renderTransposed(
+  lines: string[],
+  keyLineIdx: number,
+  semitones: number,
+  newKeyStr: string,
+  oldSharps: number,
+  newSharps: number,
+): string {
+  return lines
+    .map((line, idx) => {
+      if (idx === keyLineIdx) {
+        const match = lines[idx].match(/^([Kk]:\s*)[^%]*(.*)$/)
+        if (match) {
+          return `${match[1]}${newKeyStr}${match[2]}`
+        }
+        return `K:${newKeyStr}`
+      }
+      return transposeLine(line, semitones, oldSharps, newSharps)
+    })
+    .join('\n')
+}
+
+/**
+ * Shifts a tune by a signed number of semitones, keeping direction and distance exactly as asked.
+ *
+ * Unlike transposeAbc, which is handed a destination key and always takes the shorter way round,
+ * this preserves the octave the caller is steering toward: twelve steps the same direction is a
+ * clean octave, and ±12 leaves the key header alone while every note moves.
+ */
+export function transposeAbcBySemitones(abcText: string, semitones: number): string {
+  if (semitones === 0) return abcText
+
+  const lines = abcText.split('\n')
+  const { keyLineIdx, keyDetails } = findKeyLine(lines)
+
+  const oldRoot = keyDetails ? keyDetails.root : 'C'
+  const oldMode = keyDetails ? keyDetails.mode : 'maj'
+  const oldRootPitch = keyDetails ? keyDetails.rootPitch : 0
+  const oldSharps = parseKeySignature(oldRoot + oldMode)?.sharps ?? 0
+
+  const newRootPitch = (((oldRootPitch + semitones) % 12) + 12) % 12
+  const newKeyStr = spellKeyRoot(newRootPitch, oldMode) + (oldMode === 'maj' ? '' : oldMode)
+  const newSharps = parseKeySignature(newKeyStr)?.sharps ?? 0
+
+  return renderTransposed(lines, keyLineIdx, semitones, newKeyStr, oldSharps, newSharps)
+}
+
+export function transposeAbc(abcText: string, targetRoot: string): string {
+  const lines = abcText.split('\n')
+  const { keyLineIdx, keyDetails } = findKeyLine(lines)
 
   const oldRoot = keyDetails ? keyDetails.root : 'C'
   const oldMode = keyDetails ? keyDetails.mode : 'maj'
@@ -335,18 +469,7 @@ export function transposeAbc(abcText: string, targetRoot: string): string {
   const newKeyStr = newRootFormatted + (oldMode === 'maj' ? '' : oldMode)
   const newSharps = parseKeySignature(newKeyStr)?.sharps ?? 0
 
-  const transposedLines = lines.map((line, idx) => {
-    if (idx === keyLineIdx) {
-      const match = lines[idx].match(/^([Kk]:\s*)[^%]*(.*)$/)
-      if (match) {
-        return `${match[1]}${newKeyStr}${match[2]}`
-      }
-      return `K:${newKeyStr}`
-    }
-    return transposeLine(line, finalInterval, oldSharps, newSharps)
-  })
-
-  return transposedLines.join('\n')
+  return renderTransposed(lines, keyLineIdx, finalInterval, newKeyStr, oldSharps, newSharps)
 }
 
 function foldNoteLine(line: string, minMidi: number, maxMidi: number, sharps: number): string {
