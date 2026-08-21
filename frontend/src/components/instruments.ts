@@ -95,9 +95,15 @@ const EPSILON = 0.0001
 /**
  * Subdivides any notes in a sequence track that are strictly longer than 1/8th note
  * (duration > 0.125 whole notes) into consecutive 1/8th notes that add up to the
- * original note duration.
+ * original note duration, so plucked/decaying instruments re-strike instead of
+ * fading to silence.
+ *
+ * Rewrites the track in place and returns nothing: abcjs's sequenceCallback discards
+ * whatever the callback returns and goes on using its own noteMapTracks (see
+ * create-synth.js, "prime"), so a version of this that returned a new array — as this
+ * once did — was a silent no-op. Same contract as humanizeBackerTracks in services/band.ts.
  */
-export function subdivideLongNotes(track: abcjs.NoteMapTrack): abcjs.NoteMapTrack {
+export function subdivideLongNotes(track: abcjs.NoteMapTrack): void {
   const newTrack: abcjs.NoteMapTrack = []
   for (const note of track) {
     const duration = note.end - note.start
@@ -116,6 +122,8 @@ export function subdivideLongNotes(track: abcjs.NoteMapTrack): abcjs.NoteMapTrac
       newTrack.push(note)
     }
   }
-  return newTrack
+  // Splice-with-spread would risk an argument-count ceiling on a long track; push instead.
+  track.length = 0
+  for (const note of newTrack) track.push(note)
 }
 

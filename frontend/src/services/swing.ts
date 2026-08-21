@@ -1,31 +1,40 @@
 import type abcjs from 'abcjs'
 
 /**
- * Returns true if a meter is duple or quadruple time (e.g. 4/4, 2/4, 2/2, common time),
- * where notes organize into pairs of 8th notes and native duple swing applies.
- * Compound (6/8, 9/8, 12/8) and triple (3/4, 3/2, 9/4) meters return false.
+ * Returns true for compound meters (6/8, 9/8, 12/8), where the beat divides into three
+ * and the lilt lengthens the first of each group of three — the jig/slip jig/slide feel.
+ *
+ * Everything else (4/4, 2/4, 2/2, 3/4) belongs to abcjs's own swing, which is correct for
+ * den === 4 but halves its beat length when den === 8, swinging 16ths rather than the
+ * first-of-three quavers. Missing or malformed meters report false, so they fall back to
+ * that native path.
  */
-export function isDupleMeter(meter: { num?: number; den?: number } | null | undefined): boolean {
-  if (!meter || typeof meter.num !== 'number' || typeof meter.den !== 'number') return true
-  if (meter.num === 0 || meter.den === 0) return true
-  return (meter.num === 4 || meter.num === 2) && (meter.den === 4 || meter.den === 2)
+export function isCompoundMeter(meter: { num?: number; den?: number } | null | undefined): boolean {
+  if (!meter || typeof meter.num !== 'number' || typeof meter.den !== 'number') return false
+  if (meter.num === 0 || meter.den === 0) return false
+  return meter.den === 8 && meter.num % 3 === 0
 }
 
 /**
- * Applies custom triplet swing to sequence tracks for non-duple meters (such as 6/8, 9/8, 12/8, 3/4).
+ * Applies triplet swing to compound-meter sequence tracks.
  * Identifies 3-note triplet groups (consecutive notes with near-equal step durations) and:
  * - Accents the 1st note volume (+35% * swingRatio) while slightly softening follower notes.
  * - Lengthens the 1st note duration (+35% * swingRatio) and shifts start times of 2nd and 3rd notes.
+ *
+ * Mutates the tracks in place and returns nothing: abcjs's sequenceCallback discards whatever
+ * the callback returns and goes on using its own noteMapTracks (see create-synth.js, "prime"),
+ * so a version of this that built new arrays — as this once did — was a silent no-op.
+ * Same contract as humanizeBackerTracks in services/band.ts.
  */
-export function applyCustomTripletSwing(tracks: abcjs.NoteMapTrack[], swingPercent: number): abcjs.NoteMapTrack[] {
-  if (swingPercent <= 0) return tracks
+export function applyCustomTripletSwing(tracks: abcjs.NoteMapTrack[], swingPercent: number): void {
+  if (swingPercent <= 0) return
   const swingRatio = Math.min(Math.max(swingPercent / 100, 0), 1)
 
-  return tracks.map((track) => {
-    if (!track || track.length === 0) return track
+  for (const track of tracks) {
+    if (!track || track.length === 0) continue
 
     const startTimes = Array.from(new Set(track.map((n) => n.start))).sort((a, b) => a - b)
-    if (startTimes.length < 3) return track
+    if (startTimes.length < 3) continue
 
     const startMapping = new Map<number, { newStart: number; newEnd: number; volumeMult: number }>()
 
@@ -64,20 +73,16 @@ export function applyCustomTripletSwing(tracks: abcjs.NoteMapTrack[], swingPerce
       }
     }
 
-    if (startMapping.size === 0) return track
+    if (startMapping.size === 0) continue
 
-    return track.map((note) => {
+    for (const note of track) {
+      // Read the key out before writing: the lookup is keyed on the *original* start.
       const mapping = startMapping.get(note.start)
-      if (mapping) {
-        const currentVol = typeof note.volume === 'number' ? note.volume : 90
-        return {
-          ...note,
-          start: mapping.newStart,
-          end: mapping.newEnd,
-          volume: Math.min(127, Math.max(1, Math.round(currentVol * mapping.volumeMult))),
-        }
-      }
-      return note
-    })
-  })
+      if (!mapping) continue
+      const currentVol = typeof note.volume === 'number' ? note.volume : 90
+      note.start = mapping.newStart
+      note.end = mapping.newEnd
+      note.volume = Math.min(127, Math.max(1, Math.round(currentVol * mapping.volumeMult)))
+    }
+  }
 }

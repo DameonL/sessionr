@@ -11,7 +11,7 @@ import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran"
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
-import { applyCustomTripletSwing, isDupleMeter } from "../services/swing";
+import { applyCustomTripletSwing, isCompoundMeter } from "../services/swing";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
 import { Spinner } from "./Spinner";
 import {
@@ -599,7 +599,9 @@ export function SetPlayer({
 
     try {
       const meter = visualObj.getMeterFraction();
-      const duple = isDupleMeter(meter);
+      // Compound meters (6/8, 9/8, 12/8) lilt the first of each three; everything else
+      // uses abcjs's own swing, which is a no-op at 0% (toAbcjsSwing(0) === 50).
+      const compound = isCompoundMeter(meter);
       const swingPercent = swingPercentRef.current;
 
       if (voicesToUse.length > 0) {
@@ -608,7 +610,7 @@ export function SetPlayer({
         return await Promise.all(
           voicesToUse.map((voice) =>
             createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
-              swing: duple ? toAbcjsSwing(swingPercent) : undefined,
+              swing: compound ? undefined : toAbcjsSwing(swingPercent),
               swingPercent,
               bodhran: useBodhran,
             }),
@@ -625,23 +627,27 @@ export function SetPlayer({
         millisecondsPerMeasure: msPerMeasure,
         options: {
           ...synthInstrumentOptions(currentInst),
-          swing: duple ? toAbcjsSwing(swingPercent) : undefined,
+          swing: compound ? undefined : toAbcjsSwing(swingPercent),
           drum: bodhranPattern,
           drumBars: bodhranPattern ? 1 : undefined,
+          // abcjs discards this callback's return value, so both helpers rewrite the
+          // tracks in place. Order matters: swing moves note starts, and subdivision
+          // splits from those (already swung) starts.
           sequenceCallback: (tracks) => {
-            if (!duple && swingPercent > 0) {
-              tracks = applyCustomTripletSwing(tracks, swingPercent);
+            if (compound && swingPercent > 0) {
+              applyCustomTripletSwing(tracks, swingPercent);
             }
-            return tracks.map((track, trackIdx) => {
+            tracks.forEach((track, trackIdx) => {
               let prog: number | string = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
               if (track.length > 0 && track[0].instrument) {
                 prog = track[0].instrument;
               }
               if (shouldSubdivideInstrument(prog)) {
-                return subdivideLongNotes(track);
+                subdivideLongNotes(track);
               }
-              return track;
             });
+            // Ignored at runtime; abcjs's type declaration still demands a return.
+            return tracks;
           },
         },
       });
