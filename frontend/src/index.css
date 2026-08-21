@@ -1151,6 +1151,11 @@ a.stat:hover {
   text-align: center;
 }
 
+/* Wide enough that stepping through keys doesn't shuffle the arrows around: "Ador" is four glyphs. */
+.vote-score.transpose-key {
+  min-width: 3.5rem;
+}
+
 .setting-sheet-preview {
   margin-top: 1rem;
   border-top: 1px dashed var(--border);

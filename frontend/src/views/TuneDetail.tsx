@@ -16,7 +16,7 @@ import {
   updateUserTune,
 } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
-import { foldAbcOctaves, transposeAbc } from '../services/abcTools'
+import { extractKeyFromAbc, foldAbcOctaves, transposeAbcBySemitones } from '../services/abcTools'
 import { showBadgeToasts } from '../services/badges'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { DebouncedNumberInput } from '../components/DebouncedNumberInput'
@@ -34,8 +34,6 @@ const FOLD_NOTE_OPTIONS = [
   { midi: 83, name: 'B5 (typical range max)' },
   { midi: 88, name: 'E6' },
 ]
-
-const TRANSPOSE_KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
 export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   const id = userTuneId ?? ''
@@ -224,7 +222,6 @@ function AbcEditor({
   targetBpm?: number | null
 }) {
   const [previewAbc, setPreviewAbc] = useState(value)
-  const [transposeKey, setTransposeKey] = useState('D')
   const [foldMin, setFoldMin] = useState('62')
   const [foldMax, setFoldMax] = useState('83')
 
@@ -233,9 +230,8 @@ function AbcEditor({
     return () => clearTimeout(handle)
   }, [value])
 
-  const handleTranspose = () => {
-    const transposed = transposeAbc(value, transposeKey)
-    onChange(transposed)
+  const stepTranspose = (semitones: number) => {
+    onChange(transposeAbcBySemitones(value, semitones))
   }
 
   const handleFold = () => {
@@ -255,17 +251,26 @@ function AbcEditor({
 
       <div className="editor-tools">
         <div className="editor-tool-group">
-          <label>
-            Transpose to
-            <select value={transposeKey} onChange={(e) => setTransposeKey(e.target.value)}>
-              {TRANSPOSE_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={handleTranspose}>Transpose</button>
+          <span>Transpose</span>
+          <div className="vote-controls">
+            <button
+              className="vote-btn"
+              onClick={() => stepTranspose(-1)}
+              title="Down a semitone"
+              aria-label="Transpose down a semitone"
+            >
+              ▼
+            </button>
+            <span className="vote-score transpose-key">{extractKeyFromAbc(value) || '—'}</span>
+            <button
+              className="vote-btn"
+              onClick={() => stepTranspose(1)}
+              title="Up a semitone"
+              aria-label="Transpose up a semitone"
+            >
+              ▲
+            </button>
+          </div>
         </div>
 
         <div className="editor-tool-group">
