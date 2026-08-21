@@ -661,6 +661,9 @@ export const voteTuneSetting = (settingId: string, value: number) =>
     body: JSON.stringify({ value }),
   })
 
+export const getMyTuneVotes = (tuneId: string) =>
+  apiFetch<Record<string, number>>(`/tunes/${tuneId}/my-votes`)
+
 export const updateUserTune = (
   userTuneId: string,
   patch: { status?: string; targetBpm?: number; customAbcText?: string; tuneSettingId?: string },

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
+  getMyTuneVotes,
   addTuneSetting,
   addTuneAlias,
   voteTuneSetting,
@@ -76,6 +77,13 @@ export function TuneSettingsModal({
     enabled: authStatus !== 'pending',
   })
 
+  // Fetch caller's personal votes for settings
+  const { data: myVotes, refetch: refetchMyVotes } = useQuery({
+    queryKey: ['tune-my-votes', tuneId],
+    queryFn: () => getMyTuneVotes(tuneId),
+    enabled: authStatus !== 'pending' && authStatus !== 'anonymous' && !!tuneId,
+  })
+
   // Add or switch setting mutation
   const actionMutation = useMutation({
     mutationFn: (settingId: string) => {
@@ -99,6 +107,7 @@ export function TuneSettingsModal({
       voteTuneSetting(settingId, value),
     onSuccess: () => {
       refetch()
+      refetchMyVotes()
     },
   })
 
@@ -134,7 +143,8 @@ export function TuneSettingsModal({
 
   const handleVote = (settingId: string, currentVote: number, targetVote: number) => {
     // If clicking same vote, toggle it off (value = 0)
-    const nextVoteValue = currentVote === targetVote ? 0 : targetVote
+    const activeVote = myVotes?.[settingId] ?? currentVote
+    const nextVoteValue = activeVote === targetVote ? 0 : targetVote
     voteMutation.mutate({ settingId, value: nextVoteValue })
   }
 
@@ -229,8 +239,9 @@ export function TuneSettingsModal({
             {details.settings.map((s, index) => {
               const isPreviewed =
                 previewSettingId === undefined ? index === 0 : previewSettingId === s.tuneSettingId
-              const hasUpvoted = s.userVoteValue === 1
-              const hasDownvoted = s.userVoteValue === -1
+              const userVoteValue = myVotes?.[s.tuneSettingId] ?? s.userVoteValue ?? 0
+              const hasUpvoted = userVoteValue === 1
+              const hasDownvoted = userVoteValue === -1
 
               return (
                 <div key={s.tuneSettingId} className="setting-card">
@@ -245,7 +256,7 @@ export function TuneSettingsModal({
                       <div className="vote-controls">
                         <button
                           className={`vote-btn upvote-btn ${hasUpvoted ? 'active' : ''}`}
-                          onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, 1)}
+                          onClick={() => handleVote(s.tuneSettingId, userVoteValue, 1)}
                           title="Upvote"
                         >
                           ▲
@@ -253,7 +264,7 @@ export function TuneSettingsModal({
                         <span className="vote-score">{s.voteScore}</span>
                         <button
                           className={`vote-btn downvote-btn ${hasDownvoted ? 'active' : ''}`}
-                          onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, -1)}
+                          onClick={() => handleVote(s.tuneSettingId, userVoteValue, -1)}
                           title="Downvote"
                         >
                           ▼

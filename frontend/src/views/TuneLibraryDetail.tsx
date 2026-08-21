@@ -6,6 +6,7 @@ import Link from '@/utils/routerCompat'
 import dynamic from '@/utils/routerCompat'
 import {
   getTuneDetails,
+  getMyTuneVotes,
   addTuneSetting,
   addTuneAlias,
   voteTuneSetting,
@@ -61,6 +62,12 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     enabled: authStatus !== 'pending',
   })
 
+  const { data: myVotes, refetch: refetchMyVotes } = useQuery({
+    queryKey: ['tune-my-votes', id],
+    queryFn: () => getMyTuneVotes(id),
+    enabled: showSignedInUi && !!id,
+  })
+
   const deleteTuneMutation = useMutation({
     mutationFn: () => moderatorDeleteTune(id),
     onSuccess: () => {
@@ -89,11 +96,13 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
     onError: (err: any) => showToast(err.message || 'Failed to update tune.', 'error'),
   })
 
-
   const voteMutation = useMutation({
     mutationFn: ({ settingId, value }: { settingId: string; value: number }) =>
       voteTuneSetting(settingId, value),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch()
+      refetchMyVotes()
+    },
   })
 
   const addSettingMutation = useMutation({
@@ -129,7 +138,8 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   })
 
   const handleVote = (settingId: string, currentVote: number, targetVote: number) => {
-    const nextVoteValue = currentVote === targetVote ? 0 : targetVote
+    const activeVote = myVotes?.[settingId] ?? currentVote
+    const nextVoteValue = activeVote === targetVote ? 0 : targetVote
     voteMutation.mutate({ settingId, value: nextVoteValue })
   }
 
@@ -300,8 +310,9 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
           {details.settings.map((s, index) => {
             const isPracticing =
               practicingSettingId === undefined ? index === 0 : practicingSettingId === s.tuneSettingId
-            const hasUpvoted = s.userVoteValue === 1
-            const hasDownvoted = s.userVoteValue === -1
+            const userVoteValue = myVotes?.[s.tuneSettingId] ?? s.userVoteValue ?? 0
+            const hasUpvoted = userVoteValue === 1
+            const hasDownvoted = userVoteValue === -1
 
             return (
               <div key={s.tuneSettingId} className="setting-card">
@@ -315,7 +326,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                     <div className="vote-controls">
                       <button
                         className={`vote-btn upvote-btn ${hasUpvoted ? 'active' : ''}`}
-                        onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, 1)}
+                        onClick={() => handleVote(s.tuneSettingId, userVoteValue, 1)}
                         disabled={!showSignedInUi || voteMutation.isPending}
                         title={showSignedInUi ? 'Upvote' : 'Sign in to vote'}
                       >
@@ -324,7 +335,7 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                       <span className="vote-score">{s.voteScore}</span>
                       <button
                         className={`vote-btn downvote-btn ${hasDownvoted ? 'active' : ''}`}
-                        onClick={() => handleVote(s.tuneSettingId, s.userVoteValue, -1)}
+                        onClick={() => handleVote(s.tuneSettingId, userVoteValue, -1)}
                         disabled={!showSignedInUi || voteMutation.isPending}
                         title={showSignedInUi ? 'Downvote' : 'Sign in to vote'}
                       >

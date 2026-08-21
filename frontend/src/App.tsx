@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import Providers from './app/providers'
 import { NavBar } from './components/NavBar'
 import { RequireAuth } from './components/RequireAuth'
 import { currentUserId, useAuthStatus, useSignal } from './state/appState'
+import { Spinner } from './components/Spinner'
 
 // Views
 import { Dashboard } from './views/Dashboard'
@@ -51,7 +52,9 @@ import { MsalLoginPanel } from './components/MsalLoginPanel'
 function HomePage() {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
-  if (status === 'pending') return <div style={{ minHeight: '100vh' }} />
+  if (status === 'pending') {
+    return <div className="spinner-row" style={{ minHeight: '80vh' }}><Spinner /></div>
+  }
   return userId ? <Dashboard /> : <Landing />
 }
 
@@ -98,7 +101,8 @@ export function App() {
       <Providers>
         <NavBar />
         <main>
-          <Routes>
+          <Suspense fallback={<div className="spinner-row" style={{ minHeight: '80vh' }}><Spinner /></div>}>
+            <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<MsalLoginPanel />} />
             <Route
@@ -192,6 +196,7 @@ export function App() {
             {/* Catch-all: show a branded 404 rather than silently bouncing to home */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </main>
       </Providers>
     </BrowserRouter>
