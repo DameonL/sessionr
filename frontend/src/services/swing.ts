@@ -4,6 +4,25 @@ import type abcjs from 'abcjs'
 const EIGHTH_NOTE_DURATION = 0.125
 
 /**
+ * How much longer the first of each three gets at full swing, as a fraction of the even
+ * duration. At 0.5 it takes exactly half the beat and the two that follow split the rest —
+ * a 2:1 ratio, classic triplet swing.
+ *
+ * Hard ceiling of 0.75, and not by taste: at that point the lengthened note reaches 1.75
+ * eighths, which is exactly the re-strike threshold in subdivideLongNotes (EIGHTH_NOTE_DURATION
+ * and SPLIT_TOLERANCE in components/instruments.ts). Past it, every lilted note on a plucked
+ * instrument splits in two and double-strikes. Raising this beyond 0.75 means raising that
+ * threshold to match.
+ */
+const MAX_LENGTHEN = 0.5
+
+/** Volume boost on the first of each three at full swing. */
+const MAX_ACCENT = 0.5
+
+/** Volume reduction on the two that follow, at full swing. */
+const MAX_SOFTEN = 0.2
+
+/**
  * Returns true for compound meters (6/8, 9/8, 12/8), where the beat divides into three
  * and the lilt lengthens the first of each group of three — the jig/slip jig/slide feel.
  *
@@ -21,8 +40,10 @@ export function isCompoundMeter(meter: { num?: number; den?: number } | null | u
 /**
  * Applies triplet swing to compound-meter sequence tracks.
  * Identifies 3-note triplet groups (consecutive notes with near-equal step durations) and:
- * - Accents the 1st note volume (+35% * swingRatio) while slightly softening follower notes.
- * - Lengthens the 1st note duration (+35% * swingRatio) and shifts start times of 2nd and 3rd notes.
+ * - Lengthens the 1st note by MAX_LENGTHEN * swingRatio, shifting the 2nd and 3rd later so the
+ *   group still ends where it did — at full swing a 2:1 ratio against each follower.
+ * - Accents the 1st note by MAX_ACCENT * swingRatio and softens the followers by MAX_SOFTEN,
+ *   since the lilt reads as much through emphasis as through duration.
  *
  * Mutates the tracks in place and returns nothing: abcjs's sequenceCallback discards whatever
  * the callback returns and goes on using its own noteMapTracks (see create-synth.js, "prime"),
@@ -69,15 +90,18 @@ export function applyCustomTripletSwing(tracks: abcjs.NoteMapTrack[], swingPerce
         // totalD is exactly d0 + d1 + d2, so this is the mean step tested above.
         const baseD = meanD
 
-        const newD0 = baseD * (1 + 0.35 * swingRatio)
+        const newD0 = baseD * (1 + MAX_LENGTHEN * swingRatio)
         const newStart1 = s0 + newD0
         const remD = totalD - newD0
         const newD1 = remD / 2
         const newStart2 = newStart1 + newD1
 
-        startMapping.set(s0, { newStart: s0, newEnd: newStart1, volumeMult: 1 + 0.35 * swingRatio })
-        startMapping.set(s1, { newStart: newStart1, newEnd: newStart2, volumeMult: Math.max(0.1, 1 - 0.15 * swingRatio) })
-        startMapping.set(s2, { newStart: newStart2, newEnd: s3, volumeMult: Math.max(0.1, 1 - 0.15 * swingRatio) })
+        const accent = 1 + MAX_ACCENT * swingRatio
+        const soften = Math.max(0.1, 1 - MAX_SOFTEN * swingRatio)
+
+        startMapping.set(s0, { newStart: s0, newEnd: newStart1, volumeMult: accent })
+        startMapping.set(s1, { newStart: newStart1, newEnd: newStart2, volumeMult: soften })
+        startMapping.set(s2, { newStart: newStart2, newEnd: s3, volumeMult: soften })
 
         i += 3
       } else {
