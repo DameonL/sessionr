@@ -12,6 +12,7 @@ import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
 import { applyCustomTripletSwing, isCompoundMeter } from "../services/swing";
+import { strumChords } from "../services/strum";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
 import { Spinner } from "./Spinner";
 import {
@@ -603,10 +604,12 @@ export function SetPlayer({
       // uses abcjs's own swing, which is a no-op at 0% (toAbcjsSwing(0) === 50).
       const compound = isCompoundMeter(meter);
       const swingPercent = swingPercentRef.current;
+      // Seconds per whole note — converts the strum's wall-clock spread into the units note
+      // starts use. Both the band and solo paths need it.
+      const meterSize = meter.den ? meter.num / meter.den : 1;
+      const tempoMultiplierSec = msPerMeasure / 1000 / meterSize;
 
       if (voicesToUse.length > 0) {
-        const meterSize = meter.den ? meter.num / meter.den : 1;
-        const tempoMultiplierSec = msPerMeasure / 1000 / meterSize;
         return await Promise.all(
           voicesToUse.map((voice) =>
             createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
@@ -630,9 +633,10 @@ export function SetPlayer({
           swing: compound ? undefined : toAbcjsSwing(swingPercent),
           drum: bodhranPattern,
           drumBars: bodhranPattern ? 1 : undefined,
-          // abcjs discards this callback's return value, so both helpers rewrite the
-          // tracks in place. Order matters: swing moves note starts, and subdivision
-          // splits from those (already swung) starts.
+          // abcjs discards this callback's return value, so every helper rewrites the
+          // tracks in place. Order matters: swing moves note starts, subdivision splits
+          // from those (already swung) starts, and the strum spreads each re-strike
+          // subdivision produced.
           sequenceCallback: (tracks) => {
             if (compound && swingPercent > 0) {
               applyCustomTripletSwing(tracks, swingPercent);
@@ -645,6 +649,9 @@ export function SetPlayer({
               if (shouldSubdivideInstrument(prog)) {
                 subdivideLongNotes(track);
               }
+              // Judges each simultaneous group on its own instrument, so it still strums
+              // the chord track when the track's first note is a bass note.
+              strumChords(track, tempoMultiplierSec);
             });
             // Ignored at runtime; abcjs's type declaration still demands a return.
             return tracks;

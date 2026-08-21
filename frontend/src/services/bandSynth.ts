@@ -3,6 +3,7 @@ import { humanizeBackerTracks, type BandVoice } from './band'
 import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
 import { getBodhranDrumOption } from './bodhran'
 import { applyCustomTripletSwing, isCompoundMeter } from './swing'
+import { strumChords } from './strum'
 
 export interface BandSynthOptions extends abcjs.SynthOptions {
   bodhran?: boolean
@@ -53,7 +54,8 @@ export async function createBandSynth(
       drumBars: bodhranPattern ? 1 : extraOptions?.drumBars,
       // abcjs discards this callback's return value, so every stage rewrites the tracks
       // in place. Order matters: swing moves note starts, subdivision splits from those
-      // (already swung) starts, and humanization must see the notes subdivision added.
+      // (already swung) starts, the strum spreads each re-strike subdivision produced, and
+      // humanization rides on top of all of it.
       sequenceCallback: (tracks: abcjs.NoteMapTrack[]) => {
         if (compound && swingPercent > 0) {
           applyCustomTripletSwing(tracks, swingPercent)
@@ -61,6 +63,7 @@ export async function createBandSynth(
         if (isSubdivided) {
           for (const track of tracks) subdivideLongNotes(track)
         }
+        for (const track of tracks) strumChords(track, tempoMultiplierSec)
         if (isBacker) {
           humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
         }
