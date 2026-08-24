@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from '@/utils/routerCompat'
-import { InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
+import { BrowserAuthError, BrowserAuthErrorCodes, InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { getCurrentUser, ApiError, UnauthenticatedError } from '../services/api'
 import { loginRequest, msalConfig } from '../services/authConfig'
@@ -17,7 +17,8 @@ import {
 } from '../services/authSnapshot'
 import { clearOfflineHttpCache } from '../services/offlineDb'
 import { queryClient } from '../services/queryClient'
-import { abandonTokenAcquisition, authSource, authStatus, currentUserId, currentUserProfile, getBearerToken, setTokenAcquisitionHelper, showToast } from '../state/appState'
+import { claimReauthAttempt, clearReauthAttempts } from '../services/reauthGuard'
+import { abandonTokenAcquisition, authSource, authStatus, currentUserId, currentUserProfile, getBearerToken, sessionExpired, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -137,8 +138,10 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           cachedToken = null;
           return null;
         }
-        // Set only when the IdP explicitly signals interaction is required, which
-        // is the sole condition (with being online) that permits a redirect.
+        // Set only when the session is definitively unrecoverable without the
+        // user — which, together with being online, is the sole condition that
+        // permits a redirect. See the catch block for exactly which failures
+        // qualify and which deliberately do not.
         let interactionRequired = false;
 
         // Try a silent refresh first. With a refresh token in the cache this is
@@ -148,6 +151,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         // can never hang the UI — it just falls through to the interactive
         // redirect below. We return the freshly-refreshed id token to keep the
         // backend contract (oid/email/name/group claims) byte-for-byte identical.
+        //
+        // The race only stays a backstop because msalConfig pins
+        // system.iframeBridgeTimeout (2500ms) below SILENT_TIMEOUT_MS. Raise one
+        // without the other and MSAL's verdict is lost to our generic timeout
+        // again, which is exactly the bug that wedged expired sessions.
         try {
           const SILENT_TIMEOUT_MS = 4000;
           const result = await Promise.race([
@@ -163,16 +171,34 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
           if (result?.idToken && !isJwtExpired(result.idToken, 30)) {
             cachedToken = result.idToken;
+            sessionExpired.value = false;
+            clearReauthAttempts();
             return result.idToken;
           }
+          // Resolved, but with an id token that's already expired. MSAL believes
+          // it succeeded, so no error is thrown and this used to fall silently
+          // through to `return null`. There is nothing left to try silently.
+          interactionRequired = true;
         } catch (silentErr) {
-          // Only an InteractionRequiredAuthError means the identity provider
-          // itself decided the user must re-authenticate interactively. A
-          // timeout, a blocked iframe, or any network/offline failure is NOT
-          // that signal — it must never bounce the user to ciamlogin.
-          if (silentErr instanceof InteractionRequiredAuthError) {
+          // Three failures mean the IdP must be asked interactively, and are the
+          // only ones permitted to redirect:
+          //  - InteractionRequiredAuthError: the IdP said so explicitly.
+          //  - BrowserAuthError 'timed_out': MSAL's own silent-iframe budget
+          //    expired. In practice this is third-party cookies being blocked
+          //    (Safari, Firefox, hardened Chrome), where the iframe can never
+          //    complete no matter how long we wait.
+          //  - An expired id token from an apparently-successful call, above.
+          const msalTimedOut =
+            silentErr instanceof BrowserAuthError &&
+            silentErr.errorCode === BrowserAuthErrorCodes.timedOut;
+
+          if (silentErr instanceof InteractionRequiredAuthError || msalTimedOut) {
             interactionRequired = true;
           } else {
+            // Our own outer-race timeout and any network/offline failure land
+            // here. These say nothing about the session's validity, so they must
+            // never bounce the user to ciamlogin — the offline paths in api.ts
+            // handle them.
             console.warn('Silent token acquisition failed (no interactive redirect):', silentErr);
           }
         }
@@ -187,9 +213,19 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         if (!interactionRequired || !online) {
           return null;
         }
+
+        // Past this point the session is definitively over. Whether or not the
+        // redirect below happens, callers must not keep treating a null token as
+        // a transient hiccup — see the sessionExpired doc comment in appState.
+        sessionExpired.value = true;
+
         if (!redirectInProgress) {
           const isInIframe = typeof window !== 'undefined' && window.parent !== window;
-          if (!isInIframe) {
+          // claimReauthAttempt() both checks and consumes the budget, and must be
+          // called before the navigation — nothing after acquireTokenRedirect runs.
+          // Spending it here is deliberate: if the redirect doesn't fix things we
+          // fall back to the explicit signed-out UI rather than looping.
+          if (!isInIframe && claimReauthAttempt()) {
             redirectInProgress = true;
             try {
               await pca.acquireTokenRedirect({
@@ -468,8 +504,18 @@ function MsalBackgroundSync({ showBlockingModal, onSyncStart, onSyncEnd }: MsalB
             const token = await getBearerToken(false)
             if (cancelled) return
             if (!token) {
-              // Token temporarily unavailable (e.g. a stalled silent refresh).
-              // Transient — back off and retry rather than dropping the session.
+              if (sessionExpired.value) {
+                // Not transient: acquire() got a definitive verdict from the IdP
+                // and either already spent its one redirect or couldn't redirect
+                // at all. Retrying cannot help, and looping here is what used to
+                // leave the app stranded on an optimistically-hydrated signed-in
+                // UI whose every request failed with "can't reach the API".
+                // Hand it to the definitive-failure branch below.
+                throw new UnauthenticatedError('Your session has expired.')
+              }
+              // Token temporarily unavailable (e.g. a stalled silent refresh, or
+              // MSAL still bootstrapping). Transient — back off and retry rather
+              // than dropping the session.
               await sleep(backoffMs(attempt))
               continue
             }
@@ -484,6 +530,10 @@ function MsalBackgroundSync({ showBlockingModal, onSyncStart, onSyncEnd }: MsalB
               currentUserProfile.value = profile
               authSource.value = 'verified'
               authStatus.value = 'authenticated'
+              // The session is demonstrably healthy, so a future expiry gets a
+              // full automatic-redirect allowance of its own.
+              sessionExpired.value = false
+              clearReauthAttempts()
               writeSnapshot(activeAccount.homeAccountId, profile)
 
               if (optimisticUserId && optimisticUserId !== profile.userId) {
@@ -510,6 +560,9 @@ function MsalBackgroundSync({ showBlockingModal, onSyncStart, onSyncEnd }: MsalB
               const wasOptimistic = authSource.value === 'snapshot'
               clearAuthSession()
               authStatus.value = 'anonymous'
+              // The session is gone and the UI now says so; the flag has done
+              // its job and must not linger into the anonymous state.
+              sessionExpired.value = false
               if (wasOptimistic) {
                 // The user was looking at a signed-in UI a moment ago; a silent
                 // swap to "Sign In" reads as a bug. Name what happened.

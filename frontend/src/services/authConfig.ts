@@ -38,6 +38,24 @@ export const msalConfig: Configuration = {
   },
   cache: {
     cacheLocation: "localStorage"
+  },
+  system: {
+    /**
+     * How long MSAL waits for its hidden silent-renewal iframe to answer before
+     * giving up. This MUST stay below AuthProvider's SILENT_TIMEOUT_MS (4000ms),
+     * which races acquireTokenSilent against a wall clock.
+     *
+     * MSAL's default is 10000ms. Left at the default, our 4s race always rejects
+     * first — with a generic Error, not the BrowserAuthError/InteractionRequired
+     * that tells us the session is dead — so once the refresh token expired the
+     * app could never reach acquireTokenRedirect and stayed wedged until the user
+     * signed out and back in. Losing the race on purpose is what lets us read
+     * MSAL's actual verdict.
+     *
+     * NB the option name: v5 renamed this from the v2/v3 iframeHashTimeout /
+     * loadFrameTimeout, which are now silently ignored. Don't "restore" them.
+     */
+    iframeBridgeTimeout: 2500
   }
 };
 

@@ -43,6 +43,20 @@ export const authStatus = new Signal<AuthStatus>('pending');
 export type AuthSource = 'none' | 'snapshot' | 'verified';
 export const authSource = new Signal<AuthSource>('none');
 
+/**
+ * Set when the identity provider has told us the session is over and we cannot
+ * fix it silently — the refresh token is gone and either the automatic redirect
+ * budget is spent (services/reauthGuard.ts) or a redirect isn't possible here.
+ *
+ * This exists because "no token" alone is ambiguous: a cold MSAL bootstrap, a
+ * stalled refresh and a dead session all produce null, and the first two are
+ * transient. Without this flag AuthProvider's background sync treats them all
+ * as transient, so an expired session never reaches the definitive-failure
+ * branch and the app sits forever on an optimistically-hydrated signed-in UI
+ * whose every request fails. Cleared as soon as any token is acquired.
+ */
+export const sessionExpired = new Signal(false);
+
 type TokenHelper = (forceRefresh?: boolean) => Promise<string | null>;
 
 let tokenHelper: TokenHelper | null = null;

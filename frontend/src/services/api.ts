@@ -28,13 +28,26 @@ export const isApiOffline = new Signal(false)
 
 let usersMeRetryTimer: ReturnType<typeof setInterval> | null = null
 
+/**
+ * Probes whether the private Functions backend is reachable, and latches
+ * `isApiOffline` when it isn't.
+ *
+ * Strictly a *connectivity* check. It must never conclude "offline" from an
+ * authentication problem: `isApiOffline` gates every request in doFetch —
+ * public and anonymous reads included — and its retry timer re-runs this every
+ * two minutes, so a wrong latch takes the whole app offline until reload.
+ */
 export async function checkUsersMeHealth(): Promise<boolean> {
   try {
     const token = await getBearerToken(false)
-    const headers: Record<string, string> = {}
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
+    if (!token) {
+      // No token says nothing about the backend. Probing unauthenticated would
+      // earn a guaranteed 401 and latch isApiOffline against a backend that is
+      // perfectly healthy — which is how an expired session used to present as
+      // "the Functions host is down".
+      return false
     }
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
     const cleanBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE
     const res = await fetch(`${cleanBase}/users/me`, {
       method: 'GET',
@@ -54,14 +67,30 @@ export async function checkUsersMeHealth(): Promise<boolean> {
         usersMeRetryTimer = null
       }
       return true
-    } else {
-      markApiOfflineAndScheduleRetry()
+    }
+
+    if (!isBackendUnavailableStatus(res.status)) {
+      // The backend answered, so it is up. A 401/403 means our token was
+      // rejected and a 4xx means we asked wrongly — neither is "offline", and
+      // latching on them strands the app. Auth recovery is AuthProvider's job.
       return false
     }
+    markApiOfflineAndScheduleRetry()
+    return false
   } catch {
+    // A thrown fetch never reached a server (DNS/CORS/dropped connection).
+    // That, and a 5xx above, are the only genuine "offline" evidence.
     markApiOfflineAndScheduleRetry()
     return false
   }
+}
+
+/**
+ * Statuses that mean the backend itself is unavailable rather than that it
+ * deliberately rejected the request — bad gateway, cold start, gateway timeout.
+ */
+export function isBackendUnavailableStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504
 }
 
 function markApiOfflineAndScheduleRetry(): void {
@@ -168,7 +197,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
     // application error the server deliberately returned — surface it as an
     // ApiError (carrying the backend's { error, detail } diagnostic) instead of
     // silently swallowing it into the offline queue, where it would be invisible.
-    const backendUnavailable = res.status === 502 || res.status === 503 || res.status === 504
+    const backendUnavailable = isBackendUnavailableStatus(res.status)
     if (isPrivateApi && method !== 'GET' && !opts?.skipOfflineQueue && backendUnavailable) {
       void checkUsersMeHealth()
       return queueOfflineMutation<T>(method, url, path, init)
@@ -219,6 +248,21 @@ export class UnauthenticatedError extends Error {
     super(message)
     this.name = 'UnauthenticatedError'
   }
+}
+
+/**
+ * Whether a thrown value means "you are not authenticated" rather than "the
+ * backend is unreachable". Both surface as a failed react-query, but they need
+ * very different messages: one is fixed by signing in, the other by waiting.
+ *
+ * Matches the `unauthenticated` flag structurally rather than with `instanceof`
+ * so it survives errors that crossed a module or realm boundary, and also
+ * covers a real 401 from the server.
+ */
+export function isUnauthenticatedError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  if ((err as { unauthenticated?: unknown }).unauthenticated === true) return true
+  return err instanceof ApiError && err.status === 401
 }
 
 /** Marks a mutation as caught by the offline queue rather than genuinely failed. */

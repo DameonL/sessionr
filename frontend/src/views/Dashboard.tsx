@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useMsal } from '@azure/msal-react'
 import Link from '@/utils/routerCompat'
 import {
   formatTuneType,
@@ -11,14 +12,17 @@ import {
   getRepertoireStats,
   getSets,
   getUpcomingMeetings,
+  isUnauthenticatedError,
   type DashboardActivityItemData,
 } from '../services/api'
-import { currentUserId, useSignal } from '../state/appState'
+import { loginRequest } from '../services/authConfig'
+import { currentUserId, showToast, useSignal } from '../state/appState'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { Spinner } from '../components/Spinner'
 
 export function Dashboard() {
   const userId = useSignal(currentUserId)
+  const { instance } = useMsal()
   const [filter, setFilter] = useState<'all' | 'groups' | 'friends'>('all')
 
   const stats = useQuery({
@@ -132,7 +136,30 @@ export function Dashboard() {
       <h1>Dashboard</h1>
 
       {stats.isError && (
-        <p className="error">Could not reach the API (is the Functions host running?).</p>
+        isUnauthenticatedError(stats.error) ? (
+          // Distinguishing these matters: an expired session used to render the
+          // connectivity message below, sending users to check a backend that
+          // was never down.
+          <p className="error">
+            Your session has expired.{' '}
+            <button
+              className="secondary btn-sm"
+              onClick={() => {
+                // Same call as NetworkStatusBanner's "Sign In to Sync": redirect,
+                // not popup, and no redirectStartPage so MSAL returns the user
+                // to this page once the round trip completes.
+                instance.loginRedirect(loginRequest).catch((err) => {
+                  console.error('Sign-in failed:', err)
+                  showToast('Sign-in failed. Please try again.', 'error')
+                })
+              }}
+            >
+              Sign in again
+            </button>
+          </p>
+        ) : (
+          <p className="error">Could not reach the API (is the Functions host running?).</p>
+        )
       )}
 
       {/* Quick Repertoire & Sets Summary Bar */}
