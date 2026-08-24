@@ -6,26 +6,14 @@ import AuthProvider from '../components/AuthProvider';
 import { ToastContainer } from '../components/Toast';
 import { ErrorReportModal } from '../components/ErrorReportModal';
 import { NavigationProgress } from '../components/NavigationProgress';
+import { PwaUpdatePrompt } from '../components/PwaUpdatePrompt';
 import { queryClient } from '../services/queryClient';
 import { initSyncManager } from '../services/syncManager';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    const enableSw = process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_ENABLE_SW === 'true';
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && enableSw) {
-      const registerSw = () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((reg) => console.log('PWA Service Worker registered:', reg.scope))
-          .catch((err) => console.error('PWA Service Worker registration failed:', err));
-      };
-
-      if (document.readyState === 'complete') {
-        registerSw();
-      } else {
-        window.addEventListener('load', registerSw);
-      }
-    }
-
+    // Service worker registration lives in <PwaUpdatePrompt />, which owns the
+    // vite-plugin-pwa lifecycle (registration plus the update-available prompt).
     initSyncManager();
   }, []);
 
@@ -36,6 +24,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         {children}
         <ToastContainer />
         <ErrorReportModal />
+        <PwaUpdatePrompt />
       </AuthProvider>
     </QueryClientProvider>
   );
