@@ -61,9 +61,23 @@ public class MelodyFingerprintTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
+    [InlineData("   ")]
     public void ParseIntervalString_TreatsMissingValuesAsEmpty(string? stored)
     {
         Assert.Empty(MelodyFingerprint.ParseIntervalString(stored));
+    }
+
+    [Theory]
+    [InlineData("2,,3", new[] { 2, 3 })]
+    [InlineData("2,3,", new[] { 2, 3 })]
+    [InlineData("2, 3", new[] { 2, 3 })]
+    [InlineData("2,x,3", new[] { 2, 3 })]
+    [InlineData("x", new int[0])]
+    public void ParseIntervalString_SkipsUnparseableValuesRatherThanThrowing(string stored, int[] expected)
+    {
+        // Every stored fingerprint is parsed in one pass when the match index rebuilds, so one
+        // malformed legacy row must cost that row and nothing else.
+        Assert.Equal(expected, MelodyFingerprint.ParseIntervalString(stored));
     }
 
     [Fact]

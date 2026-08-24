@@ -82,8 +82,27 @@ public static class MelodyFingerprint
     public static string ToIntervalString(IReadOnlyList<int> midis) =>
         string.Join(',', ToIntervals(midis));
 
-    public static int[] ParseIntervalString(string? s) =>
-        string.IsNullOrEmpty(s) ? [] : Array.ConvertAll(s.Split(','), int.Parse);
+    /// <summary>
+    /// Parses a stored fingerprint back into intervals, skipping anything unparseable.
+    /// Deliberately lenient: this runs over every row when TuneMatchIndex rebuilds, so one
+    /// malformed legacy value (a stray trailing comma, a whitespace-only string) must degrade
+    /// to "that tune isn't in the index" rather than throwing and leaving there to be no index.
+    /// </summary>
+    public static int[] ParseIntervalString(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return [];
+
+        var parts = s.Split(',');
+        var parsed = new List<int>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (int.TryParse(part.Trim(), out var value))
+            {
+                parsed.Add(value);
+            }
+        }
+        return parsed.ToArray();
+    }
 
     /// <summary>Hashes every length-<see cref="ShingleLength"/> window of consecutive intervals.</summary>
     public static IEnumerable<long> Shingles(int[] intervals, int k = ShingleLength)

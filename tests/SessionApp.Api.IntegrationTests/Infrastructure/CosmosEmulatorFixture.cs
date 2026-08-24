@@ -1,5 +1,7 @@
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
+using Microsoft.Azure.Cosmos;
+using Newtonsoft.Json.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc;
@@ -106,6 +108,9 @@ public sealed class CosmosEmulatorFixture : IAsyncLifetime
     /// <summary>A fresh scope and its <see cref="AppDbContext"/>, mirroring one request's DI scope.</summary>
     public AsyncServiceScope NewScope() => _services!.CreateAsyncScope();
 
+    /// <summary>The singleton match index, resolved the way the Functions host would resolve it.</summary>
+    public TuneMatchIndex MatchIndex => _services!.GetRequiredService<TuneMatchIndex>();
+
     /// <summary>Runs <paramref name="action"/> against its own scoped context, like a single request would.</summary>
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
     {
@@ -131,6 +136,38 @@ public sealed class CosmosEmulatorFixture : IAsyncLifetime
         await using var scope = NewScope();
         var function = ActivatorUtilities.CreateInstance<TFunction>(scope.ServiceProvider);
         return await invoke(function);
+    }
+
+    /// <summary>
+    /// Deletes properties from a document EF has already written, leaving the rest byte-for-byte
+    /// as the app wrote it. This is how a "legacy" document is reproduced faithfully: Cosmos is
+    /// schemaless, so a document written before a property existed on the model simply lacks that
+    /// property, and hand-authoring the whole JSON would test our guess at the document shape
+    /// rather than EF's actual one. Each entity's container is partitioned by its own id, and EF
+    /// maps the single-column primary key onto Cosmos's own <c>id</c>, so both are the key Guid.
+    /// </summary>
+    public async Task StripPropertiesAsync(string containerName, Guid id, params string[] properties)
+    {
+        using var client = new CosmosClient(ConnectionString, new CosmosClientOptions
+        {
+            ConnectionMode = ConnectionMode.Gateway,
+        });
+        var container = client.GetContainer(DatabaseName, containerName);
+
+        var key = id.ToString();
+        var partitionKey = new PartitionKey(key);
+
+        var document = (await container.ReadItemAsync<JObject>(key, partitionKey)).Resource;
+        foreach (var property in properties)
+        {
+            if (document.Remove(property) is false)
+            {
+                throw new InvalidOperationException(
+                    $"{containerName} document {key} has no '{property}' property to strip.");
+            }
+        }
+
+        await container.ReplaceItemAsync(document, key, partitionKey);
     }
 
     private async Task CreateDatabaseAsync()

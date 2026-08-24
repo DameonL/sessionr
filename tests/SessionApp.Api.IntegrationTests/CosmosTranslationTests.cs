@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Functions;
 using SessionApp.Api.IntegrationTests.Infrastructure;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.IntegrationTests;
 
@@ -13,6 +14,53 @@ namespace SessionApp.Api.IntegrationTests;
 /// </summary>
 public class CosmosTranslationTests(CosmosEmulatorFixture fixture) : CosmosTestBase(fixture)
 {
+    [Fact]
+    public async Task TuneMatchIndex_RebuildsOverADocumentPredatingTheDifficultyProperty()
+    {
+        // The Identify page's 500: TuneMatchIndex projected t.Difficulty (a non-nullable int)
+        // straight out of the query, and a tune document written before Difficulty existed on the
+        // model doesn't carry the property at all. The Cosmos projection shaper throws "Nullable
+        // object must have a value" reading that absence into an int, and because the rebuild is
+        // lazy and retried per request, one such document took out /api/tunes/match permanently.
+        var legacy = await SeedAsync(db => db.SeedTuneAsync("Predates Heuristics"));
+        var current = await SeedAsync(db => db.SeedTuneAsync("Drowsy Maggie", abc: TestData.DrowsyMaggieAbc));
+
+        await Fixture.StripPropertiesAsync(nameof(Tune), legacy.TuneId, nameof(Tune.Difficulty));
+
+        var index = Fixture.MatchIndex;
+        await index.ForceRefreshAsync();
+
+        // The tune that still has its fingerprint is matchable — i.e. the index built at all.
+        var query = MelodyFingerprint.ParseIntervalString(current.FingerprintIntervals);
+        var result = await index.MatchAsync(query);
+
+        Assert.Contains(result, r => r.TuneId == current.TuneId);
+    }
+
+    [Fact]
+    public async Task ProjectingANonNullableValueTypeOutOfALegacyDocument_StillFailsOnCosmos()
+    {
+        // The "still fails" half: this is the shape TuneMatchIndex used to have, and the reason it
+        // now materializes entities instead. If a future EF/Cosmos upgrade makes this pass, the
+        // materialize-then-map workaround here and in Public/Functions/Tunes/Get.cs can go.
+        var legacy = await SeedAsync(db => db.SeedTuneAsync("Also Predates Heuristics"));
+        await Fixture.StripPropertiesAsync(nameof(Tune), legacy.TuneId, nameof(Tune.Difficulty));
+
+        await Fixture.WithDbAsync(async db =>
+        {
+            // Materializing the entity defaults the missing property...
+            var materialized = await db.Tunes.AsNoTracking()
+                .Where(t => t.TuneId == legacy.TuneId).ToListAsync();
+            Assert.Equal(0, materialized.Single().Difficulty);
+
+            // ...but projecting it into a non-nullable int does not survive the shaper.
+            await Assert.ThrowsAnyAsync<Exception>(() => db.Tunes.AsNoTracking()
+                .Where(t => t.TuneId == legacy.TuneId)
+                .Select(t => new { t.TuneId, t.Difficulty })
+                .ToListAsync());
+        });
+    }
+
     [Fact]
     public async Task CosmosAnyAsync_AnswersAnExistenceCheck()
     {

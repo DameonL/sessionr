@@ -148,15 +148,23 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var tunes = await db.Tunes.AsNoTracking()
-                .Select(t => new { t.TuneId, t.Title, t.TuneType, t.Key, t.Difficulty, t.FingerprintIntervals })
-                .ToListAsync(ct);
+            // Materialize full entities rather than projecting the handful of fields we need:
+            // tune documents created before Difficulty existed on the model don't carry that
+            // property in Cosmos (schemaless), and the Cosmos provider's projection shaper throws
+            // "Nullable object must have a value" reading a missing property into a non-nullable
+            // int. Plain entity materialization defaults missing properties instead. Same reason
+            // Public/Functions/Tunes/Get.cs materializes before building its DTOs — don't turn
+            // either back into a projection for the RU saving.
+            var tunes = await db.Tunes.AsNoTracking().ToListAsync(ct);
+            var settings = await db.TuneSettings.AsNoTracking().ToListAsync(ct);
 
-            var settings = await db.TuneSettings.AsNoTracking()
-                .Select(s => new { s.TuneSettingId, s.TuneId, s.Key, s.FingerprintIntervals })
-                .ToListAsync(ct);
-
-            var tuneById = tunes.ToDictionary(t => t.TuneId);
+            // Last-wins rather than ToDictionary: a duplicate TuneId across Cosmos partitions is
+            // a data anomaly, not a reason to leave the whole endpoint without an index.
+            var tuneById = new Dictionary<Guid, Tune>();
+            foreach (var t in tunes)
+            {
+                tuneById[t.TuneId] = t;
+            }
 
             var entries = new List<IndexEntry>();
 
@@ -164,7 +172,9 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
             {
                 var intervals = MelodyFingerprint.ParseIntervalString(t.FingerprintIntervals);
                 if (intervals.Length == 0) continue;
-                entries.Add(new IndexEntry(t.TuneId, null, t.Title, t.TuneType.ToString(), t.Key, t.Difficulty, intervals));
+                entries.Add(new IndexEntry(
+                    t.TuneId, null, t.Title ?? string.Empty, t.TuneType.ToString(),
+                    t.Key ?? string.Empty, t.Difficulty, intervals));
             }
 
             foreach (var s in settings)
@@ -172,7 +182,9 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
                 if (!tuneById.TryGetValue(s.TuneId, out var tune)) continue;
                 var intervals = MelodyFingerprint.ParseIntervalString(s.FingerprintIntervals);
                 if (intervals.Length == 0) continue;
-                entries.Add(new IndexEntry(s.TuneId, s.TuneSettingId, tune.Title, tune.TuneType.ToString(), s.Key, tune.Difficulty, intervals));
+                entries.Add(new IndexEntry(
+                    s.TuneId, s.TuneSettingId, tune.Title ?? string.Empty, tune.TuneType.ToString(),
+                    s.Key ?? string.Empty, tune.Difficulty, intervals));
             }
 
             var shingleIndex = new Dictionary<long, List<int>>();

@@ -232,6 +232,36 @@ public class TuneMatchIndexTests : IDisposable
         Assert.DoesNotContain(result, r => r.Title == "Never Analysed");
     }
 
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("")]
+    [InlineData("1,,2")]
+    [InlineData("2,-3,")]
+    [InlineData("1,x,2")]
+    public async Task MatchAsync_SurvivesAMalformedStoredFingerprint(string fingerprint)
+    {
+        AddTune("Cooley's", CooleysAbc);
+
+        using (var scope = _services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Tunes.Add(new Tune
+            {
+                Title = "Corrupt Fingerprint",
+                Key = "D",
+                MasterAbcText = "K:D\nDEFG",
+                FingerprintIntervals = fingerprint,
+            });
+            db.SaveChanges();
+        }
+
+        // The whole index rebuilds on this call, so a throw here would take out every match,
+        // not just the one bad row — the real failure mode this guards against.
+        var result = await NewIndex().MatchAsync(FingerprintOf(CooleysAbc));
+
+        Assert.Contains(result, r => r.Title == "Cooley's");
+    }
+
     [Fact]
     public async Task MatchAsync_AnUnrecognizableQueryReturnsNoConfidentMatch()
     {

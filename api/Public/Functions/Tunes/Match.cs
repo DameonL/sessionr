@@ -4,11 +4,12 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Logging;
 using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Functions.Tunes;
 
-public class Match(TuneMatchIndex matchIndex)
+public class Match(TuneMatchIndex matchIndex, ILogger<Match> logger)
 {
     // Only a sanity floor for a genuinely empty/near-empty submission (need at
     // least 2 notes to form a single interval at all) — anything more is left
@@ -60,7 +61,21 @@ public class Match(TuneMatchIndex matchIndex)
         }
 
         var queryIntervals = MelodyFingerprint.ToIntervals(notes);
-        var candidates = await matchIndex.MatchAsync(queryIntervals, TopN, req.HttpContext.RequestAborted);
+
+        System.Collections.Generic.IReadOnlyList<TuneMatchCandidateDto> candidates;
+        try
+        {
+            candidates = await matchIndex.MatchAsync(queryIntervals, TopN, req.HttpContext.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            // The index is rebuilt lazily inside MatchAsync, and a failed rebuild repeats on every
+            // subsequent request — so without this the whole endpoint 500s indefinitely with
+            // nothing in the logs pointing at the rebuild as the cause.
+            logger.LogError(ex, "Tune match index rebuild failed; cannot identify tunes");
+            return new ObjectResult("Tune identification is temporarily unavailable.")
+                { StatusCode = StatusCodes.Status503ServiceUnavailable };
+        }
 
         var hasConfidentMatch = candidates.Count > 0 && candidates[0].Confidence >= MelodyFingerprint.ConfidenceThresholdPercent;
         return new OkObjectResult(new TuneMatchResponse(candidates.ToList(), hasConfidentMatch));
