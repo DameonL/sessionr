@@ -29,15 +29,23 @@ export default defineConfig({
         // Matches the real --bg token in src/index.css, not the old slate-900 value.
         background_color: '#121212',
         theme_color: '#121212',
+        // 'any' and 'maskable' are separate entries on purpose, never merged onto one.
+        // Android 8+ masks launcher icons to an arbitrary shape, so it needs the padded
+        // variant; the unpadded ones would get their edges clipped. Equally, the padded
+        // image makes a poor 'any' icon — it reads as too small in a browser tab.
+        // Without a maskable entry, Firefox for Android substitutes its own generated
+        // letter icon rather than the logo. See pwa-assets.config.ts for how the padding
+        // is derived. Regenerate all of these with `npm run generate-pwa-assets`.
         icons: [
           { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // 404.html and staticwebapp.config.json are server-side artifacts, not app shell.
-        globIgnores: ['**/favicon.svg', '**/404.html', '**/staticwebapp.config.json'],
+        globIgnores: ['**/404.html', '**/staticwebapp.config.json'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/404\.html$/],
         cleanupOutdatedCaches: true,
