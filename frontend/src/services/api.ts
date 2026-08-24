@@ -102,7 +102,7 @@ function markApiOfflineAndScheduleRetry(): void {
   }
 }
 
-async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false, opts?: { skipOfflineQueue?: boolean }): Promise<T> {
+async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetry = false, opts?: { skipOfflineQueue?: boolean; withAuth?: boolean; timeoutMs?: number }): Promise<T> {
   const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${cleanBase}${cleanPath}`
@@ -110,6 +110,12 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
 
   const isPrivateApi = cleanBase === (API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE)
   const isUsersMeCheck = isPrivateApi && (cleanPath === '/users/me' || cleanPath === 'users/me') && method === 'GET'
+
+  // Every private call needs a token; a handful of Public routes do too. The moderator
+  // endpoints are the case that forced this apart: refresh-match-index lives in the Public
+  // app (that's the process owning the in-memory index) but still checks Entra group claims
+  // off the bearer token, so "which API" no longer decides "does this send credentials".
+  const useAuth = isPrivateApi || opts?.withAuth === true
 
   // Content-Type: application/json isn't a CORS-safelisted header, so sending it
   // unconditionally forces a preflight (OPTIONS) round trip on every single cross-origin
@@ -123,7 +129,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   }
 
   let token: string | null = null
-  if (isPrivateApi) {
+  if (useAuth) {
     try {
       token = await getBearerToken(isRetry)
       if (token) {
@@ -136,10 +142,10 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
 
   const knownOffline = typeof navigator !== 'undefined' && !navigator.onLine
 
-  // Private API endpoints require a verified token. If no token is available,
-  // do not fire an unauthenticated request to the private backend (which will
-  // return 401 and trigger false offline checks).
-  if (isPrivateApi && !token) {
+  // Authenticated endpoints require a verified token. If no token is available,
+  // do not fire the request unauthenticated (which will return 401/403 and, on the
+  // private backend, trigger false offline checks).
+  if (useAuth && !token) {
     // Offline, the token usually can't be refreshed at all — its silent renewal
     // needs the network. A GET can still be served from the offline cache, so
     // route it through the same unreachable path as a token-carrying request
@@ -162,7 +168,7 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   let res: Response
   if (!isOffline) {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? REQUEST_TIMEOUT_MS)
     try {
       res = await fetch(url, { headers, ...init, signal: controller.signal })
     } catch (err) {
@@ -176,12 +182,12 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
       if (isPrivateApi) {
         void checkUsersMeHealth()
       }
-      return handleUnreachable<T>(method, url, path, init)
+      return handleUnreachable<T>(method, url, path, init, opts)
     } finally {
       clearTimeout(timer)
     }
   } else {
-    return handleUnreachable<T>(method, url, path, init)
+    return handleUnreachable<T>(method, url, path, init, opts)
   }
 
   if (!res.ok) {
@@ -220,11 +226,17 @@ async function doFetch<T>(base: string, path: string, init?: RequestInit, isRetr
   return data
 }
 
-async function handleUnreachable<T>(method: string, url: string, path: string, init?: RequestInit): Promise<T> {
+async function handleUnreachable<T>(method: string, url: string, path: string, init?: RequestInit, opts?: { skipOfflineQueue?: boolean }): Promise<T> {
   if (method === 'GET') {
     const cached = await getCachedResponse<T>(url)
     if (cached !== undefined) return cached
     throw new Error('You appear to be offline, and no cached data is available for this yet.')
+  }
+  // Some mutations must never be replayed later: a moderator maintenance job may well still
+  // be running on the server after our own timeout fired, and re-sending it is neither
+  // harmless nor what the caller was told happened. Surface the failure instead of queueing.
+  if (opts?.skipOfflineQueue) {
+    throw new Error('The request could not be completed — the server may be unreachable, or the operation may still be running.')
   }
   return queueOfflineMutation<T>(method, url, path, init)
 }
@@ -360,11 +372,21 @@ async function queueOfflineMutation<T>(method: string, url: string, path: string
 }
 
 /** Calls the Private API (personal data, mutations). */
-export const apiFetch = <T>(path: string, init?: RequestInit, opts?: { skipOfflineQueue?: boolean }) =>
+export const apiFetch = <T>(path: string, init?: RequestInit, opts?: { skipOfflineQueue?: boolean; timeoutMs?: number }) =>
   doFetch<T>(API_BASE, path, init, false, opts)
 
 /** Calls the Public API (anonymous-friendly reads + community contributions). */
 export const apiFetchPublic = <T>(path: string, init?: RequestInit) => doFetch<T>(PUBLIC_API_BASE, path, init)
+
+/**
+ * Calls the Public API *with* the bearer token attached, for the few Public routes that
+ * still authorize the caller (the moderator match-index refresh). Sending Authorization
+ * cross-origin makes the request non-simple, so this needs the Public Function App's CORS
+ * to allow the header and answer the OPTIONS preflight — unlike every other Public call,
+ * which is deliberately kept CORS-simple.
+ */
+export const apiFetchPublicAuthed = <T>(path: string, init?: RequestInit) =>
+  doFetch<T>(PUBLIC_API_BASE, path, init, false, { withAuth: true, skipOfflineQueue: true })
 
 /**
  * Server timestamps are UTC but don't always carry the Z suffix (depends on
@@ -1458,6 +1480,33 @@ export const getModeratorUserDetails = (userId: string) =>
 
 export const sanitizeUserProfile = (userId: string, payload: { displayName?: string; bio?: string; location?: string; instruments?: string }) =>
   apiFetch<{ success: boolean; userId: string; displayName: string }>(`/moderator/users/${userId}/sanitize`, { method: 'POST', body: JSON.stringify(payload) })
+
+export interface RecomputeHeuristicsResult {
+  tunesUpdated: number
+  settingsUpdated: number
+}
+
+/**
+ * Backfills the stored melodic heuristics and match fingerprint for every tune and setting.
+ * Tunes predating the identification feature have no fingerprint, so they can never be
+ * identified until this has run. Long-running (it walks the whole library in batches).
+ */
+export const moderatorRecomputeHeuristics = () =>
+  apiFetch<RecomputeHeuristicsResult>(
+    '/moderator/tunes/recompute-heuristics',
+    { method: 'POST' },
+    // Walks and rewrites the entire library, so the default 20s request timeout would abort a
+    // job the server is still happily running. Not queueable either — see handleUnreachable.
+    { skipOfflineQueue: true, timeoutMs: 10 * 60 * 1000 },
+  )
+
+/**
+ * Forces the in-memory tune-identification index to rebuild now rather than on its 30-minute
+ * TTL. Run after a backfill. Note this only refreshes the Public Functions instance that
+ * happens to serve the request — on a scaled-out deployment, others follow on their own TTL.
+ */
+export const moderatorRefreshMatchIndex = () =>
+  apiFetchPublicAuthed<void>('/moderator/tunes/refresh-match-index', { method: 'POST' })
 
 export interface FriendDto {
   userId: string

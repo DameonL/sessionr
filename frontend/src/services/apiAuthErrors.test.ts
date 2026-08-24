@@ -15,6 +15,8 @@ import {
   isApiOffline,
   isBackendUnavailableStatus,
   isUnauthenticatedError,
+  matchTune,
+  moderatorRefreshMatchIndex,
 } from './api'
 
 describe('isUnauthenticatedError', () => {
@@ -123,5 +125,56 @@ describe('checkUsersMeHealth', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       headers: { Authorization: 'Bearer token' },
     })
+  })
+})
+
+describe('authenticated Public API calls', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    isApiOffline.value = false
+    getBearerToken.mockReset()
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    isApiOffline.value = false
+  })
+
+  const okEmpty = () => ({ ok: true, status: 200, text: async () => '' }) as Response
+
+  it('sends the bearer token to the Public API for the moderator refresh', async () => {
+    // The moderator match-index endpoint lives in the Public app but authorizes off Entra
+    // group claims in the token. Before this, token attachment keyed off "is this the private
+    // base", so the call went out anonymous and the backend answered 403.
+    getBearerToken.mockResolvedValue('token')
+    fetchMock.mockResolvedValue(okEmpty())
+
+    await moderatorRefreshMatchIndex()
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toContain('api-public')
+    expect(url).toContain('/moderator/tunes/refresh-match-index')
+    expect(init).toMatchObject({ headers: { Authorization: 'Bearer token' } })
+  })
+
+  it('still sends ordinary Public reads without credentials', async () => {
+    // Public calls are deliberately kept CORS-simple; an Authorization header would force a
+    // preflight on every anonymous read.
+    getBearerToken.mockResolvedValue('token')
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => '{}' } as Response)
+
+    await matchTune([60, 62, 64])
+
+    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Authorization')
+  })
+
+  it('refuses to fire the moderator refresh unauthenticated', async () => {
+    getBearerToken.mockResolvedValue(null)
+
+    await expect(moderatorRefreshMatchIndex()).rejects.toBeInstanceOf(UnauthenticatedError)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
