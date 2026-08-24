@@ -104,6 +104,8 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
             }
         }
 
+        await LibraryStatsSupport.MarkTunesChangedAsync(db);
+
         return new OkObjectResult(new RecomputeResult(tunesUpdated, settingsUpdated));
     }
 }

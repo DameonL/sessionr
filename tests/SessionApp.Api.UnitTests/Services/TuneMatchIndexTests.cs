@@ -73,6 +73,24 @@ public class TuneMatchIndexTests : IDisposable
         db.SaveChanges();
     }
 
+    /// <summary>Mimics LibraryStatsSupport.MarkTunesChangedAsync, which the write paths call.</summary>
+    private void MarkTunesChanged()
+    {
+        using var scope = _services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var stats = db.LibraryStats.FirstOrDefault(s => s.LibraryStatsId == LibraryStats.SingletonId);
+        if (stats is null)
+        {
+            db.LibraryStats.Add(new LibraryStats { TuneCount = 0, TunesChangedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            stats.TunesChangedAt = DateTime.UtcNow;
+        }
+        db.SaveChanges();
+    }
+
     private int[] FingerprintOf(string abc, string key = "D")
     {
         var probe = new Tune { MasterAbcText = abc, Key = key, TuneType = TuneType.Reel };
@@ -230,6 +248,41 @@ public class TuneMatchIndexTests : IDisposable
         var result = await NewIndex().MatchAsync(FingerprintOf(CooleysAbc));
 
         Assert.DoesNotContain(result, r => r.Title == "Never Analysed");
+    }
+
+    [Fact]
+    public async Task MatchAsync_PicksUpATuneAddedAfterTheIndexWasBuilt()
+    {
+        var index = NewIndex();
+        AddTune("Cooley's", CooleysAbc);
+        await index.MatchAsync(FingerprintOf(CooleysAbc)); // builds the index
+
+        // An import in the Private process can't invalidate this index directly — it stamps
+        // LibraryStats, and the index notices. Without that, the new tune stays unidentifiable
+        // until the 30-minute TTL expires and someone wonders why the import "didn't work".
+        AddTune("Drowsy Maggie", DrowsyMaggieAbc);
+        MarkTunesChanged();
+
+        var result = await index.MatchAsync(FingerprintOf(DrowsyMaggieAbc));
+
+        Assert.Contains(result, r => r.Title == "Drowsy Maggie");
+    }
+
+    [Fact]
+    public async Task MatchAsync_DoesNotRebuildWhenNothingHasChanged()
+    {
+        var index = NewIndex();
+        var cooleys = AddTune("Cooley's", CooleysAbc);
+        await index.MatchAsync(FingerprintOf(CooleysAbc));
+
+        // No stamp, so the un-stamped addition must NOT appear: this is what proves the previous
+        // test passes because of the stamp rather than because every call rebuilds anyway.
+        AddTune("Drowsy Maggie", DrowsyMaggieAbc);
+
+        var result = await index.MatchAsync(FingerprintOf(CooleysAbc));
+
+        Assert.Contains(result, r => r.TuneId == cooleys.TuneId);
+        Assert.DoesNotContain(result, r => r.Title == "Drowsy Maggie");
     }
 
     [Theory]

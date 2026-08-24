@@ -110,6 +110,7 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
                 existing.MasterAbcText = correctAbc;
                 heuristics.Apply(existing);
                 await db.SaveChangesAsync();
+                await LibraryStatsSupport.MarkTunesChangedAsync(db);
             }
             return existing;
         }

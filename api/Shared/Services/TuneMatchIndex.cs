@@ -44,11 +44,20 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
     private sealed record Snapshot(IReadOnlyList<IndexEntry> Entries, Dictionary<long, List<int>> ShingleIndex, DateTime BuiltAt);
 
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(30);
+    /// <summary>
+    /// How often we're willing to ask the database whether the library changed. The stamp read is
+    /// a single-document point read, but /api/tunes/match is anonymous and can be called in a
+    /// tight loop, so this bounds it to one read per interval per instance rather than one per
+    /// request. It also bounds how stale a freshly imported tune can be: a new tune becomes
+    /// identifiable within this window, instead of waiting out RefreshInterval.
+    /// </summary>
+    private static readonly TimeSpan StampCheckInterval = TimeSpan.FromSeconds(15);
     private const int ShingleLength = 5;
     private const int MaxShortlist = 150;
     private const int FullSweepThreshold = 200;
 
     private readonly SemaphoreSlim _rebuildLock = new(1, 1);
+    private DateTime _lastStampCheck = DateTime.MinValue;
     // volatile so a rebuild published on one thread is visible to readers on
     // another without them needing to take a lock.
     private volatile Snapshot _snapshot = new([], new Dictionary<long, List<int>>(), DateTime.MinValue);
@@ -120,11 +129,47 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
     private async Task EnsureFreshAsync(CancellationToken ct)
     {
         var snapshot = _snapshot;
-        if (snapshot.Entries.Count > 0 && DateTime.UtcNow - snapshot.BuiltAt < RefreshInterval)
+        if (snapshot.Entries.Count == 0 || DateTime.UtcNow - snapshot.BuiltAt >= RefreshInterval)
         {
+            await RebuildAsync(ct, force: false);
             return;
         }
-        await RebuildAsync(ct, force: false);
+
+        // Within the TTL the snapshot is presumed good, but an import may have landed since it
+        // was built. Writes happen in the Private Functions process and this index lives in the
+        // Public one, so the writer can't invalidate us directly — it stamps LibraryStats and we
+        // notice here, which is what keeps a newly imported tune from being unidentifiable for
+        // the rest of the TTL without anyone having to trigger a refresh by hand.
+        if (await LibraryChangedSinceAsync(snapshot.BuiltAt, ct))
+        {
+            await RebuildAsync(ct, force: true);
+        }
+    }
+
+    private async Task<bool> LibraryChangedSinceAsync(DateTime builtAt, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastStampCheck < StampCheckInterval)
+        {
+            return false;
+        }
+        _lastStampCheck = now;
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stats = await db.LibraryStats.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.LibraryStatsId == LibraryStats.SingletonId, ct);
+            return stats?.TunesChangedAt is { } changedAt && changedAt > builtAt;
+        }
+        catch (Exception ex)
+        {
+            // Never let the freshness check break matching: a failed read just means we fall
+            // back to the TTL, which is exactly the behaviour this whole mechanism improves on.
+            Console.Error.WriteLine($"[TuneMatchIndex] couldn't read the tune-change stamp (safe to ignore):\n{ex}");
+            return false;
+        }
     }
 
     /// <param name="force">

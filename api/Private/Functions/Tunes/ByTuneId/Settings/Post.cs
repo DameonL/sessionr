@@ -49,6 +49,7 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
+        await LibraryStatsSupport.MarkTunesChangedAsync(db);
 
         return new OkObjectResult(new TuneSettingDto(setting.TuneSettingId, setting.Key, setting.AbcText, setting.SubmitterName, setting.VoteScore, 0));
     }

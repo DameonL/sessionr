@@ -32,6 +32,7 @@ public class Delete(AppDbContext db)
 
         db.TuneSettings.Remove(setting);
         await db.SaveChangesAsync();
+        await LibraryStatsSupport.MarkTunesChangedAsync(db);
         return new NoContentResult();
     }
 }

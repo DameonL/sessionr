@@ -52,6 +52,7 @@ public class Put(AppDbContext db, TuneHeuristics heuristics)
         heuristics.Apply(tune);
 
         await db.SaveChangesAsync();
+        await LibraryStatsSupport.MarkTunesChangedAsync(db);
         return new OkObjectResult(new UnreviewedTunes.Get.ModeratorTuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.MasterAbcText, tune.IsReviewed, tune.ReviewedAt, tune.ReviewedBy, tune.CreatedAt));
     }
 }
