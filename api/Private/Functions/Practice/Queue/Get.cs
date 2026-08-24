@@ -22,7 +22,7 @@ public class Get(AppDbContext db)
         Guid UserTuneId,
         string Category,
         string Reason,
-        int? DaysSince
+        DateTime? LastPracticed
     );
 
     /// <summary>
@@ -56,13 +56,13 @@ public class Get(AppDbContext db)
         {
             if (ut.Status == TuneStatus.Learning)
             {
-                list.Add(new QueueCandidate(ut.UserTuneId, "Learning", "Actively learning", null));
+                list.Add(new QueueCandidate(ut.UserTuneId, "Learning", "Actively learning", ut.LastPracticed));
             }
             else if (ut.Status == TuneStatus.Rusty)
             {
                 var days = ut.LastPracticed.HasValue ? (int?)(now - ut.LastPracticed.Value).TotalDays : null;
                 var reason = days.HasValue ? $"Not practiced in {days} days" : "Marked as rusty";
-                list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", reason, days));
+                list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", reason, ut.LastPracticed));
             }
             else if (ut.Status == TuneStatus.Active)
             {
@@ -73,16 +73,17 @@ public class Get(AppDbContext db)
                 else
                 {
                     var age = now - ut.LastPracticed.Value;
+                    var days = (int)age.TotalDays;
                     if (age >= RustThreshold)
                     {
-                        var days = (int)age.TotalDays;
-                        list.Add(new QueueCandidate(ut.UserTuneId, "Rusty", $"Unplayed for {days} days", days));
+                        list.Add(new QueueCandidate(
+                            ut.UserTuneId, "Rusty", $"Unplayed for {days} days", ut.LastPracticed));
                     }
                     else
                     {
-                        var days = (int)age.TotalDays;
                         var reason = days == 0 ? "Practiced today" : $"Practiced {days} days ago";
-                        list.Add(new QueueCandidate(ut.UserTuneId, "Maintenance", reason, days));
+                        list.Add(new QueueCandidate(
+                            ut.UserTuneId, "Maintenance", reason, ut.LastPracticed));
                     }
                 }
             }
@@ -90,7 +91,9 @@ public class Get(AppDbContext db)
 
         var selected = list
             .OrderBy(x => x.Category == "Learning" ? 0 : x.Category == "Rusty" ? 1 : 2)
-            .ThenByDescending(x => x.DaysSince ?? int.MaxValue)
+            // Stalest first: a tune that has never been logged counts as maximally overdue.
+            .ThenBy(x => x.LastPracticed ?? DateTime.MinValue)
+            .ThenBy(x => x.UserTuneId)
             .Take(PracticeQueueSize)
             .ToList();
 

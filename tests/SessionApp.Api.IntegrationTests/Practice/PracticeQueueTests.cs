@@ -173,6 +173,42 @@ public class PracticeQueueTests(CosmosEmulatorFixture fixture) : CosmosTestBase(
     }
 
     [Fact]
+    public async Task LearningTunesAreOrderedByStaleness()
+    {
+        var user = await SeedAsync(db => db.SeedUserAsync());
+
+        // Seeded deliberately out of the expected order.
+        var recent = await SeedAsync(db => db.SeedTuneAsync("Recent"));
+        await SeedAsync(db => db.SeedUserTuneAsync(
+            user, recent, TuneStatus.Learning, lastPracticed: DateTime.UtcNow.AddDays(-2)));
+
+        var never = await SeedAsync(db => db.SeedTuneAsync("Never"));
+        await SeedAsync(db => db.SeedUserTuneAsync(user, never, TuneStatus.Learning));
+
+        var stale = await SeedAsync(db => db.SeedTuneAsync("Stale"));
+        await SeedAsync(db => db.SeedUserTuneAsync(
+            user, stale, TuneStatus.Learning, lastPracticed: DateTime.UtcNow.AddDays(-40)));
+
+        Assert.Equal(["Never", "Stale", "Recent"], (await QueueForAsync(user.UserId)).Select(i => i.Title));
+    }
+
+    [Fact]
+    public async Task TunesPractisedOnTheSameDayStillOrderByStaleness()
+    {
+        var user = await SeedAsync(db => db.SeedUserAsync());
+
+        var later = await SeedAsync(db => db.SeedTuneAsync("Later"));
+        await SeedAsync(db => db.SeedUserTuneAsync(
+            user, later, TuneStatus.Learning, lastPracticed: DateTime.UtcNow.AddHours(-13)));
+
+        var earlier = await SeedAsync(db => db.SeedTuneAsync("Earlier"));
+        await SeedAsync(db => db.SeedUserTuneAsync(
+            user, earlier, TuneStatus.Learning, lastPracticed: DateTime.UtcNow.AddHours(-20)));
+
+        Assert.Equal(["Earlier", "Later"], (await QueueForAsync(user.UserId)).Select(i => i.Title));
+    }
+
+    [Fact]
     public async Task CapsTheQueueAtEightTunes()
     {
         var user = await SeedAsync(db => db.SeedUserAsync());
