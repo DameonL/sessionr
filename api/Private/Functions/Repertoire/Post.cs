@@ -7,11 +7,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Repertoire;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/repertoire — add a global tune to the user's repertoire.</summary>
     [Function("AddToRepertoire")]
@@ -92,6 +93,8 @@ public class Post(AppDbContext db)
 
             userTune.Tune = tune;
             userTune.TuneSetting = selectedSetting;
+
+            await purgeService.PurgeUserProfileAsync(userId: callerUserId.Value);
 
             return new OkObjectResult(RepertoireSupport.ToItemDto(userTune));
         }

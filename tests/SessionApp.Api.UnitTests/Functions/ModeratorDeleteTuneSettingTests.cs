@@ -1,10 +1,15 @@
 using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using SessionApp.Api.Data;
 using SessionApp.Api.Functions.Moderator.Tunes.Settings.BySettingId;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using SessionApp.Api.TestSupport;
 using Xunit;
 
@@ -24,11 +29,14 @@ public class ModeratorDeleteTuneSettingTests
         return db;
     }
 
+    private static ICloudflareCachePurgeService CreatePurgeService() =>
+        new CloudflareCachePurgeService(new HttpClient(), NullLogger<CloudflareCachePurgeService>.Instance);
+
     [Fact]
     public async Task ModeratorDeleteTuneSetting_NonModerator_ReturnsForbidden()
     {
         using var db = CreateInMemoryDb();
-        var handler = new Delete(db);
+        var handler = new Delete(db, CreatePurgeService());
         var req = TestRequest.For(Guid.NewGuid(), moderator: false);
 
         var result = await handler.ModeratorDeleteTuneSetting(req, Guid.NewGuid());
@@ -41,7 +49,7 @@ public class ModeratorDeleteTuneSettingTests
     public async Task ModeratorDeleteTuneSetting_SettingNotFound_ReturnsNotFound()
     {
         using var db = CreateInMemoryDb();
-        var handler = new Delete(db);
+        var handler = new Delete(db, CreatePurgeService());
         var req = TestRequest.For(Guid.NewGuid(), moderator: true);
 
         var result = await handler.ModeratorDeleteTuneSetting(req, Guid.NewGuid());
@@ -76,7 +84,7 @@ public class ModeratorDeleteTuneSettingTests
         });
         await db.SaveChangesAsync();
 
-        var handler = new Delete(db);
+        var handler = new Delete(db, CreatePurgeService());
         var req = TestRequest.For(Guid.NewGuid(), moderator: true);
 
         var result = await handler.ModeratorDeleteTuneSetting(req, settingId);

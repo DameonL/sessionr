@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Moderator.Tunes.Settings.BySettingId;
 
 [RequireModerator]
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/moderator/tunes/settings/{settingId} — delete a tune setting.</summary>
     [Function("ModeratorDeleteTuneSetting")]
@@ -30,9 +31,13 @@ public class Delete(AppDbContext db)
             return new NotFoundResult();
         }
 
+        var tuneId = setting.TuneId;
         db.TuneSettings.Remove(setting);
         await db.SaveChangesAsync();
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
+
+        await purgeService.PurgeTuneAsync(tuneId);
+
         return new NoContentResult();
     }
 }

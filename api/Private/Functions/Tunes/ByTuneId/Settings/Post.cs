@@ -11,7 +11,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes.ByTuneId.Settings;
 
-public class Post(AppDbContext db, TuneHeuristics heuristics)
+public class Post(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/tunes/{tuneId}/settings — add an alternate setting to the tune.</summary>
     [Function("CreateTuneSetting")]
@@ -49,6 +49,8 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
+
+        await purgeService.PurgeTuneAsync(tuneId);
 
         return new OkObjectResult(new TuneSettingDto(setting.TuneSettingId, setting.Key, setting.AbcText, setting.SubmitterName, setting.VoteScore, 0));
     }

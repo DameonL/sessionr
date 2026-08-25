@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes.ByTuneId.Aliases;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/tunes/{tuneId}/aliases — add an alternate name to the tune.</summary>
     [Function("CreateTuneAlias")]
@@ -43,6 +44,8 @@ public class Post(AppDbContext db)
         };
         db.TuneAliases.Add(alias);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeTuneAsync(tuneId);
 
         return new OkObjectResult(new { Name = alias.Name });
     }

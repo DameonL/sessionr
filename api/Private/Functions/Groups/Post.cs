@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups — create a new tune group. The caller becomes Owner.</summary>
     [Function("CreateGroup")]
@@ -56,6 +57,8 @@ public class Post(AppDbContext db)
         db.GroupMemberships.Add(membership);
 
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeUrlsAsync(new[] { "/api/groups" });
 
         return new OkObjectResult(new { group.GroupId, group.Name, group.Description, group.City, group.IsPrivate, group.InviteCode, group.TimeZone });
     }

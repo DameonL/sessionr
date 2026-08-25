@@ -12,7 +12,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes;
 
-public class Post(AppDbContext db, TuneHeuristics heuristics)
+public class Post(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/tunes — add a tune to the global library.</summary>
     [Function("CreateTune")]
@@ -64,6 +64,8 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         };
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeAllTunesAsync();
 
         return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount, tune.Difficulty));
     }

@@ -13,7 +13,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 namespace SessionApp.Api.Functions.Moderator.Tunes.ByTuneId;
 
 [RequireModerator]
-public class Put(AppDbContext db, TuneHeuristics heuristics)
+public class Put(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePurgeService purgeService)
 {
     public record UpdateMasterTuneRequest(string Title, string TuneType, string Key, string MasterAbcText);
 
@@ -53,6 +53,9 @@ public class Put(AppDbContext db, TuneHeuristics heuristics)
 
         await db.SaveChangesAsync();
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
+
+        await purgeService.PurgeTuneAsync(tuneId);
+
         return new OkObjectResult(new UnreviewedTunes.Get.ModeratorTuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.MasterAbcText, tune.IsReviewed, tune.ReviewedAt, tune.ReviewedBy, tune.CreatedAt));
     }
 }

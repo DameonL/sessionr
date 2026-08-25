@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Privacy;
 
-public class Patch(AppDbContext db)
+public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PATCH /api/groups/{groupId}/privacy — toggle private/public status of a group. Only the Owner can change privacy.</summary>
     [Function("UpdateGroupPrivacy")]
@@ -43,6 +44,9 @@ public class Patch(AppDbContext db)
         }
 
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeGroupAsync(groupId);
+
         return new OkObjectResult(new { group.GroupId, group.IsPrivate, group.InviteCode });
     }
 

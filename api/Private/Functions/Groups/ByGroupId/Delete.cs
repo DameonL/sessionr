@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/groups/{groupId} — delete a group. Only the Owner can delete the group.</summary>
     [Function("DeleteGroup")]
@@ -32,6 +33,9 @@ public class Delete(AppDbContext db)
 
         db.Groups.Remove(group);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeGroupAsync(groupId);
+
         return new NoContentResult();
     }
 }

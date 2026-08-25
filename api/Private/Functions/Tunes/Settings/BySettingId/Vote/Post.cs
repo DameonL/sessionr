@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Tunes.Settings.BySettingId.Vote;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/tunes/settings/{settingId}/vote — cast an upvote or downvote on a setting.</summary>
     [Function("VoteTuneSetting")]
@@ -93,6 +94,8 @@ public class Post(AppDbContext db)
         setting.VoteScore += val - previousValue;
 
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeTuneAsync(setting.TuneId);
 
         return new OkObjectResult(new { voteScore = setting.VoteScore });
     }

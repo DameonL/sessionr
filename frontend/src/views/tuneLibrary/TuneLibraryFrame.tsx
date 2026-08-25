@@ -7,6 +7,7 @@ import { useRouter } from '@/utils/routerCompat'
 import { createTune, formatTuneType } from '../../services/api'
 import {
   extractKeyFromAbc,
+  extractRhythmFromAbc,
   extractTitleFromAbc,
   extractTuneTypeFromAbc,
   normalizeAbcHeaders,

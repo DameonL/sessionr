@@ -6,12 +6,13 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Info;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/info — update basic group metadata (name, description, city, timeZone).</summary>
     [Function("UpdateGroupInfo")]
@@ -52,6 +53,9 @@ public class Post(AppDbContext db)
         }
 
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeGroupAsync(groupId);
+
         return new OkObjectResult(new { group.GroupId, group.Name, group.Description, group.City, group.IsPrivate, group.TimeZone });
     }
 }
