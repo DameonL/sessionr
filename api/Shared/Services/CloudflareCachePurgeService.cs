@@ -11,14 +11,16 @@ using Microsoft.Extensions.Logging;
 
 namespace SessionApp.Api.Services;
 
+public record CloudflarePurgeResult(bool IsSuccess, int? StatusCode, string? ErrorResponse);
+
 public interface ICloudflareCachePurgeService
 {
-    Task PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default);
-    Task PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default);
-    Task PurgeAllTunesAsync(CancellationToken cancellationToken = default);
-    Task PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default);
-    Task PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default);
-    Task PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default);
 }
 
 public class CloudflareCachePurgeService : ICloudflareCachePurgeService
@@ -65,12 +67,12 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         }
     }
 
-    public async Task PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default)
+    public async Task<CloudflarePurgeResult> PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_apiToken))
         {
             _logger.LogDebug("CloudflareCacheToken is not configured. Skipping cache purge.");
-            return;
+            return new CloudflarePurgeResult(false, null, "CloudflareCacheToken environment variable is not configured.");
         }
 
         var urlsToPurge = relativeOrAbsoluteUrls
@@ -81,14 +83,15 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
 
         if (urlsToPurge.Count == 0)
         {
-            return;
+            return new CloudflarePurgeResult(true, 200, null);
         }
 
         var zoneId = await GetZoneIdAsync(cancellationToken);
         if (string.IsNullOrEmpty(zoneId))
         {
-            _logger.LogWarning("Could not resolve Cloudflare Zone ID for {ZoneConfig}. Skipping cache purge.", _zoneConfig);
-            return;
+            var msg = $"Could not resolve Cloudflare Zone ID for {_zoneConfig}.";
+            _logger.LogWarning("{Message} Skipping cache purge.", msg);
+            return new CloudflarePurgeResult(false, null, msg);
         }
 
         try
@@ -104,23 +107,27 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiToken);
 
             using var response = await _httpClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
             if (response.IsSuccessStatusCode)
             {
                 _logger.LogInformation("Successfully purged {Count} URLs from Cloudflare cache.", urlsToPurge.Count);
+                return new CloudflarePurgeResult(true, (int)response.StatusCode, null);
             }
             else
             {
-                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Cloudflare cache purge returned HTTP {StatusCode}: {ErrorBody}", (int)response.StatusCode, errorBody);
+                _logger.LogWarning("Cloudflare cache purge returned HTTP {StatusCode}: {ErrorBody}", (int)response.StatusCode, responseBody);
+                return new CloudflarePurgeResult(false, (int)response.StatusCode, responseBody);
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send Cloudflare cache purge request.");
+            return new CloudflarePurgeResult(false, null, ex.ToString());
         }
     }
 
-    public Task PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default)
+    public Task<CloudflarePurgeResult> PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default)
     {
         return PurgeUrlsAsync(new[]
         {
@@ -128,12 +135,12 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         }, cancellationToken);
     }
 
-    public Task PurgeAllTunesAsync(CancellationToken cancellationToken = default)
+    public Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default)
     {
         return PurgeUrlsAsync(new[] { "/api/tunes" }, cancellationToken);
     }
 
-    public Task PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default)
+    public Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default)
     {
         return PurgeUrlsAsync(new[]
         {
@@ -144,7 +151,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         }, cancellationToken);
     }
 
-    public Task PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default)
+    public Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default)
     {
         var urls = new List<string> { $"/api/groups/sets/{groupSetId}" };
         if (groupId.HasValue)
@@ -155,7 +162,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         return PurgeUrlsAsync(urls, cancellationToken);
     }
 
-    public Task PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default)
+    public Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default)
     {
         var urls = new List<string>();
         if (!string.IsNullOrWhiteSpace(username))

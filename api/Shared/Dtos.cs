@@ -87,7 +87,7 @@ public record TuneMatchResponse(List<TuneMatchCandidateDto> Candidates, bool Has
 
 public record TuneDto(Guid TuneId, string Title, string TuneType, string Key, int RepertoireCount, int Difficulty = 0);
 
-public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue);
+public record TuneSettingDto(Guid TuneSettingId, string Key, string AbcText, string SubmitterName, int VoteScore, int UserVoteValue, CloudflarePurgeResult? CloudflarePurgeResponse = null);
 
 public record TuneDetailsDto(Guid TuneId, string Title, string TuneType, string Key, List<string> Aliases, List<TuneSettingDto> Settings);
 

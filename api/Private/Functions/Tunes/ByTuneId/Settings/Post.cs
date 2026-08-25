@@ -50,8 +50,9 @@ public class Post(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePu
         await db.SaveChangesAsync();
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
 
-        await purgeService.PurgeTuneAsync(tuneId);
+        var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
 
-        return new OkObjectResult(new TuneSettingDto(setting.TuneSettingId, setting.Key, setting.AbcText, setting.SubmitterName, setting.VoteScore, 0));
+        var purgeResponsePackage = purgeResult.IsSuccess ? null : purgeResult;
+        return new OkObjectResult(new TuneSettingDto(setting.TuneSettingId, setting.Key, setting.AbcText, setting.SubmitterName, setting.VoteScore, 0, purgeResponsePackage));
     }
 }

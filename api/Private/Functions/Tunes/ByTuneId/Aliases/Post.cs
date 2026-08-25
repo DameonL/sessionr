@@ -45,8 +45,8 @@ public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
         db.TuneAliases.Add(alias);
         await db.SaveChangesAsync();
 
-        await purgeService.PurgeTuneAsync(tuneId);
+        var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
 
-        return new OkObjectResult(new { Name = alias.Name });
+        return new OkObjectResult(new { Name = alias.Name, cloudflarePurgeResponse = purgeResult.IsSuccess ? null : purgeResult });
     }
 }

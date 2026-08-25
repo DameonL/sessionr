@@ -95,8 +95,8 @@ public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 
         await db.SaveChangesAsync();
 
-        await purgeService.PurgeTuneAsync(setting.TuneId);
+        var purgeResult = await purgeService.PurgeTuneAsync(setting.TuneId);
 
-        return new OkObjectResult(new { voteScore = setting.VoteScore });
+        return new OkObjectResult(new { voteScore = setting.VoteScore, cloudflarePurgeResponse = purgeResult.IsSuccess ? null : purgeResult });
     }
 }

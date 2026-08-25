@@ -105,24 +105,26 @@ public class CloudflareCachePurgeServiceTests
     }
 
     [Fact]
-    public async Task PurgeUrlsAsync_HttpFailure_FailsGracefullyWithoutThrowing()
+    public async Task PurgeUrlsAsync_HttpFailure_ReturnsErrorResultWithBody()
     {
         Environment.SetEnvironmentVariable("CloudflareCacheToken", "fake_token");
         Environment.SetEnvironmentVariable("CloudflareZoneId", "11112222333344445555666677778888");
 
         var handler = new MockHttpMessageHandler
         {
-            ResponseToReturn = new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            ResponseToReturn = new HttpResponseMessage(HttpStatusCode.Forbidden)
             {
-                Content = new StringContent(@"{""success"": false}")
+                Content = new StringContent(@"{""success"": false, ""errors"": [{""code"": 10000, ""message"": ""Authentication error""}]}")
             }
         };
         var client = new HttpClient(handler);
         var service = new CloudflareCachePurgeService(client, NullLogger<CloudflareCachePurgeService>.Instance);
 
-        var exception = await Record.ExceptionAsync(() => service.PurgeUrlsAsync(new[] { "/api/tunes" }));
+        var result = await service.PurgeUrlsAsync(new[] { "/api/tunes" });
 
-        Assert.Null(exception);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Contains("Authentication error", result.ErrorResponse);
     }
 
     [Fact]
