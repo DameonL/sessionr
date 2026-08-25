@@ -11,12 +11,23 @@ import type { MeterPulse, PulseStrength } from './meterPulse'
  * is switched on.
  */
 
-/** Volume multipliers at full strength; the slider scales how far each moves away from 1. */
+/**
+ * Volume multipliers at full strength; the slider scales how far each moves away from 1.
+ *
+ * The weight comes mostly from pushing the weak notes down rather than the strong ones up, because
+ * there is almost no room to go up: abcjs already accents beats itself, handing us 105 for a
+ * downbeat, 95 on the beat and 85 off it (abc_midi_flattener.js), against a ceiling of 127. Scaling
+ * a downbeat up by a quarter simply clipped, which is why an earlier, gentler-looking set of
+ * multipliers was inaudible however far the slider was pushed.
+ *
+ * As set, full emphasis spans about 10 dB of velocity from the downbeat to an off-beat once
+ * abcjs's own accents are folded in — an obvious lean rather than a suggestion of one.
+ */
 const MULTIPLIER: Record<PulseStrength, number> = {
-  strong: 1.25,
-  medium: 1.12,
-  light: 1.0,
-  off: 0.85,
+  strong: 1.15,
+  medium: 0.9,
+  light: 0.72,
+  off: 0.45,
 }
 
 /**

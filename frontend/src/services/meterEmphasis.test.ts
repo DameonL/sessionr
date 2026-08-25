@@ -53,15 +53,14 @@ describe('applyMeterEmphasis', () => {
   it('leans on 1 and 3, and lightens the off-beats', () => {
     const track = eighths(8)
     applyMeterEmphasis([track], REEL, 0, 100)
-    // strong 1.25, off .85, light 1.0, off .85, medium 1.12, off .85, light 1.0, off .85 —
-    // then snapped to multiples of 4, which is why the untouched light beats read 92 not 90.
-    expect(volumes(track)).toEqual([112, 76, 92, 76, 100, 76, 92, 76])
+    // strong, off, light, off, medium, off, light, off — snapped to multiples of 4.
+    expect(volumes(track)).toEqual([104, 40, 64, 40, 80, 40, 64, 40])
   })
 
   it('gives a jig its two groups', () => {
     const track = eighths(6)
     applyMeterEmphasis([track], JIG, 0, 100)
-    expect(volumes(track)).toEqual([112, 76, 76, 100, 76, 76])
+    expect(volumes(track)).toEqual([104, 40, 40, 80, 40, 40])
   })
 
   it('scales with the slider', () => {
@@ -69,9 +68,9 @@ describe('applyMeterEmphasis', () => {
     applyMeterEmphasis([half], REEL, 0, 50)
     // Every note sits between its unemphasised and fully emphasised value.
     expect(half[0].volume).toBeGreaterThan(90)
-    expect(half[0].volume).toBeLessThan(112)
+    expect(half[0].volume).toBeLessThan(104)
     expect(half[1].volume).toBeLessThan(90)
-    expect(half[1].volume).toBeGreaterThan(76)
+    expect(half[1].volume).toBeGreaterThan(40)
   })
 
   it('is an exact no-op at 0%', () => {
@@ -84,7 +83,7 @@ describe('applyMeterEmphasis', () => {
     // One eighth of pickup: the tune's first note is an upbeat, the second starts bar 1.
     const track = eighths(4)
     applyMeterEmphasis([track], REEL, 0.125, 100)
-    expect(volumes(track)).toEqual([76, 112, 76, 92])
+    expect(volumes(track)).toEqual([40, 104, 40, 64])
   })
 
   it('handles a pickup longer than a beat', () => {
@@ -100,6 +99,21 @@ describe('applyMeterEmphasis', () => {
     for (const v of volumes(track)) expect(v % 4).toBe(0)
   })
 
+  it('never pushes a note into the ceiling, where the accent would flatten out', () => {
+    // abcjs hands us 105 on a downbeat against a limit of 127; anything that clips there is an
+    // accent the listener cannot hear.
+    const track = eighths(8, 105)
+    applyMeterEmphasis([track], REEL, 0, 100)
+    expect(Math.max(...volumes(track))).toBeLessThan(127)
+  })
+
+  it('spans enough range to actually be heard', () => {
+    const track = eighths(8, 95)
+    applyMeterEmphasis([track], REEL, 0, 100)
+    const db = 20 * Math.log10(Math.max(...volumes(track)) / Math.min(...volumes(track)))
+    expect(db).toBeGreaterThan(5)
+  })
+
   it('keeps volumes inside MIDI range', () => {
     const loud = eighths(8, 127)
     applyMeterEmphasis([loud], REEL, 0, 100)
@@ -112,7 +126,7 @@ describe('applyMeterEmphasis', () => {
   it('treats a missing volume as abcjs would', () => {
     const track = [{ start: 0, end: 0.125, pitch: 72, instrument: 'fiddle', startChar: 0, endChar: 0 }] as unknown as abcjs.NoteMapTrack
     applyMeterEmphasis([track], REEL, 0, 100)
-    expect(track[0].volume).toBe(112) // 90 * 1.25
+    expect(track[0].volume).toBe(104) // 90 * 1.15, snapped
   })
 
   it('applies to every track, not just the melody', () => {
@@ -120,7 +134,7 @@ describe('applyMeterEmphasis', () => {
     const chords = eighths(2)
     applyMeterEmphasis([melody, chords], REEL, 0, 100)
     expect(volumes(melody)).toEqual(volumes(chords))
-    expect(melody[0].volume).toBe(112)
+    expect(melody[0].volume).toBe(104)
   })
 
   it('leaves a degenerate bar alone rather than dividing by zero', () => {

@@ -92,6 +92,8 @@ console.log(`${PROBE}: bar = ${(barWindows * flat.windowSec).toFixed(2)}s;  prim
 console.log('  emphasis applied, by position in bar:', byPosition.map((v, i) => `${i}:${v.toFixed(2)}x`).join('  '))
 
 const ok = (l, c) => console.log(`  ${c ? 'PASS' : 'FAIL'}  ${l}`)
+const rangeDb = 20 * Math.log10(Math.max(...byPosition) / Math.min(...byPosition))
+console.log(`  downbeat to off-beat: ${rangeDb.toFixed(1)} dB`)
 const strongest = byPosition.indexOf(Math.max(...byPosition))
 ok(`beat 1 gets the most weight (loudest position is ${strongest})`, strongest === 0)
 if (PROBE === 'reel') {
@@ -103,5 +105,7 @@ if (PROBE === 'reel') {
   ok('both group heads are lifted above the rest',
      Math.min(byPosition[0], byPosition[3]) > Math.max(byPosition[1], byPosition[2], byPosition[4], byPosition[5]))
 }
-ok('emphasis is a real effect, not rounding', Math.max(...byPosition) / Math.min(...byPosition) > 1.15)
+// Below about 5 dB the lean is there on paper and inaudible in practice, which is exactly the
+// trap an earlier set of multipliers fell into by clipping against abcjs's own beat accents.
+ok('the lean is wide enough to hear (>5 dB)', rangeDb > 5)
 await browser.close()
