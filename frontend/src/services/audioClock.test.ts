@@ -161,10 +161,26 @@ describe('anchorTimerToAudio', () => {
     expect(startTimeOf(timer)).toBe(10_000 - 900)
   })
 
-  it('ignores a synth whose start time is in the future', () => {
-    activeAudioContext.mockReturnValue(ctx(1))
-    const timer = timerAt(10_000 - 900)
-    expect(anchorTimerToAudio(timer, synthAt(2))).toBe(0)
-    expect(startTimeOf(timer)).toBe(10_000 - 900)
+  it('holds the cursor at the start while the audio has not sounded yet', () => {
+    // The context clock has not advanced past the synth's start: nothing is audible, so the cursor
+    // must wait rather than run on without the music.
+    activeAudioContext.mockReturnValue(ctx(5))
+    const timer = timerAt(10_000 - 400) // cursor already 400ms in
+    expect(anchorTimerToAudio(timer, synthAt(5))).toBeCloseTo(-400)
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(0)
+  })
+
+  it('holds at the start when latency compensation would push the position negative', () => {
+    activeAudioContext.mockReturnValue(ctx(5, { outputLatency: 0.2 }))
+    const timer = timerAt(10_000 - 300)
+    anchorTimerToAudio(timer, synthAt(5))
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(0)
+  })
+})
+
+describe('timerDriftMs while the audio has not sounded', () => {
+  it('reports the cursor as ahead, so the drift correction pulls it back', () => {
+    activeAudioContext.mockReturnValue(ctx(5))
+    expect(timerDriftMs(timerAt(10_000 - 250), synthAt(5))).toBeCloseTo(-250)
   })
 })

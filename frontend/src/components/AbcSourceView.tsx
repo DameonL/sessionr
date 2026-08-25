@@ -43,7 +43,7 @@ export function AbcSourceView({ abc, cursor, onCopy }: AbcSourceViewProps) {
           📋 Copy ABC
         </button>
       </div>
-      <pre className="abc-code-block abc-source-text">
+      <pre className="abc-source-text">
         {hasCursor ? (
           <>
             {abc.slice(0, start)}

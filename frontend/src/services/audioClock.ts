@@ -83,13 +83,58 @@ export function audioPositionMs(synth: abcjs.MidiBuffer): number | null {
 }
 
 /**
+ * Once the output device has been seen running, it stays running for the life of the page, so the
+ * wait below only ever costs anything on the first sound.
+ */
+let audioClockConfirmed = false
+
+/**
+ * Waits until the audio device is actually rendering, and resolves immediately once it is.
+ *
+ * A context reports "running" as soon as it is unsuspended, but its clock stays frozen until the
+ * output device has finished opening — which on a first sound can take seconds, and longer over
+ * Bluetooth. Audio started in that window is not merely late: the context clock jumps forward when
+ * the device does open, so the buffer is already that far in and the opening seconds of the tune
+ * are gone. Played from the sheet music, the tune becomes audible partway through the melody.
+ *
+ * Gives up after timeoutMs rather than blocking playback on a device that never reports progress.
+ */
+export async function waitForAudioClock(timeoutMs = 3000): Promise<void> {
+  if (audioClockConfirmed) return
+  const ctx = activeContext()
+  if (!ctx) return
+
+  // Nothing else in the app resumes the context, and a suspended one renders nothing at all.
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume()
+    } catch {
+      // Blocked by autoplay policy; fall through and let the clock check decide.
+    }
+  }
+
+  const started = ctx.currentTime
+  const deadline = performance.now() + timeoutMs
+  while (ctx.currentTime === started && performance.now() < deadline) {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+  }
+  audioClockConfirmed = ctx.currentTime > started
+}
+
+/** Test seam: forget that the device was seen running. */
+export function resetAudioClockConfirmation() {
+  audioClockConfirmed = false
+}
+
+/**
  * How far the cursor is from the music, in ms: positive means the cursor is running behind and
  * needs to move forward. Null when there's nothing to compare — the synth hasn't started, or the
  * timer hasn't latched its zero yet.
  */
 export function timerDriftMs(timer: abcjs.TimingCallbacks, synth: abcjs.MidiBuffer): number | null {
-  const audioMs = audioPositionMs(synth)
-  if (audioMs === null || audioMs < 0) return null
+  const rawAudioMs = audioPositionMs(synth)
+  if (rawAudioMs === null) return null
+  const audioMs = Math.max(0, rawAudioMs)
   const startTime = (timer as unknown as TimerClock).startTime
   if (typeof startTime !== 'number' || !Number.isFinite(startTime)) return null
   return audioMs - (performance.now() - startTime)
@@ -115,8 +160,11 @@ export function anchorTimerToAudio(
   synth: abcjs.MidiBuffer,
   { threshold = DEFAULT_THRESHOLD_MS, ease = 1 }: AnchorOptions = {},
 ): number {
-  const audioMs = audioPositionMs(synth)
-  if (audioMs === null || audioMs < 0) return 0
+  const rawAudioMs = audioPositionMs(synth)
+  if (rawAudioMs === null) return 0
+  // Before the first sample sounds this reads at or below zero (latency compensation pushes it
+  // negative). Hold the cursor at the start rather than letting it run on without the music.
+  const audioMs = Math.max(0, rawAudioMs)
 
   const clock = timer as unknown as TimerClock
   // A timer that hasn't latched yet has no position to compare against — anchor it outright.

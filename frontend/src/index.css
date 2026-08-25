@@ -437,6 +437,14 @@ main {
   cursor: pointer;
 }
 
+/* abcjs marks a clicked note by writing a hardcoded red fill attribute. A class rule beats an
+   attribute, so this brings it into the palette; SetPlayer clears the class when the name fades. */
+.sheet-music .abcjs-note_selected {
+  fill: var(--accent);
+}
+
+/* Goes on a wrapper, never on an abcjs host — responsive:"resize" writes display:inline-block
+   inline on the host, and an inline style beats this. */
 .sheet-music-hidden {
   display: none;
 }
@@ -492,7 +500,18 @@ main {
   margin-bottom: -0.25rem;
 }
 
+/* Deliberately not reusing .abc-code-block: that one is painted for a dark modal (translucent
+   black on slate text) and is close to unreadable against the light theme's paper. */
 .abc-source-text {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 60vh;
@@ -502,8 +521,9 @@ main {
 /* Mirrors .sheet-music .highlight — the note currently sounding */
 .abc-source-note {
   background: var(--accent);
-  color: var(--sheet-paper);
+  color: var(--bg);
   border-radius: 3px;
+  font-weight: 700;
 }
 
 /* Mirrors .sheet-music .abcjs-cursor — a position marker to track between notes */

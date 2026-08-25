@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
-import { anchorTimerToAudio, timerDriftMs } from "../services/audioClock";
+import { anchorTimerToAudio, timerDriftMs, waitForAudioClock } from "../services/audioClock";
 import { prefersFlats, spellMidiNotes } from "../services/noteSpelling";
 import { showToast } from "../state/appState";
 import { AbcSourceView, type AbcCursorRange } from "./AbcSourceView";
@@ -388,6 +388,15 @@ export function SetPlayer({
       })[0] as ExtendedTuneObject;
       const timings = visualObj.setTiming(visualObj.getBpm());
       noteTimingsRef.current[index] = timings;
+      // Runs the sequence/flatten pass, whose side effect is writing midiPitches onto every note
+      // element. Nothing else does that until a synth is built, so without it clicking a note has
+      // no pitch to sound or name until the tune has been played once. It needs no soundfont and
+      // no audio context, and CreateSynth re-runs it with the real options at play time anyway.
+      try {
+        visualObj.setUpAudio({});
+      } catch {
+        // A tune the sequencer chokes on should still engrave and play; only clicking is lost.
+      }
       tuneLinesRef.current[index] = extractLinesFromTimings(timings);
       if (index === 0) {
         const baseBpm = getTuneBaseBpm(visualObj, targetBpm, item.tuneType);
@@ -514,8 +523,35 @@ export function SetPlayer({
     noteBadgeTimeoutRef.current = window.setTimeout(() => {
       noteBadgeTimeoutRef.current = null;
       setNoteBadge(null);
+      clearNoteSelection();
     }, NOTE_BADGE_MS);
   }
+
+  /**
+   * Drops abcjs's own selection mark from a clicked note.
+   *
+   * Clicking makes abcjs paint the note with a hardcoded red fill attribute and leave it that way
+   * indefinitely, which is neither transitory nor in the app's palette. CSS restyles it while it is
+   * there (see .abcjs-note_selected); this clears it once the name has faded, so the whole
+   * interaction ends where it started.
+   */
+  function clearNoteSelection() {
+    for (const host of sheetRefs.current) {
+      for (const el of host?.querySelectorAll(".abcjs-note_selected") ?? []) {
+        el.classList.remove("abcjs-note_selected");
+        el.setAttribute("fill", "currentColor");
+      }
+    }
+  }
+
+  /** A badge is positioned against the staff, so it means nothing once the staff is gone. */
+  useEffect(() => {
+    if (noteBadgeTimeoutRef.current !== null) window.clearTimeout(noteBadgeTimeoutRef.current);
+    noteBadgeTimeoutRef.current = null;
+    setNoteBadge(null);
+    clearNoteSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
   useEffect(() => {
     return () => {
@@ -921,13 +957,25 @@ export function SetPlayer({
         passRef.current = 1;
         setPassCount(1);
       }
-      startTune(targetIndex, effectiveBpm, targetPass, loop?.a ?? targetFraction);
+      startTune(targetIndex, effectiveBpm, targetPass, loop?.a ?? targetFraction, true, true);
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
     }
   }
 
-  function startTune(index: number, bpm: number, startPass = 1, startFraction = 0, shouldScroll = true) {
+  function startTune(
+    index: number,
+    bpm: number,
+    startPass = 1,
+    startFraction = 0,
+    shouldScroll = true,
+    /**
+     * Hold the sound until the staff has painted. Only for a fresh start from play(), never for a
+     * pass repeat or a tune-to-tune handover, where waiting two frames would put an audible gap in
+     * the middle of continuous playback.
+     */
+    waitForPaint = false,
+  ) {
     const visualObj = visualObjsRef.current[index];
     const voices = synthsRef.current[index];
     if (!visualObj || !voices || voices.length === 0) return;
@@ -1085,15 +1133,7 @@ export function SetPlayer({
     });
     timerRef.current = timer;
 
-    const isPlayerPaused = statusRef.current === "paused";
-    if (isPlayerPaused) {
-      for (const v of voices) v.seek(startFraction);
-      timer.start(startFraction);
-      // Not redundant with start(): for a zero offset start() resets startTime to null, and
-      // pause() reads startTime to record where it paused. setProgress puts a real value there.
-      timer.setProgress(startFraction);
-      timer.pause();
-    } else {
+    function beginPlayback() {
       if (startFraction > 0) {
         for (const v of voices) v.seek(startFraction);
       }
@@ -1108,6 +1148,45 @@ export function SetPlayer({
       // — the React commit, the scrollIntoView, the SVG layout — leaving it that far behind the
       // music for the rest of the tune. Anchoring to the audio clock makes the start delay moot.
       anchorOnNextFrame(timer, synth);
+    }
+
+    const isPlayerPaused = statusRef.current === "paused";
+    if (isPlayerPaused) {
+      for (const v of voices) v.seek(startFraction);
+      timer.start(startFraction);
+      // Not redundant with start(): for a zero offset start() resets startTime to null, and
+      // pause() reads startTime to record where it paused. setProgress puts a real value there.
+      timer.setProgress(startFraction);
+      timer.pause();
+    } else if (waitForPaint) {
+      /*
+       * Sound waits for the staff, rather than the other way round.
+       *
+       * The cursor cannot paint until a frame after the timer starts, so starting audio first means
+       * the tune is already under way by the time anything appears — and the cursor, correctly
+       * anchored to the audio, then shows up partway through the melody. The slower the device (or
+       * the heavier the page), the further in it lands.
+       *
+       * So paint the starting note first, using the same scrub-preview path that draws a position
+       * without any audio, and only make a sound on the frame after that has actually appeared.
+       */
+      const session = playSessionRef.current;
+      const stillCurrent = () => playSessionRef.current === session && timerRef.current === timer;
+      requestAnimationFrame(() => {
+        if (!stillCurrent()) return;
+        updateVisualsForTime(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction);
+        // Waits for the output device to actually be rendering before making a sound. Resolves at
+        // once on every play after the first, so only the very first start ever pays for it.
+        void waitForAudioClock().then(() => {
+          if (!stillCurrent()) return;
+          requestAnimationFrame(() => {
+            if (!stillCurrent()) return;
+            beginPlayback();
+          });
+        });
+      });
+    } else {
+      beginPlayback();
     }
   }
 
@@ -1573,15 +1652,21 @@ export function SetPlayer({
                   </span>
                 </div>
               )}
-              {/* Never unmounted: the engraving, its note timings and the live abcjs cursor all hang
-                  off this node, and the render effect only re-runs when the tunes themselves change,
-                  so tearing it down for the ABC view would quietly break playback. */}
-              <div
-                className={`sheet-music ${viewMode === "abc" ? "sheet-music-hidden" : ""}`}
-                ref={(el) => {
-                  sheetRefs.current[index] = el;
-                }}
-              />
+              {/* The wrapper is what gets hidden, not the engraving host itself: responsive:"resize"
+                  makes abcjs write display:inline-block as an inline style on its host, which beats
+                  any class rule we could put there.
+
+                  And hidden rather than unmounted — the engraving, its note timings and the live
+                  abcjs cursor all hang off that node, and the render effect only re-runs when the
+                  tunes themselves change, so tearing it down would quietly break playback. */}
+              <div className={viewMode === "abc" ? "sheet-music-hidden" : ""}>
+                <div
+                  className="sheet-music"
+                  ref={(el) => {
+                    sheetRefs.current[index] = el;
+                  }}
+                />
+              </div>
               {viewMode === "abc" && (
                 <AbcSourceView
                   abc={engravedAbcRef.current[index] ?? ""}
