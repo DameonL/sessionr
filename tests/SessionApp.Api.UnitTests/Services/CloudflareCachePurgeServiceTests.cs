@@ -42,12 +42,31 @@ public class CloudflareCachePurgeServiceTests
     public async Task PurgeUrlsAsync_NoToken_DoesNotSendRequest()
     {
         Environment.SetEnvironmentVariable("CloudflareCacheToken", "");
+        Environment.SetEnvironmentVariable("CloudflareZoneId", "11112222333344445555666677778888");
         var handler = new MockHttpMessageHandler();
         var client = new HttpClient(handler);
         var service = new CloudflareCachePurgeService(client, NullLogger<CloudflareCachePurgeService>.Instance);
 
-        await service.PurgeUrlsAsync(new[] { "/api/tunes" });
+        var result = await service.PurgeUrlsAsync(new[] { "/api/tunes" });
 
+        Assert.False(result.IsSuccess);
+        Assert.Contains("CloudflareCacheToken", result.ErrorResponse);
+        Assert.Empty(handler.SentRequests);
+    }
+
+    [Fact]
+    public async Task PurgeUrlsAsync_NoZoneId_DoesNotSendRequest()
+    {
+        Environment.SetEnvironmentVariable("CloudflareCacheToken", "fake_token");
+        Environment.SetEnvironmentVariable("CloudflareZoneId", "");
+        var handler = new MockHttpMessageHandler();
+        var client = new HttpClient(handler);
+        var service = new CloudflareCachePurgeService(client, NullLogger<CloudflareCachePurgeService>.Instance);
+
+        var result = await service.PurgeUrlsAsync(new[] { "/api/tunes" });
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("CloudflareZoneId", result.ErrorResponse);
         Assert.Empty(handler.SentRequests);
     }
 

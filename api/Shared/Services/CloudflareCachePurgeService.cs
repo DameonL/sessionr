@@ -29,11 +29,8 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
     private readonly ILogger<CloudflareCachePurgeService> _logger;
 
     private readonly string? _apiToken;
-    private readonly string _zoneConfig;
+    private readonly string? _zoneId;
     private readonly List<string> _baseUrls;
-
-    private string? _resolvedZoneId;
-    private bool _zoneResolutionAttempted;
 
     public CloudflareCachePurgeService(HttpClient httpClient, ILogger<CloudflareCachePurgeService> logger)
     {
@@ -41,11 +38,8 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         _logger = logger;
 
         _apiToken = Environment.GetEnvironmentVariable("CloudflareCacheToken")?.Trim();
-
-        _zoneConfig = Environment.GetEnvironmentVariable("CloudflareZoneId")?.Trim()
-            ?? Environment.GetEnvironmentVariable("CLOUDFLARE_ZONE_ID")?.Trim()
-            ?? Environment.GetEnvironmentVariable("CloudflareZone")?.Trim()
-            ?? "sessionr.org";
+        _zoneId = Environment.GetEnvironmentVariable("CloudflareZoneId")?.Trim()
+            ?? Environment.GetEnvironmentVariable("CLOUDFLARE_ZONE_ID")?.Trim();
 
         var rawBaseUrlConfig = Environment.GetEnvironmentVariable("PublicApiBaseUrl")?.Trim()
             ?? Environment.GetEnvironmentVariable("PUBLIC_API_BASE_URL")?.Trim();
@@ -75,6 +69,12 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             return new CloudflarePurgeResult(false, null, "CloudflareCacheToken environment variable is not configured.");
         }
 
+        if (string.IsNullOrEmpty(_zoneId))
+        {
+            _logger.LogDebug("CloudflareZoneId is not configured. Skipping cache purge.");
+            return new CloudflarePurgeResult(false, null, "CloudflareZoneId environment variable is not configured.");
+        }
+
         var urlsToPurge = relativeOrAbsoluteUrls
             .Where(u => !string.IsNullOrWhiteSpace(u))
             .SelectMany(u => BuildAbsoluteUrls(u!))
@@ -86,17 +86,9 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             return new CloudflarePurgeResult(true, 200, null);
         }
 
-        var zoneId = await GetZoneIdAsync(cancellationToken);
-        if (string.IsNullOrEmpty(zoneId))
-        {
-            var msg = $"Could not resolve Cloudflare Zone ID for {_zoneConfig}.";
-            _logger.LogWarning("{Message} Skipping cache purge.", msg);
-            return new CloudflarePurgeResult(false, null, msg);
-        }
-
         try
         {
-            var purgeEndpoint = $"https://api.cloudflare.com/client/v4/zones/{zoneId}/purge_cache";
+            var purgeEndpoint = $"https://api.cloudflare.com/client/v4/zones/{_zoneId}/purge_cache";
             var payload = new { files = urlsToPurge };
             var jsonPayload = JsonSerializer.Serialize(payload);
 
@@ -191,60 +183,5 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             yield return $"{baseUrl}{path}";
         }
-    }
-
-    private async Task<string?> GetZoneIdAsync(CancellationToken cancellationToken)
-    {
-        if (_resolvedZoneId != null)
-        {
-            return _resolvedZoneId;
-        }
-
-        if (IsZoneId(_zoneConfig))
-        {
-            _resolvedZoneId = _zoneConfig;
-            return _resolvedZoneId;
-        }
-
-        if (_zoneResolutionAttempted)
-        {
-            return null;
-        }
-
-        _zoneResolutionAttempted = true;
-        try
-        {
-            var lookupEndpoint = $"https://api.cloudflare.com/client/v4/zones?name={Uri.EscapeDataString(_zoneConfig)}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, lookupEndpoint);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiToken);
-
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                using var doc = JsonDocument.Parse(content);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("result", out var resultArr) && resultArr.ValueKind == JsonValueKind.Array && resultArr.GetArrayLength() > 0)
-                {
-                    var firstZone = resultArr[0];
-                    if (firstZone.TryGetProperty("id", out var idProp))
-                    {
-                        _resolvedZoneId = idProp.GetString();
-                        return _resolvedZoneId;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to resolve Cloudflare Zone ID for zone name {ZoneName}", _zoneConfig);
-        }
-
-        return null;
-    }
-
-    private static bool IsZoneId(string zone)
-    {
-        return zone.Length == 32 && zone.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 }
