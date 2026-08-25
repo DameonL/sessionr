@@ -81,7 +81,7 @@ public class CloudflareCachePurgeServiceTests
     }
 
     [Fact]
-    public async Task PurgeUrlsAsync_DefaultBaseUrls_PurgesBothApiPublicAndPublicApiDomains()
+    public async Task PurgeUrlsAsync_DefaultBaseUrl_PurgesApiPublicDomain()
     {
         const string fakeToken = "test_cloudflare_token_123";
         const string fakeZoneId = "11112222333344445555666677778888";
@@ -100,8 +100,8 @@ public class CloudflareCachePurgeServiceTests
         using var doc = JsonDocument.Parse(json);
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("https://api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files);
-        Assert.Contains("https://public-api.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files);
+        Assert.Single(files);
+        Assert.Equal("https://api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files[0]);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class CloudflareCachePurgeServiceTests
     }
 
     [Fact]
-    public async Task PurgeTuneAsync_GeneratesCorrectRelativeUrls()
+    public async Task PurgeTuneAsync_OnlyPurgesSpecificTuneUrl()
     {
         const string fakeToken = "test_token";
         const string fakeZoneId = "11112222333344445555666677778888";
@@ -146,7 +146,7 @@ public class CloudflareCachePurgeServiceTests
         using var doc = JsonDocument.Parse(json);
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("https://api-public.sessionr.org/api/tunes", files);
-        Assert.Contains($"https://api-public.sessionr.org/api/tunes/{tuneId}", files);
+        Assert.Single(files);
+        Assert.Equal($"https://api-public.sessionr.org/api/tunes/{tuneId}", files[0]);
     }
 }

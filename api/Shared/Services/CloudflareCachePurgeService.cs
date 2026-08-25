@@ -60,8 +60,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             _baseUrls = new List<string>
             {
-                "https://api-public.sessionr.org",
-                "https://public-api.sessionr.org"
+                "https://api-public.sessionr.org"
             };
         }
     }
@@ -125,7 +124,6 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
     {
         return PurgeUrlsAsync(new[]
         {
-            "/api/tunes",
             $"/api/tunes/{tuneId}"
         }, cancellationToken);
     }
