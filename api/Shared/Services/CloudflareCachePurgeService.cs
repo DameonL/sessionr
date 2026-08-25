@@ -28,7 +28,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
 
     private readonly string? _apiToken;
     private readonly string _zoneConfig;
-    private readonly string _baseUrl;
+    private readonly List<string> _baseUrls;
 
     private string? _resolvedZoneId;
     private bool _zoneResolutionAttempted;
@@ -45,11 +45,25 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             ?? Environment.GetEnvironmentVariable("CloudflareZone")?.Trim()
             ?? "sessionr.org";
 
-        var rawBaseUrl = Environment.GetEnvironmentVariable("PublicApiBaseUrl")?.Trim()
-            ?? Environment.GetEnvironmentVariable("PUBLIC_API_BASE_URL")?.Trim()
-            ?? "https://public-api.sessionr.org";
+        var rawBaseUrlConfig = Environment.GetEnvironmentVariable("PublicApiBaseUrl")?.Trim()
+            ?? Environment.GetEnvironmentVariable("PUBLIC_API_BASE_URL")?.Trim();
 
-        _baseUrl = rawBaseUrl.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(rawBaseUrlConfig))
+        {
+            _baseUrls = rawBaseUrlConfig
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(b => b.TrimEnd('/'))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        else
+        {
+            _baseUrls = new List<string>
+            {
+                "https://api-public.sessionr.org",
+                "https://public-api.sessionr.org"
+            };
+        }
     }
 
     public async Task PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default)
@@ -62,8 +76,8 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
 
         var urlsToPurge = relativeOrAbsoluteUrls
             .Where(u => !string.IsNullOrWhiteSpace(u))
-            .Select(u => BuildAbsoluteUrl(u!))
-            .Distinct()
+            .SelectMany(u => BuildAbsoluteUrls(u!))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         if (urlsToPurge.Count == 0)
@@ -159,14 +173,19 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         return PurgeUrlsAsync(urls, cancellationToken);
     }
 
-    private string BuildAbsoluteUrl(string url)
+    private IEnumerable<string> BuildAbsoluteUrls(string url)
     {
         if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            return url;
+            yield return url;
+            yield break;
         }
+
         var path = url.StartsWith('/') ? url : $"/{url}";
-        return $"{_baseUrl}{path}";
+        foreach (var baseUrl in _baseUrls)
+        {
+            yield return $"{baseUrl}{path}";
+        }
     }
 
     private async Task<string?> GetZoneIdAsync(CancellationToken cancellationToken)

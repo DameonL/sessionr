@@ -58,7 +58,7 @@ public class CloudflareCachePurgeServiceTests
         const string fakeZoneId = "11112222333344445555666677778888";
         Environment.SetEnvironmentVariable("CloudflareCacheToken", fakeToken);
         Environment.SetEnvironmentVariable("CloudflareZoneId", fakeZoneId);
-        Environment.SetEnvironmentVariable("PublicApiBaseUrl", "https://public-api.sessionr.org");
+        Environment.SetEnvironmentVariable("PublicApiBaseUrl", "https://api-public.sessionr.org");
 
         var handler = new MockHttpMessageHandler();
         var client = new HttpClient(handler);
@@ -76,8 +76,32 @@ public class CloudflareCachePurgeServiceTests
         using var doc = JsonDocument.Parse(json);
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("https://public-api.sessionr.org/api/tunes", files);
-        Assert.Contains("https://public-api.sessionr.org/api/tunes/guid-123", files);
+        Assert.Contains("https://api-public.sessionr.org/api/tunes", files);
+        Assert.Contains("https://api-public.sessionr.org/api/tunes/guid-123", files);
+    }
+
+    [Fact]
+    public async Task PurgeUrlsAsync_DefaultBaseUrls_PurgesBothApiPublicAndPublicApiDomains()
+    {
+        const string fakeToken = "test_cloudflare_token_123";
+        const string fakeZoneId = "11112222333344445555666677778888";
+        Environment.SetEnvironmentVariable("CloudflareCacheToken", fakeToken);
+        Environment.SetEnvironmentVariable("CloudflareZoneId", fakeZoneId);
+        Environment.SetEnvironmentVariable("PublicApiBaseUrl", "");
+
+        var handler = new MockHttpMessageHandler();
+        var client = new HttpClient(handler);
+        var service = new CloudflareCachePurgeService(client, NullLogger<CloudflareCachePurgeService>.Instance);
+
+        await service.PurgeUrlsAsync(new[] { "/api/tunes/01a03a29-6add-740c-b62f-aa700533589d" });
+
+        Assert.Single(handler.SentRequests);
+        var json = handler.RequestBodies[0];
+        using var doc = JsonDocument.Parse(json);
+        var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
+
+        Assert.Contains("https://api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files);
+        Assert.Contains("https://public-api.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files);
     }
 
     [Fact]
@@ -108,7 +132,7 @@ public class CloudflareCachePurgeServiceTests
         const string fakeZoneId = "11112222333344445555666677778888";
         Environment.SetEnvironmentVariable("CloudflareCacheToken", fakeToken);
         Environment.SetEnvironmentVariable("CloudflareZoneId", fakeZoneId);
-        Environment.SetEnvironmentVariable("PublicApiBaseUrl", "https://public-api.sessionr.org");
+        Environment.SetEnvironmentVariable("PublicApiBaseUrl", "https://api-public.sessionr.org");
 
         var tuneId = Guid.NewGuid();
         var handler = new MockHttpMessageHandler();
@@ -122,7 +146,7 @@ public class CloudflareCachePurgeServiceTests
         using var doc = JsonDocument.Parse(json);
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("https://public-api.sessionr.org/api/tunes", files);
-        Assert.Contains($"https://public-api.sessionr.org/api/tunes/{tuneId}", files);
+        Assert.Contains("https://api-public.sessionr.org/api/tunes", files);
+        Assert.Contains($"https://api-public.sessionr.org/api/tunes/{tuneId}", files);
     }
 }
