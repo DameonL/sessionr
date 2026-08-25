@@ -13,8 +13,10 @@ import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
 import { fixAbcRepeats } from "../services/abcTools";
 import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran";
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
-import { loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
+import { DEFAULT_EMPHASIS_PERCENT, loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
+import { applyMeterEmphasis } from "../services/meterEmphasis";
+import { getMeterPulse } from "../services/meterPulse";
 import { applyCustomTripletSwing, isCompoundMeter } from "../services/swing";
 import { strumChords } from "../services/strum";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
@@ -196,6 +198,7 @@ export function SetPlayer({
     return Math.round(base * (saved.tempoPercent / 100));
   });
   const [swingPercent, setSwingPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).swingPercent);
+  const [emphasisPercent, setEmphasisPercent] = useState(() => loadTunePlaybackPrefs(tuneKey).emphasisPercent);
   const [repeat, setRepeat] = useState(initialPrefs.repeat);
   const [repeatLimit, setRepeatLimit] = useState<number | null>(initialPrefs.repeatLimit);
   const [bodhran, setBodhran] = useState(() => initialPrefs.bodhran ?? false);
@@ -251,6 +254,8 @@ export function SetPlayer({
   instrumentsRef.current = instruments;
   const swingPercentRef = useRef(swingPercent);
   swingPercentRef.current = swingPercent;
+  const emphasisPercentRef = useRef(emphasisPercent);
+  emphasisPercentRef.current = emphasisPercent;
   const bodhranRef = useRef(bodhran);
   bodhranRef.current = bodhran;
 
@@ -322,11 +327,11 @@ export function SetPlayer({
   useEffect(() => {
     const baseBpm = getTuneBaseBpm(visualObjsRef.current[0], targetBpm, items[0]?.tuneType);
     const tempoPercent = baseBpm > 0 ? Math.round((currentBpm / baseBpm) * 100) : 100;
-    saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent });
-    // tuneKey deliberately excluded: this must only fire on an actual tempo/swing change by the
-    // user, not on every tune switch.
+    saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent, emphasisPercent });
+    // tuneKey deliberately excluded: this must only fire on an actual tempo/swing/emphasis change
+    // by the user, not on every tune switch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentBpm, swingPercent]);
+  }, [currentBpm, swingPercent, emphasisPercent]);
 
   useEffect(() => {
     saveBandPrefs(bandPrefs);
@@ -374,7 +379,8 @@ export function SetPlayer({
       return;
     }
     const savedTempo = loadTunePlaybackPrefs(tuneKey);
-    const hasSavedTempo = savedTempo.tempoPercent !== 100 || savedTempo.swingPercent !== 0;
+    const hasSavedTempo =
+      savedTempo.tempoPercent !== 100 || savedTempo.swingPercent !== 0 || savedTempo.emphasisPercent !== DEFAULT_EMPHASIS_PERCENT;
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index];
       if (!host) return null;
@@ -411,8 +417,10 @@ export function SetPlayer({
         if (hasSavedTempo) {
           setCurrentBpm(Math.round(baseBpm * (savedTempo.tempoPercent / 100)));
           setSwingPercent(savedTempo.swingPercent);
+          setEmphasisPercent(savedTempo.emphasisPercent);
         } else {
           setSwingPercent(0);
+          setEmphasisPercent(DEFAULT_EMPHASIS_PERCENT);
           setCurrentBpm(effectiveTargetBpm);
         }
       }
@@ -812,6 +820,11 @@ export function SetPlayer({
       // uses abcjs's own swing, which is a no-op at 0% (toAbcjsSwing(0) === 50).
       const compound = isCompoundMeter(meter);
       const swingPercent = swingPercentRef.current;
+      const emphasisPercent = emphasisPercentRef.current;
+      const pulse = getMeterPulse(meter);
+      // Where bar 1 actually starts. Most tunes in this repertoire begin on an upbeat, and without
+      // this every accent would land a beat or two off for all of them.
+      const pickupWholeNotes = visualObj.getPickupLength();
       // Seconds per whole note — converts the strum's wall-clock spread into the units note
       // starts use. Both the band and solo paths need it.
       const meterSize = meter.den ? meter.num / meter.den : 1;
@@ -823,6 +836,7 @@ export function SetPlayer({
             createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
               swing: compound ? undefined : toAbcjsSwing(swingPercent),
               swingPercent,
+              emphasisPercent,
               bodhran: useBodhran,
             }),
           ),
@@ -849,6 +863,10 @@ export function SetPlayer({
             if (compound && swingPercent > 0) {
               applyCustomTripletSwing(tracks, swingPercent);
             }
+            // After swing (so it weighs each note's final position) and before subdivision (so a
+            // re-struck long note inherits its beat's weight) and the strum (so a chord's volume
+            // ramp is relative to the accented level rather than fighting it).
+            applyMeterEmphasis(tracks, pulse, pickupWholeNotes, emphasisPercent);
             tracks.forEach((track, trackIdx) => {
               let prog: number | string = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
               if (track.length > 0 && track[0].instrument) {
@@ -1004,12 +1022,24 @@ export function SetPlayer({
 
     keyRootRef.current = getAbcKeyRoot(items[index].abc);
 
+    /*
+     * abcjs counts beats straight through the tune — beatCallback gets 0, 1, 2, 3, … and never
+     * restarts at each barline (abc_timing_callbacks.js builds beatStarts as j/beatSubdivisions).
+     * So the old `beatNumber === 1` test accented the second beat of the pass and nothing else.
+     * Folding the count back into the bar gives a real downbeat, offset by the pickup so a tune
+     * that starts on an upbeat still accents its barlines rather than its anacrusis.
+     */
+    const beatsPerBar = Math.max(1, Math.round(visualObj.getBeatsPerMeasure()));
+    const beatLength = visualObj.getBeatLength();
+    const pickupBeats = beatLength > 0 ? Math.round(visualObj.getPickupLength() / beatLength) : 0;
+
     const timer = new abcjs.TimingCallbacks(visualObj, {
       qpm: bpm,
       beatCallback: (beatNumber: number) => {
         if (useMetronomeRef.current) {
           const sound = metronomeSoundRef.current;
-          if (beatNumber === 1) {
+          const beatInBar = (((Math.round(beatNumber) + pickupBeats) % beatsPerBar) + beatsPerBar) % beatsPerBar;
+          if (beatInBar === 0) {
             const pitch = sound.instrument === 128 ? 36 : keyRootRef.current;
             playMetronomeClick(sound, pitch);
           } else {
@@ -1200,6 +1230,11 @@ export function SetPlayer({
     setSwingPercent(percent);
   }
 
+  function onEmphasisInput(e: ChangeEvent<HTMLInputElement>) {
+    const percent = Number((e.target as HTMLInputElement).value);
+    setEmphasisPercent(percent);
+  }
+
   function restartAtCurrentPosition() {
     if (status !== "stopped") {
       play(currentBpm);
@@ -1207,6 +1242,9 @@ export function SetPlayer({
   }
   const tempoInputRef = useCommitOnChange(restartAtCurrentPosition);
   const swingInputRef = useCommitOnChange(restartAtCurrentPosition);
+  // Like swing, emphasis is baked into the synth buffer at init time, so it commits on change
+  // rather than on every drag step.
+  const emphasisInputRef = useCommitOnChange(restartAtCurrentPosition);
 
   function onInstrumentChange(part: keyof typeof instruments) {
     return (e: ChangeEvent<HTMLSelectElement>) => {
@@ -1458,6 +1496,18 @@ export function SetPlayer({
                   step="1"
                   value={swingPercent}
                   onChange={onSwingInput}
+                />
+              </label>
+              <label title="How hard playback leans on the beats the meter leans on — 1 and 3 in a reel, the two groups of a jig.">
+                Emphasis {emphasisPercent}%
+                <input
+                  ref={emphasisInputRef}
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={emphasisPercent}
+                  onChange={onEmphasisInput}
                 />
               </label>
               <MetronomeControls {...metronome} />

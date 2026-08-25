@@ -2,12 +2,16 @@ import abcjs from 'abcjs'
 import { humanizeBackerTracks, type BandVoice } from './band'
 import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
 import { getBodhranDrumOption } from './bodhran'
+import { applyMeterEmphasis } from './meterEmphasis'
+import { getMeterPulse } from './meterPulse'
 import { applyCustomTripletSwing, isCompoundMeter } from './swing'
 import { strumChords } from './strum'
 
 export interface BandSynthOptions extends abcjs.SynthOptions {
   bodhran?: boolean
   swingPercent?: number
+  /** How hard to lean on the beats the meter leans on, 0-100. Every voice gets it: pulse is an ensemble property. */
+  emphasisPercent?: number
 }
 
 /**
@@ -39,6 +43,9 @@ export async function createBandSynth(
   const meter = visualObj.getMeterFraction()
   const compound = isCompoundMeter(meter)
   const swingPercent = extraOptions?.swingPercent ?? 0
+  const emphasisPercent = extraOptions?.emphasisPercent ?? 0
+  const pulse = getMeterPulse(meter)
+  const pickupWholeNotes = visualObj.getPickupLength()
 
   await synth.init({
     visualObj,
@@ -53,13 +60,15 @@ export async function createBandSynth(
       drum: bodhranPattern || extraOptions?.drum,
       drumBars: bodhranPattern ? 1 : extraOptions?.drumBars,
       // abcjs discards this callback's return value, so every stage rewrites the tracks
-      // in place. Order matters: swing moves note starts, subdivision splits from those
-      // (already swung) starts, the strum spreads each re-strike subdivision produced, and
+      // in place. Order matters: swing moves note starts, meter emphasis reads those final
+      // starts to weigh each note by its place in the bar, subdivision splits from them so
+      // each re-strike inherits its beat's weight, the strum spreads the re-strikes, and
       // humanization rides on top of all of it.
       sequenceCallback: (tracks: abcjs.NoteMapTrack[]) => {
         if (compound && swingPercent > 0) {
           applyCustomTripletSwing(tracks, swingPercent)
         }
+        applyMeterEmphasis(tracks, pulse, pickupWholeNotes, emphasisPercent)
         if (isSubdivided) {
           for (const track of tracks) subdivideLongNotes(track)
         }
