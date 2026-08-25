@@ -1,9 +1,84 @@
 import type abcjs from 'abcjs'
+import { getMeterPulse } from './meterPulse'
 
 export interface BodhranStroke {
   offsetWholeNotes: number
   pitch: number
   volume: number
+}
+
+/**
+ * A drum voicing: one stroke per eighth of the bar, in order, zipped against the beat positions
+ * meterPulse already knows.
+ *
+ * Only the voicing lives here — which drum is struck and how hard. Where the strokes fall is
+ * meterPulse's business, so the drum and the tune's own emphasis cannot drift apart. The voicings
+ * are not derivable from the pulse strengths: 9/8 hits its two medium beats with different drums,
+ * and 12/8 gives its four groups four different weights, which is the player's idiom rather than
+ * anything the meter dictates. Pitches are GM percussion — 36 bass drum, 37 rim, 76 hi wood block.
+ */
+type Voicing = Array<{ pitch: number; volume: number }>
+
+/**
+ * Each family is voiced against its canonical meter's bar of eighths. The families are keyed by
+ * feel rather than by exact meter so that, for instance, 2/4 and 2/2 both get the reel pattern —
+ * which is also why the voicing length is fixed per family rather than following the real bar.
+ */
+const FAMILIES: Record<string, { canonical: { num: number; den: number }; voicing: Voicing }> = {
+  // Slide: bass on each of the four groups, the last answered on the rim.
+  slide: {
+    canonical: { num: 12, den: 8 },
+    voicing: [
+      { pitch: 36, volume: 95 }, { pitch: 76, volume: 50 }, { pitch: 76, volume: 50 },
+      { pitch: 36, volume: 85 }, { pitch: 76, volume: 50 }, { pitch: 76, volume: 50 },
+      { pitch: 36, volume: 90 }, { pitch: 76, volume: 50 }, { pitch: 76, volume: 50 },
+      { pitch: 37, volume: 80 }, { pitch: 76, volume: 50 }, { pitch: 76, volume: 50 },
+    ],
+  },
+  // Slip jig: three groups, the third turned round on the rim.
+  slipJig: {
+    canonical: { num: 9, den: 8 },
+    voicing: [
+      { pitch: 36, volume: 95 }, { pitch: 76, volume: 55 }, { pitch: 76, volume: 55 },
+      { pitch: 36, volume: 85 }, { pitch: 76, volume: 55 }, { pitch: 76, volume: 55 },
+      { pitch: 37, volume: 85 }, { pitch: 76, volume: 55 }, { pitch: 76, volume: 55 },
+    ],
+  },
+  // Double jig: the two dotted-quarter groups, ghosted in between.
+  jig: {
+    canonical: { num: 6, den: 8 },
+    voicing: [
+      { pitch: 36, volume: 95 }, { pitch: 76, volume: 55 }, { pitch: 76, volume: 55 },
+      { pitch: 36, volume: 85 }, { pitch: 76, volume: 55 }, { pitch: 76, volume: 55 },
+    ],
+  },
+  // Waltz and mazurka: bass on the 1, rim on 2 and 3.
+  waltz: {
+    canonical: { num: 3, den: 4 },
+    voicing: [
+      { pitch: 36, volume: 90 }, { pitch: 76, volume: 45 },
+      { pitch: 37, volume: 65 }, { pitch: 76, volume: 45 },
+      { pitch: 37, volume: 65 }, { pitch: 76, volume: 45 },
+    ],
+  },
+  // Reel, hornpipe, polka, and anything else: bass on 1 and 3, rim on 2 and 4.
+  reel: {
+    canonical: { num: 4, den: 4 },
+    voicing: [
+      { pitch: 36, volume: 90 }, { pitch: 76, volume: 50 },
+      { pitch: 37, volume: 75 }, { pitch: 76, volume: 50 },
+      { pitch: 36, volume: 85 }, { pitch: 76, volume: 50 },
+      { pitch: 37, volume: 75 }, { pitch: 76, volume: 50 },
+    ],
+  },
+}
+
+function familyForMeter(num: number, den: number): keyof typeof FAMILIES {
+  if (num === 12 && den === 8) return 'slide'
+  if (num === 9 && den === 8) return 'slipJig'
+  if (num === 6 && den === 8) return 'jig'
+  if (num === 3 && (den === 4 || den === 8)) return 'waltz'
+  return 'reel'
 }
 
 /**
@@ -17,91 +92,16 @@ export function getBodhranPatternForMeter(meter?: { num?: number; den?: number }
   const num = meter?.num ?? 4
   const den = meter?.den ?? 4
 
-  // 12/8 Slide
-  if (num === 12 && den === 8) {
-    return {
-      measureLengthWholeNotes: 1.5,
-      strokes: [
-        { offsetWholeNotes: 0.0, pitch: 36, volume: 95 }, // Beat 1: Heavy bass
-        { offsetWholeNotes: 0.125, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 0.25, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 0.375, pitch: 36, volume: 85 }, // Beat 4: Bass
-        { offsetWholeNotes: 0.5, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 0.625, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 0.75, pitch: 36, volume: 90 }, // Beat 7: Accent bass
-        { offsetWholeNotes: 0.875, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 1.0, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 1.125, pitch: 37, volume: 80 }, // Beat 10: Rim stroke
-        { offsetWholeNotes: 1.25, pitch: 76, volume: 50 },
-        { offsetWholeNotes: 1.375, pitch: 76, volume: 50 },
-      ],
-    }
-  }
+  const family = FAMILIES[familyForMeter(num, den)]
+  const { beats } = getMeterPulse(family.canonical)
+  const strokes = family.voicing.map((voice, i) => ({
+    offsetWholeNotes: beats[i].offsetWholeNotes,
+    pitch: voice.pitch,
+    volume: voice.volume,
+  }))
 
-  // 9/8 Slip Jig
-  if (num === 9 && den === 8) {
-    return {
-      measureLengthWholeNotes: 1.125,
-      strokes: [
-        { offsetWholeNotes: 0.0, pitch: 36, volume: 95 }, // Beat 1: Heavy bass
-        { offsetWholeNotes: 0.125, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.25, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.375, pitch: 36, volume: 85 }, // Beat 4: Bass
-        { offsetWholeNotes: 0.5, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.625, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.75, pitch: 37, volume: 85 }, // Beat 7: Accent rim
-        { offsetWholeNotes: 0.875, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 1.0, pitch: 76, volume: 55 },
-      ],
-    }
-  }
-
-  // 6/8 Double Jig
-  if (num === 6 && den === 8) {
-    return {
-      measureLengthWholeNotes: 0.75,
-      strokes: [
-        { offsetWholeNotes: 0.0, pitch: 36, volume: 95 }, // Beat 1: Heavy bass
-        { offsetWholeNotes: 0.125, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.25, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.375, pitch: 36, volume: 85 }, // Beat 4: Bass
-        { offsetWholeNotes: 0.5, pitch: 76, volume: 55 },
-        { offsetWholeNotes: 0.625, pitch: 76, volume: 55 },
-      ],
-    }
-  }
-
-  // 3/4 Waltz / Mazurka
-  if (num === 3 && (den === 4 || den === 8)) {
-    const len = num / den
-    return {
-      measureLengthWholeNotes: len,
-      strokes: [
-        { offsetWholeNotes: 0.0, pitch: 36, volume: 90 }, // Beat 1: Bass
-        { offsetWholeNotes: 0.125, pitch: 76, volume: 45 },
-        { offsetWholeNotes: 0.25, pitch: 37, volume: 65 }, // Beat 2: Rim
-        { offsetWholeNotes: 0.375, pitch: 76, volume: 45 },
-        { offsetWholeNotes: 0.5, pitch: 37, volume: 65 }, // Beat 3: Rim
-        { offsetWholeNotes: 0.625, pitch: 76, volume: 45 },
-      ],
-    }
-  }
-
-  // Default: 4/4 or 2/4 Reel / Hornpipe / Polka
-  const measureLength = den ? num / den : 1.0
-  return {
-    measureLengthWholeNotes: measureLength,
-    strokes: [
-      { offsetWholeNotes: 0.0, pitch: 36, volume: 90 }, // Beat 1: Open bass
-      { offsetWholeNotes: 0.125, pitch: 76, volume: 50 },
-      { offsetWholeNotes: 0.25, pitch: 37, volume: 75 }, // Beat 2: Tipper rim
-      { offsetWholeNotes: 0.375, pitch: 76, volume: 50 },
-      { offsetWholeNotes: 0.5, pitch: 36, volume: 85 }, // Beat 3: Bass
-      { offsetWholeNotes: 0.625, pitch: 76, volume: 50 },
-      { offsetWholeNotes: 0.75, pitch: 37, volume: 75 }, // Beat 4: Tipper rim
-      { offsetWholeNotes: 0.875, pitch: 76, volume: 50 },
-    ],
-  }
+  // The real bar, not the canonical one — generateBodhranTrack trims strokes past its end.
+  return { measureLengthWholeNotes: den ? num / den : 1.0, strokes }
 }
 
 /** Humanization constants for Bodhran strokes */
