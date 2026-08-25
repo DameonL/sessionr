@@ -1,21 +1,32 @@
 /**
  * Microphone pitch detection for the ear trainer (live) and tune identifier
- * (batch record-then-process). Detection is plain ACF2+ autocorrelation with
- * parabolic interpolation — no dependencies, and adequate for the monophonic
- * instruments this app targets (fiddle, whistle, flute, box). The algorithm
- * is isolated behind `detectHz` so a library like pitchy (McLeod MPM) is a
- * one-function swap if field accuracy ever disappoints.
+ * (batch record-then-process). Detection is YIN (de Cheveigné & Kawahara's
+ * cumulative-mean-normalized difference function) with parabolic
+ * interpolation — no dependencies, and adequate for the monophonic
+ * instruments this app targets (fiddle, whistle, flute, box). A prior plain
+ * ACF2+ autocorrelation version was replaced: on real (harmonically rich)
+ * fiddle/whistle recordings it frequently locked onto a strong harmonic
+ * instead of the fundamental, in a way that got *worse* at a denser sampling
+ * rate — an algorithmic weakness in ACF peak-picking, not a timing issue.
+ * YIN's cumulative-mean normalization is specifically designed to resist
+ * that failure mode. The algorithm is isolated behind `detectHz` so a
+ * library like pitchy (McLeod MPM) is a one-function swap if field accuracy
+ * ever disappoints again.
  *
  * `detectHz` is a pure measurement function — it always returns its rms and
- * "clarity" (normalized autocorrelation peak: how confidently periodic/tonal
- * a frame is, not just how loud) and never decides accept/reject itself.
+ * "clarity" (1 minus the normalized difference at the chosen lag: how
+ * confidently periodic/tonal a frame is, not just how loud) and never
+ * decides accept/reject itself.
  * That decision belongs to each caller:
  *  - `createPitchListener` (EarTrainer's live call-and-response) applies a
  *    small static gate per frame, since it must decide in real time.
  *  - `createSampleRecorder` (the tune identifier) applies no gate at all —
- *    it just buffers every frame's measurements for ~20s so a batch pass
- *    (see tuneMatcher.ts) can classify signal vs. noise from the whole
- *    clip's statistics, which is far more robust than any per-frame guess.
+ *    it captures ~20s of raw audio, which `analyzeClipFrames` then measures
+ *    offline at a fixed hop so a batch pass (see tuneMatcher.ts) can decide
+ *    signal vs. noise from the whole clip at once. Capturing audio rather
+ *    than per-frame results is what lets that pass run at a rate of its own
+ *    choosing instead of the display refresh rate, and lets the band-limiting
+ *    high-pass be zero-phase.
  *
  * A prior version of the live path tried to *adapt* its gate from a live
  * per-frame noise-floor estimate. That was a bug, not a feature: a note's
@@ -40,8 +51,34 @@ export interface PitchListener {
 
 // Below fiddle/whistle/flute/box's practical range — a hard physical range
 // constraint on the target instruments, not an adaptive/perceptual gate.
+// This is the *live* (EarTrainer) default: it has to hear a fiddle's low G
+// (196Hz) and below, and its input is one player close to the mic.
 const MIN_HZ = 130
 const MAX_HZ = 1500
+
+/** Optional search range for `detectHz`; defaults to the live path's MIN/MAX_HZ. */
+export interface PitchRange {
+  minHz?: number
+  maxHz?: number
+}
+
+/**
+ * Identify-path band limits. A recording made *at a session* contains guitar,
+ * bouzouki and bodhrán as well as the melody, and a monophonic tracker will
+ * happily lock onto the loudest low-frequency thing it can find rather than
+ * the tune. Measured on real session recordings, 27-35% of total spectral
+ * energy sat below 300Hz (a solo whistle recording had 0%), and only 47 of
+ * 169 detected notes landed in the melody's range; band-limiting took that to
+ * 121 of 121.
+ *
+ * 220Hz is below every common melody instrument's working bottom (flute and
+ * whistle bottom out at D4=294Hz; a fiddle's low G is 196Hz but rarely carries
+ * the tune in a session) while excluding accompaniment fundamentals. The
+ * high-pass sits at 250Hz deliberately *below* D4 — a 300Hz cutoff measurably
+ * cut real melody out of a tune in E dorian.
+ */
+export const IDENTIFY_MIN_HZ = 220
+export const IDENTIFY_HIGHPASS_HZ = 250
 
 const SILENCE_REARM_MS = 400
 
@@ -64,13 +101,29 @@ export interface PitchFrame {
   hz: number | null
 }
 
+// YIN's absolute threshold: the first lag whose cumulative-mean-normalized
+// difference dips below this is accepted outright (before even comparing to
+// the global minimum) — the standard YIN default.
+const YIN_THRESHOLD = 0.15
+
 /**
- * ACF2+ autocorrelation with a clarity (normalized peak) score. Pure
- * measurement — always returns rms/clarity diagnostics and never applies a
- * perceptual accept/reject threshold; callers decide what counts as signal.
+ * YIN (de Cheveigné & Kawahara) pitch detection: a difference function
+ * (instead of raw autocorrelation) that is far more resistant to locking
+ * onto a strong harmonic than a plain ACF peak search — important for
+ * fiddle/whistle/flute/box tone, which carries strong upper harmonics that
+ * can otherwise look more "periodic" at half or a third of the true period
+ * than the fundamental itself does. Pure measurement — always returns
+ * rms/clarity diagnostics and never applies a perceptual accept/reject
+ * threshold; callers decide what counts as signal.
  */
-export function detectHz(buf: Float32Array, sampleRate: number): PitchFrame {
-  let size = buf.length
+export function detectHz(
+  buf: Float32Array,
+  sampleRate: number,
+  range: PitchRange = {},
+): PitchFrame {
+  const minHz = range.minHz ?? MIN_HZ
+  const maxHz = range.maxHz ?? MAX_HZ
+  const size = buf.length
   let rms = 0
   for (let i = 0; i < size; i++) {
     rms += buf[i] * buf[i]
@@ -80,72 +133,115 @@ export function detectHz(buf: Float32Array, sampleRate: number): PitchFrame {
   // a perceptual noise gate — real thresholds live with each caller.
   if (rms < 1e-6) return { rms, clarity: null, hz: null }
 
-  // Trim low-amplitude edges so the correlation sees the strong middle.
-  // Threshold is relative to this buffer's own peak, not an absolute value:
-  // a fixed absolute threshold (as this once was) only trims anything on a
-  // loud buffer — a real note at a realistic, quieter mic level never has a
-  // sample crossing it, so both loops below would run to completion and
-  // collapse the buffer to ~2 samples, destroying detection independent of
-  // any RMS/clarity gate a caller applies afterward.
-  let peak = 0
-  for (let i = 0; i < size; i++) {
-    const a = Math.abs(buf[i])
-    if (a > peak) peak = a
-  }
-  const threshold = peak * 0.2
-  let r1 = 0
-  let r2 = size - 1
-  for (let i = 0; i < size / 2; i++) {
-    if (Math.abs(buf[i]) < threshold) r1 = i
-    else break
-  }
-  for (let i = 1; i < size / 2; i++) {
-    if (Math.abs(buf[size - i]) < threshold) r2 = size - i
-    else break
-  }
-  const trimmed = buf.slice(r1, r2)
-  size = trimmed.length
-  if (size < 2) return { rms, clarity: null, hz: null }
+  // The difference function needs buf[i] and buf[i + tau] both in range for
+  // every tau up to the search window, so only the first half of the buffer
+  // is usable as the integration window W.
+  const w = size >> 1
+  const tauMin = Math.max(2, Math.floor(sampleRate / maxHz))
+  const tauMax = Math.min(w - 1, Math.ceil(sampleRate / minHz))
+  if (tauMax <= tauMin) return { rms, clarity: null, hz: null }
 
-  const c = new Float32Array(size)
-  for (let lag = 0; lag < size; lag++) {
+  // Step 1-2: squared difference function, then its cumulative-mean
+  // normalization (this is what makes YIN resistant to a harmonic scoring
+  // "more periodic" than the fundamental — an ACF peak search has no
+  // equivalent normalization).
+  const d = new Float32Array(tauMax + 1)
+  for (let tau = tauMin; tau <= tauMax; tau++) {
     let sum = 0
-    for (let i = 0; i < size - lag; i++) {
-      sum += trimmed[i] * trimmed[i + lag]
+    for (let i = 0; i < w; i++) {
+      const diff = buf[i] - buf[i + tau]
+      sum += diff * diff
     }
-    c[lag] = sum
+    d[tau] = sum
+  }
+  const cmnd = new Float32Array(tauMax + 1)
+  let runningSum = 0
+  for (let tau = tauMin; tau <= tauMax; tau++) {
+    runningSum += d[tau]
+    cmnd[tau] = runningSum > 0 ? (d[tau] * (tau - tauMin + 1)) / runningSum : 1
   }
 
-  let d = 0
-  while (d < size - 1 && c[d] > c[d + 1]) d++
-  let maxVal = -1
-  let maxPos = -1
-  for (let i = d; i < size; i++) {
-    if (c[i] > maxVal) {
-      maxVal = c[i]
-      maxPos = i
+  // Step 3-4: absolute threshold — take the first local minimum under the
+  // threshold; if none qualifies, fall back to the global minimum (a
+  // low-clarity, low-confidence guess rather than "no pitch").
+  let tau = -1
+  for (let t = tauMin; t <= tauMax; t++) {
+    if (cmnd[t] < YIN_THRESHOLD) {
+      while (t + 1 <= tauMax && cmnd[t + 1] < cmnd[t]) t++
+      tau = t
+      break
     }
   }
-  if (maxPos <= 0) return { rms, clarity: null, hz: null }
+  if (tau < 0) {
+    let best = Infinity
+    for (let t = tauMin; t <= tauMax; t++) {
+      if (cmnd[t] < best) {
+        best = cmnd[t]
+        tau = t
+      }
+    }
+  }
+  if (tau < 0) return { rms, clarity: null, hz: null }
 
-  // Normalized autocorrelation peak relative to zero-lag energy: near 1 for a
-  // clean periodic tone, low for broadband noise, ambiguous-middle for two
-  // simultaneous unrelated pitches. The standard NACF clarity used by
-  // YIN/MPM-family pitch trackers.
-  const clarity = c[0] > 0 ? maxVal / c[0] : 0
+  // Normalized confidence: 1 minus the (cumulative-mean-normalized)
+  // difference at the chosen lag — near 1 for a clean periodic tone, low for
+  // broadband noise. Same 0-1 "clarity" semantics the rest of the file
+  // (and every caller's threshold) already expects from the prior ACF NACF.
+  const clarity = Math.max(0, 1 - cmnd[tau])
 
-  // Parabolic interpolation around the peak for sub-sample precision.
-  let period = maxPos
-  const x1 = c[maxPos - 1]
-  const x2 = c[maxPos]
-  const x3 = c[maxPos + 1] ?? x2
+  // Step 5: parabolic interpolation around the chosen lag for sub-sample
+  // precision.
+  let period = tau
+  const x1 = cmnd[tau - 1] ?? cmnd[tau]
+  const x2 = cmnd[tau]
+  const x3 = cmnd[tau + 1] ?? cmnd[tau]
   const a = (x1 + x3 - 2 * x2) / 2
   const b = (x3 - x1) / 2
-  if (a) period = maxPos - b / (2 * a)
+  if (a) period = tau - b / (2 * a)
 
   const hz = sampleRate / period
-  if (hz < MIN_HZ || hz > MAX_HZ) return { rms, clarity, hz: null }
+  if (hz < minHz || hz > maxHz) return { rms, clarity, hz: null }
   return { rms, clarity, hz }
+}
+
+/**
+ * Zero-phase 2nd-order Butterworth high-pass: one forward pass, one backward
+ * pass, so the filter's own phase shift cancels and note onsets don't smear in
+ * time (which would matter for note grouping). Only possible because the
+ * identify path analyses a *finished* buffer offline — a real-time
+ * BiquadFilterNode could only do the causal forward half.
+ */
+export function highPassZeroPhase(input: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
+  const w = Math.tan((Math.PI * cutoffHz) / sampleRate)
+  const norm = 1 / (1 + Math.SQRT2 * w + w * w)
+  const b0 = norm
+  const b1 = -2 * norm
+  const b2 = norm
+  const a1 = 2 * (w * w - 1) * norm
+  const a2 = (1 - Math.SQRT2 * w + w * w) * norm
+
+  const onePass = (src: Float32Array): Float32Array => {
+    const out = new Float32Array(src.length)
+    let x1 = 0
+    let x2 = 0
+    let y1 = 0
+    let y2 = 0
+    for (let i = 0; i < src.length; i++) {
+      const y = b0 * src[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+      x2 = x1
+      x1 = src[i]
+      y2 = y1
+      y1 = y
+      out[i] = y
+    }
+    return out
+  }
+
+  const forward = onePass(input)
+  forward.reverse()
+  const backward = onePass(forward)
+  backward.reverse()
+  return backward
 }
 
 export function hzToMidi(hz: number): number {
@@ -168,7 +264,7 @@ export function requiredStableFrames(clarity: number): number {
   return Math.round(STABLE_FRAMES_MAX - t * (STABLE_FRAMES_MAX - STABLE_FRAMES_MIN))
 }
 
-/** Opens the mic and runs `onFrame` for every analyzed 2048-sample window until `stop()`. */
+/** Opens the mic and runs `onFrame` for every analyzed 4096-sample window until `stop()`. */
 function startMicFrameLoop(onFrame: (frame: PitchFrame) => void): {
   start(): Promise<void>
   stop(): void
@@ -196,7 +292,10 @@ function startMicFrameLoop(onFrame: (frame: PitchFrame) => void): {
       ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       analyser = ctx.createAnalyser()
-      analyser.fftSize = 2048
+      // YIN's difference function only integrates over the first half of the
+      // buffer (see detectHz), so this needs to be double the old ACF window
+      // to keep the same effective integration length at MIN_HZ.
+      analyser.fftSize = 4096
       source.connect(analyser)
       const buf = new Float32Array(analyser.fftSize)
 
@@ -322,69 +421,242 @@ export interface RawFrame {
   hz: number | null
 }
 
+// Inlined as a Blob URL rather than a separate file so the worklet needs no
+// bundler/asset-path configuration to find it.
+const PCM_WORKLET_SOURCE = `
+class PcmCaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0]
+    if (channel && channel.length) this.port.postMessage(channel.slice())
+    return true
+  }
+}
+registerProcessor('pcm-capture', PcmCaptureProcessor)
+`
+
+/**
+ * Opens the mic and hands every block of raw PCM to `onChunk`, until `stop()`.
+ * Unlike the live pitch loop this does no analysis — it just accumulates
+ * audio, so the identify path can process a finished clip offline at its own
+ * fixed rate rather than at the display's refresh rate.
+ */
+function startMicPcmCapture(onChunk: (chunk: Float32Array, sampleRate: number) => void): {
+  start(): Promise<void>
+  stop(): void
+} {
+  let ctx: AudioContext | null = null
+  let stream: MediaStream | null = null
+  let node: AudioWorkletNode | ScriptProcessorNode | null = null
+  let sink: GainNode | null = null
+  let stopped = false
+
+  return {
+    async start() {
+      // Disable browser voice processing — it mangles instrument harmonics.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      })
+      if (stopped) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
+      ctx = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      // Both node types below only get pulled by the graph if they reach the
+      // destination, so route through a muted gain — connecting the mic
+      // straight to the speakers would howl.
+      sink = ctx.createGain()
+      sink.gain.value = 0
+      sink.connect(ctx.destination)
+
+      const rate = ctx.sampleRate
+      let usedWorklet = false
+      if (ctx.audioWorklet) {
+        try {
+          const url = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: 'application/javascript' }))
+          await ctx.audioWorklet.addModule(url)
+          URL.revokeObjectURL(url)
+          if (stopped) return
+          const worklet = new AudioWorkletNode(ctx, 'pcm-capture')
+          worklet.port.onmessage = (e: MessageEvent<Float32Array>) => {
+            if (!stopped) onChunk(e.data, rate)
+          }
+          node = worklet
+          usedWorklet = true
+        } catch {
+          // Fall through to ScriptProcessor below.
+        }
+      }
+      if (!usedWorklet) {
+        const processor = ctx.createScriptProcessor(4096, 1, 1)
+        processor.onaudioprocess = (e) => {
+          if (!stopped) onChunk(new Float32Array(e.inputBuffer.getChannelData(0)), rate)
+        }
+        node = processor
+      }
+      if (!node) return
+      source.connect(node)
+      node.connect(sink)
+    },
+    stop() {
+      stopped = true
+      if (node) {
+        node.disconnect()
+        if ('port' in node) node.port.onmessage = null
+        else node.onaudioprocess = null
+      }
+      sink?.disconnect()
+      stream?.getTracks().forEach((t) => t.stop())
+      ctx?.close().catch(() => {})
+      stream = null
+      ctx = null
+      node = null
+      sink = null
+    },
+  }
+}
+
 export interface SampleRecorder {
   /**
-   * Starts the mic; resolves once live. Records every analyzed frame
-   * (no accept/reject decision — that's a batch step, see tuneMatcher.ts)
-   * until `durationMs` elapses or `stop()` is called. `onProgress` fires
-   * every frame purely to drive a UI countdown/level meter.
+   * Starts the mic; resolves once live. Captures raw PCM until `durationMs`
+   * elapses or `stop()` is called. `onProgress` fires as audio arrives, purely
+   * to drive a UI countdown/level meter.
    */
   start(onProgress?: (elapsedMs: number, rms: number, durationMs: number) => void): Promise<void>
   isDone(): boolean
-  /** Raw frames captured so far — safe to read before recording finishes. */
+  /** The captured audio so far. */
+  audio(): { samples: Float32Array; sampleRate: number }
+  /**
+   * The captured audio analyzed into pitch frames — band-limited for the
+   * identify path and measured at a fixed hop (see `analyzeClipFrames`).
+   */
   frames(): RawFrame[]
-  /** Stops early; frames captured so far are kept. */
+  /** Stops early; audio captured so far is kept. */
   stop(): void
 }
 
-// Discards the first frames outright rather than recording them — hardware
-// settling protection only (a stream-init pop/click), not noise-floor
-// seeding, since there's no adaptive floor here to seed.
+// Analysis window for the offline pass. YIN integrates over the first half of
+// the buffer (see detectHz), so 4096 gives a 2048-sample integration window.
+const ANALYSIS_WINDOW = 4096
+/**
+ * Fixed analysis hop, in samples (~5.8ms at 44.1kHz).
+ *
+ * This being fixed — rather than "however often requestAnimationFrame happens
+ * to fire" — is load-bearing, not a tidiness preference. The identify path
+ * used to run detection once per animation frame (~16.7ms); at that rate a
+ * reel's notes span only 6-7 frames, `requiredStableFrames` wants 3-8 of them,
+ * and there is no redundancy left to median-filter errors out of. Measured on
+ * three real recordings, the same gating and band-limiting fixes ranked the
+ * correct tune first 3/3 at this hop and only 1/3 at the animation-frame rate.
+ * It was also display-dependent and stopped entirely in a backgrounded tab.
+ */
+const ANALYSIS_HOP = 256
+
+/**
+ * Offline pass over a finished clip: band-limit, then measure pitch at a fixed
+ * hop. Separated from capture so it is directly testable, and so the whole
+ * clip's audio is available at once (which is what lets the high-pass be
+ * zero-phase rather than causal).
+ */
+export function analyzeClipFrames(
+  samples: Float32Array,
+  sampleRate: number,
+  options: { highPassHz?: number; minHz?: number; maxHz?: number } = {},
+): RawFrame[] {
+  const {
+    highPassHz = IDENTIFY_HIGHPASS_HZ,
+    minHz = IDENTIFY_MIN_HZ,
+    maxHz = MAX_HZ,
+  } = options
+
+  const source = highPassHz > 0 ? highPassZeroPhase(samples, sampleRate, highPassHz) : samples
+  const frames: RawFrame[] = []
+  for (let start = 0; start + ANALYSIS_WINDOW <= source.length; start += ANALYSIS_HOP) {
+    const window = source.subarray(start, start + ANALYSIS_WINDOW)
+    const frame = detectHz(window, sampleRate, { minHz, maxHz })
+    frames.push({
+      // Timestamp the centre of the window, so a note's frames straddle its
+      // real onset rather than all trailing it by half a window.
+      tMs: ((start + ANALYSIS_WINDOW / 2) / sampleRate) * 1000,
+      rms: frame.rms,
+      clarity: frame.clarity,
+      hz: frame.hz,
+    })
+  }
+  return frames
+}
+
+// Discards the first audio outright rather than recording it — hardware
+// settling protection only (a stream-init pop/click).
 const RECORDER_STARTUP_MUTE_MS = 150
 
 export function createSampleRecorder(durationMs: number): SampleRecorder {
-  const raw: RawFrame[] = []
-  // Stamped on the first analyzed frame, not before starting the loop: mic
-  // permission can take an arbitrary, user-paced amount of time to resolve
-  // (especially the first time), and getUserMedia() runs inside loop.start()
-  // — stamping any earlier would make this clock start well before the mic
-  // is actually live, silently shortening the real capture window and
-  // desyncing from the UI's own timer (which only starts once start()
-  // resolves, i.e. once the mic is already live).
-  let startedAt: number | null = null
+  const chunks: Float32Array[] = []
+  let captured = 0
+  let sampleRate = 44100
   let done = false
-  let loop: ReturnType<typeof startMicFrameLoop> | null = null
+  let capture: ReturnType<typeof startMicPcmCapture> | null = null
+  let cachedFrames: RawFrame[] | null = null
+
+  const concat = (): Float32Array => {
+    const out = new Float32Array(captured)
+    let at = 0
+    for (const c of chunks) {
+      out.set(c, at)
+      at += c.length
+    }
+    return out
+  }
 
   return {
     async start(onProgress) {
-      loop = startMicFrameLoop((frame) => {
+      capture = startMicPcmCapture((chunk, rate) => {
         if (done) return
-        if (startedAt === null) startedAt = performance.now()
-        const elapsed = performance.now() - startedAt
+        sampleRate = rate
+        const elapsedBefore = (captured / rate) * 1000
+        // Drop the settling window, then keep everything until we have the
+        // full duration — trimming the tail so the clip is exactly as long as
+        // asked for regardless of the audio callback's block size.
+        if (elapsedBefore >= RECORDER_STARTUP_MUTE_MS - (chunk.length / rate) * 1000) {
+          const remaining = Math.ceil((durationMs / 1000) * rate) - captured
+          const take = Math.min(chunk.length, Math.max(0, remaining))
+          if (take > 0) {
+            chunks.push(take === chunk.length ? chunk : chunk.subarray(0, take))
+            captured += take
+          }
+        }
+        const elapsed = (captured / rate) * 1000
         if (elapsed >= durationMs) {
           done = true
-          loop?.stop()
-          return
+          capture?.stop()
         }
-        if (elapsed >= RECORDER_STARTUP_MUTE_MS) {
-          raw.push({ tMs: elapsed, rms: frame.rms, clarity: frame.clarity, hz: frame.hz })
-        }
-        onProgress?.(elapsed, frame.rms, durationMs)
+        let rms = 0
+        for (let i = 0; i < chunk.length; i++) rms += chunk[i] * chunk[i]
+        onProgress?.(elapsed, Math.sqrt(rms / Math.max(1, chunk.length)), durationMs)
       })
-      await loop.start()
+      await capture.start()
     },
 
     isDone() {
       return done
     },
 
+    audio() {
+      return { samples: concat(), sampleRate }
+    },
+
     frames() {
-      return [...raw]
+      if (cachedFrames === null) cachedFrames = analyzeClipFrames(concat(), sampleRate)
+      return cachedFrames
     },
 
     stop() {
       done = true
-      loop?.stop()
+      capture?.stop()
     },
   }
 }

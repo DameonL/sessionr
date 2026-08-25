@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { classifyClip, groupNotes, type ClassifiedFrame } from './tuneMatcher'
-import { requiredStableFrames, type RawFrame } from './pitchDetector'
+import { classifyClip, groupNotes, smoothPitchTrack, type ClassifiedFrame } from './tuneMatcher'
+import { type RawFrame } from './pitchDetector'
 
 /** 440Hz = A4 = MIDI 69, the reference the whole pitch pipeline hangs off. */
 const A4_HZ = 440
@@ -24,11 +24,10 @@ function silence(startMs: number, count: number): RawFrame[] {
 }
 
 /**
- * Prepends enough quiet frames that the 20th-percentile noise floor lands in the silence
- * rather than in the music — which is what a real recording looks like, since the player
- * is never sounding for the whole 20-second sample. A clip of uniformly loud frames has
- * its own notes as its noise floor and is correctly rejected wholesale, so every fixture
- * here goes through this.
+ * Prepends quiet frames ahead of the music. The classifier no longer derives any
+ * threshold from the clip's own loudness distribution, so this is no longer load-bearing
+ * for acceptance — it just keeps the fixtures shaped like a real recording, where the
+ * player isn't sounding for the whole sample.
  */
 function withNoiseFloor(music: RawFrame[]): { frames: RawFrame[]; offsetMs: number } {
   const padCount = Math.max(4, Math.ceil(music.length * 0.5))
@@ -90,17 +89,29 @@ describe('classifyClip', () => {
     expect(classified.at(-1)!.accepted).toBe(false)
   })
 
-  it('rejects everything in a clip with no quiet frames at all', () => {
-    // The noise floor is an order statistic of the clip itself, so a recording that is
-    // loud end to end has nothing to distinguish signal from room.
+  it('accepts a clip that is loud from end to end', () => {
+    // The regression this whole gating rewrite exists for. A pub session has no quiet
+    // frames at all, and the previous whole-clip-percentile floor rejected such a
+    // recording wholesale — 3 notes survived out of 1248 frames of real playing.
     const wallToWall = classifyClip(steadyNote(0, A4_HZ, 40))
 
-    expect(wallToWall.every((f) => !f.accepted)).toBe(true)
+    expect(wallToWall.every((f) => f.accepted)).toBe(true)
   })
 
-  it('adapts its floor to a noisy room rather than using a fixed gate', () => {
-    // The same note at rms 0.2 is clear signal in a quiet room, but sits in the noise
-    // in a pub where the floor is already up at 0.3.
+  it('separates signal from noise by clarity, not by loudness', () => {
+    // A quiet but clearly pitched note is signal; a loud but aperiodic frame is not.
+    // Loudness alone cannot tell these apart, which is why clarity is the discriminator.
+    const quietButClear = classifyClip([frame({ tMs: 0, rms: 0.01, clarity: 0.9 })])
+    const loudButNoisy = classifyClip([frame({ tMs: 0, rms: 0.9, clarity: 0.1 })])
+
+    expect(quietButClear[0].accepted).toBe(true)
+    expect(loudButNoisy[0].accepted).toBe(false)
+  })
+
+  it('accepts the same note whether the room around it is quiet or loud', () => {
+    // The old floor adapted to the clip's own loudness, so identical playing was
+    // accepted in a quiet room and rejected in a loud one. Clarity is unaffected by
+    // how loud the room behind the note is.
     const quietRoom = classifyClip([...silence(0, 20), ...steadyNote(400, A4_HZ, 5)])
     const noisyRoom = classifyClip([
       ...Array.from({ length: 20 }, (_, i) => frame({ tMs: i * FRAME_MS, rms: 0.3, clarity: 0.05, hz: null })),
@@ -108,7 +119,7 @@ describe('classifyClip', () => {
     ])
 
     expect(quietRoom.filter((f) => f.accepted)).toHaveLength(5)
-    expect(noisyRoom.filter((f) => f.accepted)).toHaveLength(0)
+    expect(noisyRoom.filter((f) => f.accepted)).toHaveLength(5)
   })
 
   it('converts an accepted frame’s frequency to MIDI', () => {
@@ -195,14 +206,26 @@ describe('groupNotes', () => {
     expect(group(steadyNote(0, A4_HZ, 1))).toEqual([])
   })
 
-  it('demands more frames of a murky note than a clear one', () => {
-    const barelyEnoughForClear = requiredStableFrames(0.95)
+  it('keeps a run that lasts long enough to be a played note', () => {
+    // Four frames 20ms apart span 60ms, clear of the 45ms floor.
+    expect(group(steadyNote(0, A4_HZ, 4))).toHaveLength(1)
+  })
 
-    const clear = group(steadyNote(0, A4_HZ, barelyEnoughForClear, 0.95))
-    const murky = group(steadyNote(0, A4_HZ, barelyEnoughForClear, 0.2))
+  it('discards a run too brief to be a played note', () => {
+    // Three frames span only 40ms.
+    expect(group(steadyNote(0, A4_HZ, 3))).toHaveLength(0)
+  })
 
-    expect(clear).toHaveLength(1)
-    expect(murky).toHaveLength(0)
+  it('measures a note by its duration, not by how many frames it happens to span', () => {
+    // The same three frames spread over a wider span is a real note. The threshold
+    // has to follow the clock, otherwise it silently means different things at
+    // different analysis rates — which is exactly how a frame-count threshold
+    // calibrated for the display refresh rate let 17ms fragments through once the
+    // identify path moved to a dense fixed hop.
+    const sparse = [frame({ tMs: 0 }), frame({ tMs: 40 }), frame({ tMs: 80 })]
+
+    expect(groupNotes(classifyClip(sparse))).toHaveLength(1)
+    expect(group(steadyNote(0, A4_HZ, 3))).toHaveLength(0)
   })
 
   it('reports how far off the note was, in cents', () => {
@@ -248,5 +271,49 @@ describe('groupNotes', () => {
     const frames = phrase.flatMap((hz, i) => steadyNote(i * 500, hz))
 
     expect(group(frames).map((n) => n.midi)).toEqual([71, 69, 67, 69])
+  })
+})
+
+describe('smoothPitchTrack', () => {
+  const classifyRaw = (frames: RawFrame[]) => classifyClip(frames)
+
+  it('leaves a steady run untouched', () => {
+    const smoothed = smoothPitchTrack(classifyRaw(steadyNote(0, A4_HZ, 20)))
+
+    expect(smoothed.every((f) => f.accepted && f.midi === 69)).toBe(true)
+  })
+
+  it('corrects a single stray frame in the middle of a note', () => {
+    // One frame of a 20-frame A4 run reads as B4 — an isolated detector slip, not a
+    // real note change. Left alone it would split one note into three runs.
+    const frames = steadyNote(0, A4_HZ, 20)
+    frames[10] = frame({ tMs: 10 * FRAME_MS, hz: B4_HZ })
+    const smoothed = smoothPitchTrack(classifyRaw(frames))
+
+    expect(smoothed[10].midi).toBe(69)
+    expect(smoothed.every((f) => f.midi === 69)).toBe(true)
+  })
+
+  it('drops a lone accepted frame with nothing around it to corroborate it', () => {
+    const frames = [...silence(0, 10), frame({ tMs: 200 }), ...silence(220, 10)]
+    const smoothed = smoothPitchTrack(classifyRaw(frames))
+
+    expect(smoothed.every((f) => !f.accepted)).toBe(true)
+  })
+
+  it('never turns a rejected frame back into signal', () => {
+    const smoothed = smoothPitchTrack(classifyRaw(silence(0, 20)))
+
+    expect(smoothed.every((f) => !f.accepted && f.midi === null)).toBe(true)
+  })
+
+  it('preserves a genuine note change rather than smearing across it', () => {
+    // A real change is corroborated by its own neighbours on both sides, so the
+    // median follows it instead of averaging it away.
+    const frames = [...steadyNote(0, A4_HZ, 15), ...steadyNote(300, B4_HZ, 15)]
+    const smoothed = smoothPitchTrack(classifyRaw(frames))
+
+    expect(smoothed[2].midi).toBe(69)
+    expect(smoothed.at(-3)!.midi).toBe(71)
   })
 })

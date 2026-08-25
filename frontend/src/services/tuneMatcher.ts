@@ -1,53 +1,64 @@
-import { createSampleRecorder, hzToMidi, requiredStableFrames, type RawFrame, type SampleRecorder } from './pitchDetector'
+import { createSampleRecorder, hzToMidi, type RawFrame, type SampleRecorder } from './pitchDetector'
 
 /**
  * Batch "record then process" policy for tune identification: capture a
- * fixed-length sample (pitchDetector.ts's createSampleRecorder buffers every
- * analyzed frame with no accept/reject decision), then classify and group it
- * into an ordered note sequence using statistics from the *whole clip*
- * rather than a live, causally-adapting per-frame guess.
+ * fixed-length clip of raw audio, analyze it offline into pitch frames (see
+ * pitchDetector.ts's `analyzeClipFrames`), then classify and group those
+ * frames into an ordered note sequence.
  *
- * This split exists because a live adaptive noise floor is a trap: a note's
- * own attack transient is briefly low-clarity despite being real, loud
- * signal, so an online estimator gets taught by the player's own playing and
- * ratchets upward until it rejects real notes too (see pitchDetector.ts's
- * header comment for the full story). A statistic computed once over an
- * entire ~20s clip doesn't have that problem: a low percentile of the clip's
- * loudness can't be dragged up by "more transients happened," because normal
- * playing — even a continuous reel — still has enough natural quiet moments
- * (attack ramps, phrase breaks, breaths, the lead-in before playing starts)
- * that the low end of the distribution reliably reflects the room, not the
- * player. The same statistic legitimately rises in a genuinely loud room, so
- * this adapts correctly to a noisy pub without ever having been poisoned by
- * the player's own notes.
+ * Signal-vs-noise here is decided by **clarity** (how periodic a frame is),
+ * not loudness. Two earlier designs got this wrong in opposite directions:
+ *
+ *  - A *live adaptive* loudness floor was a trap: a note's own attack
+ *    transient is briefly low-clarity despite being real, loud signal, so an
+ *    online estimator got taught by the player's own playing and ratcheted
+ *    upward until it rejected real notes too. (See pitchDetector.ts's header.)
+ *  - A *whole-clip percentile* of loudness then replaced it, on the reasoning
+ *    that even continuous playing leaves enough natural quiet moments that a
+ *    low percentile reflects the room rather than the player. That holds for a
+ *    close-mic'd solo recording and fails completely at an actual session,
+ *    where the background is loud and unbroken: measured on a real pub
+ *    recording, frame RMS ran 0.111 (p5) to 0.229 (p95) — a 2.1x spread, versus
+ *    19.8x for a solo whistle — so the 20th percentile landed *inside* the
+ *    noise, the threshold came out nearly as high as the music, and 1128 of
+ *    1248 frames were rejected. Three notes survived grouping.
+ *
+ * Clarity does not have that failure mode: on the same recording it accepted
+ * 1238 of 1248 frames, because periodicity distinguishes a sounding note from
+ * room noise regardless of how loud the room is. Loudness is now used only as
+ * a digital-silence guard. Do not reintroduce a loudness-derived threshold as
+ * the primary discriminator, adaptive or not.
  */
 
 /** User-facing sample length: "take a 20 second sample and process it." */
 export const SAMPLE_DURATION_MS = 20000
 
-// Defaults below are untuned against real hardware/room recordings — this
-// dev environment can't produce one. Loosened once already after a field
-// report of real solo playing (two repeats of an 8-bar part) still yielding
-// too few accepted notes to match: actual mic RMS/clarity levels off typical
-// device hardware run lower than the values these were first guessed
-// against. Treat as a starting point pending a proper real-mic quiet-room +
-// noisy-pub validation pass, not final numbers — if under-capture keeps
-// showing up, loosen further; the matcher tolerates extra wrong notes far
-// better than it tolerates missing real ones.
-
-/** Percentile of whole-clip RMS used as the ambient noise-floor estimate. */
-const NOISE_PERCENTILE = 0.2
-/** Accept threshold = max(ABSOLUTE_RMS_FLOOR, floor * RMS_MARGIN). Lower
- *  than a live gate's margin would need: a percentile is a stable order
- *  statistic with nothing to poison, and a missed note costs far more here
- *  (the matcher tolerates a few wrong notes far better than total silence). */
-const RMS_MARGIN = 1.5
-const ABSOLUTE_RMS_FLOOR = 0.005
-/** Low, static backstop against clearly non-tonal loud events (a table bang,
- *  chair scrape) — deliberately not adaptive to the clip's own distribution,
- *  so it can't reproduce the earlier feedback-loop bug in miniature. The
- *  RMS-vs-floor threshold above is the primary signal/noise discriminator. */
-const MIN_CLARITY = 0.15
+/**
+ * Primary signal/noise discriminator: how periodic the frame is. Validated at
+ * 0.3 across three real recordings (one solo, two sessions); every one of them
+ * ranked its own tune first. Raising it starts discarding real notes in the
+ * noisier recordings, lowering it lets in non-tonal frames.
+ */
+const MIN_CLARITY = 0.3
+/**
+ * Digital-silence guard only — a muted mic or an all-zero buffer, not a
+ * perceptual gate. Deliberately far below any real playing level.
+ */
+const ABSOLUTE_RMS_FLOOR = 0.002
+/**
+ * Width of the median filter over the MIDI track (in frames, so ~29ms at the
+ * analysis hop). At the fixed dense hop each note spans plenty of frames, and
+ * this removes isolated single-frame pitch errors before they can either
+ * fragment a real note's run or form a spurious run of their own.
+ */
+const MEDIAN_FILTER_FRAMES = 5
+/**
+ * Shortest run of one steady pitch that counts as a played note. Ornaments
+ * (cuts, taps) in Irish playing are genuinely brief, so this has to stay low,
+ * but below roughly this length a run is a detector artefact rather than
+ * anything a player did. Validated at this value across three real recordings.
+ */
+const MIN_NOTE_MS = 45
 
 /** Reproduces the live loop's re-arm window: a brief flicker mid-note
  *  shouldn't split one sustained note into two. */
@@ -58,13 +69,6 @@ export interface ClassifiedFrame extends RawFrame {
   midi: number | null
 }
 
-function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * sorted.length)))
-  return sorted[idx]
-}
-
 function median(values: number[]): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((a, b) => a - b)
@@ -73,17 +77,35 @@ function median(values: number[]): number {
 }
 
 /**
- * Phase B, step 1: per-frame accept/reject from whole-clip statistics.
- * Pure function — no mic/UI plumbing — so it's directly testable with
- * synthetic fixtures.
+ * Phase B, step 1: per-frame accept/reject. Pure function — no mic/UI
+ * plumbing — so it's directly testable with synthetic fixtures.
  */
 export function classifyClip(frames: RawFrame[]): ClassifiedFrame[] {
-  const floor = percentile(frames.map((f) => f.rms), NOISE_PERCENTILE)
-  const threshold = Math.max(ABSOLUTE_RMS_FLOOR, floor * RMS_MARGIN)
-
   return frames.map((f) => {
-    const accepted = f.hz !== null && f.rms >= threshold && (f.clarity ?? 0) >= MIN_CLARITY
+    const accepted = f.hz !== null && f.rms >= ABSOLUTE_RMS_FLOOR && (f.clarity ?? 0) >= MIN_CLARITY
     return { ...f, accepted, midi: accepted && f.hz !== null ? hzToMidi(f.hz) : null }
+  })
+}
+
+/**
+ * Phase B, step 2: replaces each accepted frame's MIDI value with the median
+ * of its neighbourhood, so one stray frame can't fragment a real note's run or
+ * start a run of its own, and drops frames too isolated to corroborate.
+ * Smooths pitch — it never resurrects silence.
+ */
+export function smoothPitchTrack(frames: ClassifiedFrame[]): ClassifiedFrame[] {
+  const half = MEDIAN_FILTER_FRAMES >> 1
+  return frames.map((f, i) => {
+    if (!f.accepted) return f
+    const window: number[] = []
+    for (let j = Math.max(0, i - half); j <= Math.min(frames.length - 1, i + half); j++) {
+      const m = frames[j].midi
+      if (frames[j].accepted && m !== null) window.push(m)
+    }
+    if (window.length <= half) return { ...f, accepted: false, midi: null }
+    // Rounded: an even-length window averages its two middle values, and a
+    // MIDI note number has to stay integral for run-grouping to compare them.
+    return { ...f, midi: Math.round(median(window)) }
   })
 }
 
@@ -100,13 +122,19 @@ interface Run {
 }
 
 /**
- * Phase B, step 2: turns accepted frames into an ordered note sequence.
- * Pure function. A forward pass over the same conceptual state machine the
- * live loop uses (run tracking + stability threshold + silence re-arm), with
- * one upgrade lookahead enables: the stability threshold is scaled by the
- * *median* clarity across each candidate run instead of a causal running
- * minimum, since a batch pass has already seen the whole note by the time it
- * decides and isn't stuck being pessimistic about a rocky attack.
+ * Phase B, step 3: turns accepted frames into an ordered note sequence.
+ * Pure function. A forward pass over run tracking + silence re-arm, then a
+ * minimum-duration test on each candidate run.
+ *
+ * Duration is measured in milliseconds off the frames' own timestamps, not as
+ * a frame count. A frame count would silently mean different things at
+ * different analysis rates — the pre-existing clarity-scaled frame threshold
+ * (`requiredStableFrames`, 3-8 frames) was calibrated when frames arrived at
+ * the display refresh rate (~16.7ms, so 50-134ms of audio); at the identify
+ * path's fixed 5.8ms hop the same 3 frames is 17ms, which is not a note, and
+ * it let through enough sub-note fragments to double the note count on a
+ * clean recording. `requiredStableFrames` still governs the live EarTrainer
+ * loop, which really does decide per frame.
  */
 export function groupNotes(frames: ClassifiedFrame[]): NoteEvent[] {
   // The gap check has to happen in this same pass, not a later "merge
@@ -130,9 +158,8 @@ export function groupNotes(frames: ClassifiedFrame[]): NoteEvent[] {
 
   const notes: NoteEvent[] = []
   for (const run of runs) {
-    const clarities = run.frames.map((f) => f.clarity ?? 0)
-    const needed = requiredStableFrames(median(clarities))
-    if (run.frames.length < needed) continue
+    const spanMs = run.frames.at(-1)!.tMs - run.frames[0].tMs
+    if (spanMs < MIN_NOTE_MS) continue
 
     const best = run.frames.reduce((a, b) => ((b.clarity ?? 0) > (a.clarity ?? 0) ? b : a))
     const hz = best.hz as number
@@ -149,7 +176,7 @@ export interface TuneSample {
   isDone(): boolean
   /** Stops early; frames captured so far are kept. */
   stop(): void
-  /** Runs classifyClip + groupNotes once and returns the ordered MIDI sequence for matchTune. */
+  /** Runs the classify/smooth/group passes once and returns the ordered MIDI sequence for matchTune. */
   analyze(): number[]
 }
 
@@ -167,7 +194,7 @@ export function createTuneSample(durationMs = SAMPLE_DURATION_MS): TuneSample {
       recorder.stop()
     },
     analyze() {
-      return groupNotes(classifyClip(recorder.frames())).map((n) => n.midi)
+      return groupNotes(smoothPitchTrack(classifyClip(recorder.frames()))).map((n) => n.midi)
     },
   }
 }
