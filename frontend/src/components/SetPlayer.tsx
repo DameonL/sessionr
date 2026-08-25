@@ -1039,13 +1039,15 @@ export function SetPlayer({
         if (useMetronomeRef.current) {
           const sound = metronomeSoundRef.current;
           const beatInBar = (((Math.round(beatNumber) + pickupBeats) % beatsPerBar) + beatsPerBar) % beatsPerBar;
-          if (beatInBar === 0) {
-            const pitch = sound.instrument === 128 ? 36 : keyRootRef.current;
-            playMetronomeClick(sound, pitch);
-          } else {
-            const pitch = sound.instrument === 128 ? undefined : keyRootRef.current - 12;
-            playMetronomeClick(sound, pitch);
-          }
+          const isDownbeat = beatInBar === 0;
+          // The downbeat is the same click played harder, not a different drum. Swapping in a bass
+          // drum, as this used to, ties the accent's loudness to whichever sample was substituted —
+          // and against most of the sounds in the list that made the "accent" the quieter of the
+          // two. A melodic click still drops an octave off the beat, which reads as a pulse the way
+          // a drum's pitch does not.
+          const pitch =
+            sound.instrument === 128 ? undefined : isDownbeat ? keyRootRef.current : keyRootRef.current - 12;
+          playMetronomeClick(sound, pitch, isDownbeat);
         }
         const activeLoop = loopRef.current;
         const totalMsAtTempo = currentTotalSec * 1000;

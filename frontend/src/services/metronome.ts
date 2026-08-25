@@ -224,9 +224,21 @@ export const ALL_METRONOME_SOUNDS: MetronomeSound[] = [
   ...MELODIC_SOUNDS,
 ]
 
-export const DEFAULT_METRONOME_SOUND: MetronomeSound = BEAT_SOUNDS[0] // Closed Hi-Hat
-export const DEFAULT_ACCENT_SOUND: MetronomeSound =
-  BEAT_SOUNDS.find((s) => s.key === 'p-76') ?? BEAT_SOUNDS[0] // Hi Wood Block
+/**
+ * Side stick, not the closed hi-hat that used to be here.
+ *
+ * Measured against a tune playing at the same time, the hi-hat sample peaks about 15 dB below it,
+ * and is still 12 dB down at full velocity — it is a far quieter sample than everything else in the
+ * list, so the metronome was all but inaudible under the music. The side stick sits a few dB above
+ * the tune: present, without taking it over. Anyone who has picked a sound keeps their choice; only
+ * the default moves.
+ */
+export const DEFAULT_METRONOME_SOUND: MetronomeSound =
+  BEAT_SOUNDS.find((s) => s.key === 'p-37') ?? BEAT_SOUNDS[0]
+
+/** Velocity for an ordinary beat, and for the downbeat that has to stand out from it. */
+export const METRONOME_VOLUME = 100
+export const METRONOME_ACCENT_VOLUME = 127
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -277,11 +289,12 @@ export function getAbcKeyRoot(abc: string): number {
   return 72 + st // C5 = 72
 }
 
-export function playMetronomeClick(sound: MetronomeSound, pitchOverride?: number): void {
+export function playMetronomeClick(sound: MetronomeSound, pitchOverride?: number, accented = false): void {
   try {
     const pitch = pitchOverride ?? sound.pitch
+    const volume = accented ? METRONOME_ACCENT_VOLUME : METRONOME_VOLUME
     abcjs.synth.playEvent(
-      [{ pitch, volume: 90, start: 0, duration: sound.duration, instrument: sound.instrument, gap: 0 }],
+      [{ pitch, volume, start: 0, duration: sound.duration, instrument: sound.instrument, gap: 0 }],
       [],
       500,
     ).catch(() => {})

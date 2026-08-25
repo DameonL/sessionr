@@ -24,3 +24,5 @@ difference in the rendered audio can only have come from the code under test.
 - `e2e/metronomeDownbeat.mjs` — counts accented clicks over a known number of bars, including a tune
   with a pickup. abcjs counts beats straight through the tune rather than per bar, so this is easy
   to get wrong and impossible to see from the code.
+- `e2e/metronomeAudible.mjs` — the click's level against the tune's. The default click used to be a
+  hi-hat sitting 15 dB below the music, which no amount of reading the code would have revealed.
