@@ -66,6 +66,12 @@ type SheetViewMode = "sheet" | "abc";
 
 /** The name of a just-clicked note, placed over the note it belongs to. */
 interface NoteBadge {
+  /**
+   * Distinct per click, and used as the badge's React key. Without it a click during the previous
+   * badge's fade reuses the same DOM node, which leaves the CSS animation where it was — mid-fade
+   * or finished at opacity 0 — so the new note's name never appears.
+   */
+  id: number;
   index: number;
   text: string;
   x: number;
@@ -170,6 +176,7 @@ export function SetPlayer({
   /** Per tune, whether its key signature spells accidentals with flats. */
   const prefersFlatsRef = useRef<boolean[]>([]);
   const noteBadgeTimeoutRef = useRef<number | null>(null);
+  const noteBadgeIdRef = useRef(0);
   const [initialPrefs] = useState(loadPlayerPrefs);
   const repeatRef = useRef(initialPrefs.repeat);
   const repeatLimitRef = useRef<number | null>(initialPrefs.repeatLimit);
@@ -496,7 +503,9 @@ export function SetPlayer({
     const hostRect = host.getBoundingClientRect();
 
     if (noteBadgeTimeoutRef.current !== null) window.clearTimeout(noteBadgeTimeoutRef.current);
+    noteBadgeIdRef.current += 1;
     setNoteBadge({
+      id: noteBadgeIdRef.current,
       index,
       text,
       x: targetRect.left + targetRect.width / 2 - hostRect.left,
@@ -1529,7 +1538,12 @@ export function SetPlayer({
       )}
       {error && <p className="error">{error}</p>}
 
-      <div className={isSingle ? "sheet-music" : "set-player-tunes-list"}>
+      {/* Keeps the .sheet-music class in ABC mode even though nothing is engraved: the fullscreen
+          rules key off it to decide what stays visible and what scrolls. showing-abc strips the
+          paper styling instead, so ABC mode isn't the source framed by an empty staff panel. */}
+      <div
+        className={`${isSingle ? "sheet-music" : "set-player-tunes-list"} ${viewMode === "abc" ? "showing-abc" : ""}`}
+      >
         {items.map((item, index) => {
           const href = linkHref ? linkHref(item) : `/tune/${item.userTuneId}`;
           const showHeader = !isSingle && Boolean(item.title);
@@ -1576,7 +1590,7 @@ export function SetPlayer({
                 />
               )}
               {noteBadge?.index === index && (
-                <span className="note-badge" style={{ left: noteBadge.x, top: noteBadge.y }}>
+                <span key={noteBadge.id} className="note-badge" style={{ left: noteBadge.x, top: noteBadge.y }}>
                   {noteBadge.text}
                 </span>
               )}

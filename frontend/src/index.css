@@ -441,12 +441,20 @@ main {
   display: none;
 }
 
+/* ABC mode shows the source in place of the staff, so the paper panel that frames an engraving
+   would just be an empty sheet wrapped around a code block. */
+.sheet-music.showing-abc {
+  background: none;
+  padding: 0;
+}
+
 /* The per-tune wrapper is the positioning context for the clicked-note badge */
 .tune-view {
   position: relative;
 }
 
-/* The name of a just-clicked note, floating over the note itself and fading out */
+/* The name of a just-clicked note, floating over the note itself and fading out. The animation
+   length tracks NOTE_BADGE_MS in SetPlayer.tsx, which is when the badge is actually removed. */
 .note-badge {
   position: absolute;
   transform: translate(-50%, -115%);
