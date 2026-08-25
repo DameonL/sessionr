@@ -1,0 +1,170 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type abcjs from 'abcjs'
+import { outputLatencyMs, audioPositionMs, timerDriftMs, anchorTimerToAudio } from './audioClock'
+
+const { activeAudioContext } = vi.hoisted(() => ({ activeAudioContext: vi.fn() }))
+
+vi.mock('abcjs', () => ({ default: { synth: { activeAudioContext } } }))
+
+/** Just the two fields audioClock reads off a real AudioContext. */
+function ctx(currentTime: number, latency: Partial<{ outputLatency: number; baseLatency: number }> = {}) {
+  return { currentTime, ...latency } as unknown as AudioContext
+}
+
+function synthAt(startTimeSec: number | undefined): abcjs.MidiBuffer {
+  return { startTimeSec } as unknown as abcjs.MidiBuffer
+}
+
+function timerAt(startTime: number | null): abcjs.TimingCallbacks {
+  return { startTime } as unknown as abcjs.TimingCallbacks
+}
+
+/** Reads back the private startTime that anchorTimerToAudio writes. */
+function startTimeOf(timer: abcjs.TimingCallbacks): number | null {
+  return (timer as unknown as { startTime: number | null }).startTime
+}
+
+beforeEach(() => {
+  activeAudioContext.mockReset()
+  vi.spyOn(performance, 'now').mockReturnValue(10_000)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('outputLatencyMs', () => {
+  it('subtracts the 16ms of slop abcjs already adds to its own clock', () => {
+    expect(outputLatencyMs(ctx(0, { outputLatency: 0.05 }))).toBe(34)
+  })
+
+  it('falls back to baseLatency where outputLatency is unavailable (Safari)', () => {
+    expect(outputLatencyMs(ctx(0, { baseLatency: 0.04 }))).toBeCloseTo(24)
+  })
+
+  it('prefers outputLatency when both are present', () => {
+    expect(outputLatencyMs(ctx(0, { outputLatency: 0.2, baseLatency: 0.01 }))).toBe(184)
+  })
+
+  it('reports no latency when the browser reports none', () => {
+    expect(outputLatencyMs(ctx(0))).toBe(0)
+  })
+
+  it('floors at zero rather than pulling the cursor ahead of the music', () => {
+    // 10ms of real latency is less than the slop abcjs already applies.
+    expect(outputLatencyMs(ctx(0, { outputLatency: 0.01 }))).toBe(0)
+  })
+
+  it('clamps an implausible reported latency instead of dragging the cursor far behind', () => {
+    expect(outputLatencyMs(ctx(0, { outputLatency: 30 }))).toBe(400)
+  })
+
+  it('ignores nonsense values', () => {
+    expect(outputLatencyMs(ctx(0, { outputLatency: Number.NaN }))).toBe(0)
+    expect(outputLatencyMs(ctx(0, { outputLatency: -1 }))).toBe(0)
+  })
+})
+
+describe('audioPositionMs', () => {
+  it('reports elapsed audio time, less the output latency', () => {
+    activeAudioContext.mockReturnValue(ctx(12.5, { outputLatency: 0.05 }))
+    // 2.5s of audio submitted, 34ms of which hasn't reached the ears yet.
+    expect(audioPositionMs(synthAt(10))).toBeCloseTo(2466)
+  })
+
+  it('returns null before the synth has started', () => {
+    activeAudioContext.mockReturnValue(ctx(5))
+    expect(audioPositionMs(synthAt(undefined))).toBeNull()
+  })
+
+  it('returns null when no audio context exists yet', () => {
+    activeAudioContext.mockReturnValue(null)
+    expect(audioPositionMs(synthAt(0))).toBeNull()
+  })
+
+  it('returns null rather than throwing if abcjs has no context to hand out', () => {
+    activeAudioContext.mockImplementation(() => {
+      throw new Error('no context')
+    })
+    expect(audioPositionMs(synthAt(0))).toBeNull()
+  })
+})
+
+describe('timerDriftMs', () => {
+  it('is positive when the cursor is running behind the music', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    // Audio is 1000ms in; the cursor thinks it is 900ms in.
+    expect(timerDriftMs(timerAt(10_000 - 900), synthAt(0))).toBeCloseTo(100)
+  })
+
+  it('is negative when the cursor is running ahead of the music', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    expect(timerDriftMs(timerAt(10_000 - 1100), synthAt(0))).toBeCloseTo(-100)
+  })
+
+  it('returns null when the timer has not latched its zero yet', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    expect(timerDriftMs(timerAt(null), synthAt(0))).toBeNull()
+  })
+})
+
+describe('anchorTimerToAudio', () => {
+  it('latches an unstarted timer straight onto the audio position', () => {
+    activeAudioContext.mockReturnValue(ctx(0.5))
+    const timer = timerAt(null)
+    anchorTimerToAudio(timer, synthAt(0))
+    // performance.now() - startTime must now equal the 500ms the audio has played.
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(500)
+  })
+
+  it('pulls a lagging cursor forward onto the music', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 700) // cursor 300ms behind
+    const correction = anchorTimerToAudio(timer, synthAt(0))
+    expect(correction).toBeCloseTo(300)
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(1000)
+  })
+
+  it('holds a cursor that has run ahead of the music', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 1300) // cursor 300ms ahead
+    const correction = anchorTimerToAudio(timer, synthAt(0))
+    expect(correction).toBeCloseTo(-300)
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(1000)
+  })
+
+  it('applies only part of the error when easing, so the cursor converges instead of hopping', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 900) // 100ms behind
+    expect(anchorTimerToAudio(timer, synthAt(0), { ease: 0.25 })).toBeCloseTo(25)
+    expect(10_000 - startTimeOf(timer)!).toBeCloseTo(925)
+  })
+
+  it('leaves sub-frame error alone rather than jittering the cursor', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 995) // 5ms behind, below the 8ms threshold
+    expect(anchorTimerToAudio(timer, synthAt(0))).toBe(0)
+    expect(startTimeOf(timer)).toBe(10_000 - 995)
+  })
+
+  it('respects a caller-supplied threshold', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 950) // 50ms behind
+    expect(anchorTimerToAudio(timer, synthAt(0), { threshold: 100 })).toBe(0)
+    expect(startTimeOf(timer)).toBe(10_000 - 950)
+  })
+
+  it('does nothing when there is no audio position to anchor to', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 900)
+    expect(anchorTimerToAudio(timer, synthAt(undefined))).toBe(0)
+    expect(startTimeOf(timer)).toBe(10_000 - 900)
+  })
+
+  it('ignores a synth whose start time is in the future', () => {
+    activeAudioContext.mockReturnValue(ctx(1))
+    const timer = timerAt(10_000 - 900)
+    expect(anchorTimerToAudio(timer, synthAt(2))).toBe(0)
+    expect(startTimeOf(timer)).toBe(10_000 - 900)
+  })
+})

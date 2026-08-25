@@ -7,6 +7,7 @@ import {
   saveEarTrainingProgress,
   type RepertoireItem,
 } from '../services/api'
+import { anchorTimerToAudio } from '../services/audioClock'
 import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining'
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
 import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments'
@@ -386,6 +387,12 @@ export function EarTrainer({ item }: EarTrainerProps) {
           timerRef.current = timer
           synth.start()
           timer.start()
+          // The timer latches its zero on the next animation frame, not here, so pin it to the
+          // audio clock rather than letting whatever delay precedes that frame become an offset.
+          requestAnimationFrame(() => {
+            if (timerRef.current !== timer) return
+            anchorTimerToAudio(timer, synth)
+          })
         } catch {
           setAudioError('Audio unavailable (soundfont could not be loaded).')
           resolve()

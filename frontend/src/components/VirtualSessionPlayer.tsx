@@ -5,6 +5,7 @@ import abcjs from "abcjs";
 import { fixAbcRepeats } from "../services/abcTools";
 import { getDefaultTargetBpm } from "../services/api";
 import type { BandVoice, SessionTune } from "../services/virtualSession";
+import { anchorTimerToAudio } from "../services/audioClock";
 import { backerStartOffsetMs, clearPendingTimeouts } from "../services/band";
 import { createBandSynth } from "../services/bandSynth";
 import { getOrCreateCursor, updateCursorPosition } from "./playerControls";
@@ -206,6 +207,14 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
         pendingTimeoutsRef.current.push(id);
       });
       timer.start();
+      // The timer only latches its zero on the next animation frame, so any delay between
+      // synths[0].start() and that frame would become a permanent cursor lag. Pin it to the
+      // audio clock once the frame arrives instead.
+      requestAnimationFrame(() => {
+        if (playSessionRef.current !== mySession) return;
+        if (timerRef.current !== timer) return;
+        anchorTimerToAudio(timer, synths[0]);
+      });
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
       return;

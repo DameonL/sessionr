@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
+import { anchorTimerToAudio, timerDriftMs } from "../services/audioClock";
 import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoice } from "../services/band";
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
@@ -36,6 +37,19 @@ export interface SetPlayerItem {
   /** Used to fall back to a sensible genre-based default tempo when no explicit target BPM is set. */
   tuneType?: string;
 }
+
+/**
+ * How much of a mid-playback drift error to correct per beat. The cursor eases back into place over
+ * a few beats rather than hopping, which would read as a stutter.
+ */
+const DRIFT_EASE = 0.25;
+
+/**
+ * Past this the clocks haven't drifted, something structural happened — a backgrounded tab where
+ * abcjs's setTimeout jogger took over from rAF, or a long stall. Easing a quarter second back at
+ * 25% a beat would visibly crawl, so snap instead.
+ */
+const DRIFT_SNAP_MS = 250;
 
 type PlayerStatus = "stopped" | "playing" | "paused";
 
@@ -431,6 +445,23 @@ export function SetPlayer({
     }
   }
 
+  /**
+   * Pins the cursor's clock to the audio's on the next frame — i.e. after the React commit, scroll
+   * and layout work that a start kicks off, which is exactly the delay that used to be baked into
+   * the cursor's zero and leave it permanently behind the music.
+   *
+   * Guarded by the play-session generation and timer identity so a superseded start can't re-anchor
+   * whatever timer has since replaced it.
+   */
+  function anchorOnNextFrame(timer: abcjs.TimingCallbacks, synth: abcjs.MidiBuffer) {
+    const session = playSessionRef.current;
+    requestAnimationFrame(() => {
+      if (playSessionRef.current !== session) return;
+      if (timerRef.current !== timer) return;
+      anchorTimerToAudio(timer, synth);
+    });
+  }
+
   /** Cancels any pending staggered entrances and immediately starts those backers now, instead of just dropping them — used before pausing, so a pause never permanently silences a backer that hadn't entered yet. */
   function flushPendingBackers() {
     pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
@@ -480,8 +511,13 @@ export function SetPlayer({
   function resume() {
     if (activeIndex === null) return;
     forEachVoice(activeIndex, (v) => v.resume());
-    timerRef.current?.start();
+    const timer = timerRef.current;
+    timer?.start();
     setStatus("playing");
+    // The synth measured its pause point on the AudioContext clock and the timer measured its own
+    // on performance.now(), so without this the two disagree a little more after every pause.
+    const leader = voicesAt(activeIndex)[0];
+    if (timer && leader) anchorOnNextFrame(timer, leader);
   }
 
   function markLoopPoint() {
@@ -803,6 +839,21 @@ export function SetPlayer({
         if (activeLoop && totalMsAtTempo > 0 && ms >= activeLoop.b * totalMsAtTempo) {
           for (const v of voices) v.seek(activeLoop.a);
           timer.setProgress(activeLoop.a);
+          // Same split-clock problem as a fresh start: the seek lands on the audio clock and
+          // setProgress on performance.now(), so re-pin them once the jump has settled.
+          anchorOnNextFrame(timer, synth);
+          return;
+        }
+
+        // Keep the cursor pinned to the audio as playback continues. Free when the two agree, so
+        // this costs nothing on the common path.
+        if (!isDraggingRef.current && statusRef.current === "playing") {
+          const drift = timerDriftMs(timer, synth);
+          if (drift !== null) {
+            anchorTimerToAudio(timer, synth, {
+              ease: Math.abs(drift) >= DRIFT_SNAP_MS ? 1 : DRIFT_EASE,
+            });
+          }
         }
       },
       eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
@@ -848,8 +899,10 @@ export function SetPlayer({
           for (const v of voices) v.seek(0);
           synth.start();
           startBackersStaggered(index, backers);
-          timer.setProgress(0);
+          // start(0) resets the timer's zero, so the setProgress(0) it used to be paired with was
+          // discarded anyway; the anchor is what actually lines the new pass up with the audio.
           timer.start(0);
+          anchorOnNextFrame(timer, synth);
           return "continue";
         } else if (index + 1 < items.length) {
           const nextIndex = index + 1;
@@ -899,6 +952,8 @@ export function SetPlayer({
     if (isPlayerPaused) {
       for (const v of voices) v.seek(startFraction);
       timer.start(startFraction);
+      // Not redundant with start(): for a zero offset start() resets startTime to null, and
+      // pause() reads startTime to record where it paused. setProgress puts a real value there.
       timer.setProgress(startFraction);
       timer.pause();
     } else {
@@ -912,9 +967,10 @@ export function SetPlayer({
         for (const backer of backers) backer.start();
       }
       timer.start(startFraction);
-      if (startFraction > 0) {
-        timer.setProgress(startFraction);
-      }
+      // The cursor's zero would otherwise be whenever the first frame after all of the above lands
+      // — the React commit, the scrollIntoView, the SVG layout — leaving it that far behind the
+      // music for the rest of the tune. Anchoring to the audio clock makes the start delay moot.
+      anchorOnNextFrame(timer, synth);
     }
   }
 
