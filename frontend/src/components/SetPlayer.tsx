@@ -1479,8 +1479,8 @@ export function SetPlayer({
                 <input
                   ref={tempoInputRef}
                   type="range"
-                  min={Math.max(30, Math.round(baseBpm * 0.5))}
-                  max={Math.round(baseBpm * 1.5)}
+                  min={Math.max(30, Math.round(baseBpm * 0.1))}
+                  max={Math.round(baseBpm * 2)}
                   step="1"
                   value={currentBpm}
                   onChange={onTempoInput}
