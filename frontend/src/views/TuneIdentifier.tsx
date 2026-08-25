@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import { addToRepertoire, formatTuneType, matchTune, type TuneMatchCandidate } from '../services/api'
-import { classifyClip, createTuneSample, groupNotes, SAMPLE_DURATION_MS, type TuneSample } from '../services/tuneMatcher'
+import { classifyClip, createTuneSample, groupNotes, smoothPitchTrack, SAMPLE_DURATION_MS, type TuneSample } from '../services/tuneMatcher'
 import type { RawFrame } from '../services/pitchDetector'
 import { currentUserId, useSignal } from '../state/appState'
 import { Spinner } from '../components/Spinner'
@@ -40,17 +40,19 @@ function confidenceBadgeClass(confidence: number): string {
 /**
  * "What's that tune?" — records a fixed ~20s sample from the mic, then
  * processes the whole clip at once to identify likely matches from the full
- * tune library, with a confidence score per candidate. No audio is recorded
- * or uploaded: only the ordered sequence of notes extracted from the sample
- * (via tuneMatcher.ts's batch classify/group pass over pitchDetector.ts's
- * raw frame capture) is sent to the server for matching.
+ * tune library, with a confidence score per candidate. Audio never leaves the
+ * device: it is captured to a buffer, analyzed locally, and only the resulting
+ * ordered sequence of notes is sent to the server for matching.
  *
- * Detection is deliberately deferred to the end of the sample rather than
- * done live, frame by frame: a robust noise floor can only be estimated from
- * the statistics of a whole clip (see tuneMatcher.ts's header comment) — a
- * live per-frame guess has no way to tell a real note's attack transient
- * from actual background noise, and got that wrong badly enough in an
- * earlier version to reject real playing almost immediately.
+ * Detection is deliberately deferred to the end of the sample rather than done
+ * live, frame by frame. Analyzing a finished buffer lets the whole clip be
+ * measured at one fixed rate rather than at the display's refresh rate, which
+ * is what makes the note grouping stable (see pitchDetector.ts), and lets
+ * signal be told from noise using the clip's own statistics rather than a
+ * causal per-frame guess (see tuneMatcher.ts).
+ *
+ * Results are always shown as a ranked list, whether or not anything cleared
+ * the confidence threshold — see the results block below for why.
  */
 export function TuneIdentifier() {
   const userId = useSignal(currentUserId)
@@ -158,7 +160,7 @@ export function TuneIdentifier() {
         if (opts?.autoSubmit !== false) runMatch(midis)
       },
       simulateRawFrames: (frames, opts) => {
-        const notes = groupNotes(classifyClip(frames)).map((n) => n.midi)
+        const notes = groupNotes(smoothPitchTrack(classifyClip(frames))).map((n) => n.midi)
         lastNotes = notes
         setPhaseBoth('listening')
         if (opts?.autoSubmit !== false) runMatch(notes)
@@ -248,44 +250,63 @@ export function TuneIdentifier() {
             </p>
           )}
 
-          {!matchMutation.isError && !hasConfidentMatch && (
+          {!matchMutation.isError && candidates.length === 0 && (
             <p className="badge badge-queue">
-              Couldn&apos;t find a confident match — try playing a longer or cleaner excerpt.
+              Nothing in the library came close — try playing a longer or cleaner excerpt.
             </p>
           )}
 
           {candidates.length > 0 && (
-            <ul className="tune-list">
-              {candidates.map((c) => (
-                <li key={c.tuneId} className="card">
-                  <div className="tune-row">
-                    <span className="tune-title">
-                      <Link href={`/tunes/${c.tuneId}`} className="quiet-link">{c.title}</Link>
-                    </span>
-                    <span className={confidenceBadgeClass(c.confidence)}>{Math.round(c.confidence)}%</span>
-                  </div>
-                  <p className="tune-meta">{formatTuneType(c.tuneType)} · {c.key}</p>
-                  <div className="detail-controls">
-                    <Link href={`/tunes/${c.tuneId}`}>View tune</Link>
-                    {userId ? (
-                      addedTuneId === c.tuneId ? (
-                        <span className="tune-meta">✓ Added to repertoire</span>
+            <>
+              {/* A ranked list is worth showing whether or not anything cleared the
+                  confidence threshold. Noisy session audio routinely puts the right
+                  tune first at a confidence too low to assert, and "here are the
+                  closest tunes, most likely first" is genuinely useful to a player
+                  who can recognise the answer on sight — far more so than being told
+                  only that the search failed. */}
+              <p className="tune-meta" style={{ marginBottom: '0.5rem' }}>
+                {hasConfidentMatch
+                  ? 'Closest matches, most likely first:'
+                  : 'No confident match — but these are the closest, most likely first:'}
+              </p>
+              <ul className="tune-list">
+                {candidates.map((c, index) => (
+                  <li key={c.tuneId} className="card">
+                    <div className="tune-row">
+                      <span className="tune-title">
+                        {index + 1}.{' '}
+                        <Link href={`/tunes/${c.tuneId}`} className="quiet-link">{c.title}</Link>
+                      </span>
+                      <span className={confidenceBadgeClass(c.confidence)}>{Math.round(c.confidence)}%</span>
+                    </div>
+                    <p className="tune-meta">{formatTuneType(c.tuneType)} · {c.key}</p>
+                    <div className="detail-controls">
+                      <Link href={`/tunes/${c.tuneId}`}>View tune</Link>
+                      {userId ? (
+                        addedTuneId === c.tuneId ? (
+                          <span className="tune-meta">✓ Added to repertoire</span>
+                        ) : (
+                          <button
+                            className="secondary"
+                            disabled={addMutation.isPending}
+                            onClick={() => addMutation.mutate(c.tuneId)}
+                          >
+                            + Add to repertoire
+                          </button>
+                        )
                       ) : (
-                        <button
-                          className="secondary"
-                          disabled={addMutation.isPending}
-                          onClick={() => addMutation.mutate(c.tuneId)}
-                        >
-                          + Add to repertoire
-                        </button>
-                      )
-                    ) : (
-                      <Link href="/login">Sign in to add</Link>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                        <Link href="/login">Sign in to add</Link>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {!hasConfidentMatch && (
+                <p className="tune-meta">
+                  If none of these look right, a longer or cleaner excerpt usually sharpens it.
+                </p>
+              )}
+            </>
           )}
 
           <div className="detail-controls">
