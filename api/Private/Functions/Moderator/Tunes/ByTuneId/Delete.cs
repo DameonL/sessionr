@@ -35,8 +35,8 @@ public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
         await db.SaveChangesAsync();
         await LibraryStatsSupport.DecrementTuneCountAsync(db);
 
-        await purgeService.PurgeTuneAsync(tuneId);
+        var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
 
-        return new NoContentResult();
+        return new OkObjectResult(new { success = true, cloudflarePurgeResponse = purgeResult.IsSuccess ? null : purgeResult });
     }
 }

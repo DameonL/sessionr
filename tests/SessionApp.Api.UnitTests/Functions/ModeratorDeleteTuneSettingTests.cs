@@ -89,7 +89,7 @@ public class ModeratorDeleteTuneSettingTests
 
         var result = await handler.ModeratorDeleteTuneSetting(req, settingId);
 
-        Assert.IsType<NoContentResult>(result);
+        Assert.IsType<OkObjectResult>(result);
         var remainingSetting = await db.TuneSettings.SingleOrDefaultAsync(s => s.TuneSettingId == settingId);
         Assert.Null(remainingSetting);
     }

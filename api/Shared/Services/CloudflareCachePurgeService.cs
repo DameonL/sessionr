@@ -38,27 +38,12 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         _logger = logger;
 
         _apiToken = Environment.GetEnvironmentVariable("CloudflareCacheToken")?.Trim();
-        _zoneId = Environment.GetEnvironmentVariable("CloudflareZoneId")?.Trim()
-            ?? Environment.GetEnvironmentVariable("CLOUDFLARE_ZONE_ID")?.Trim();
+        _zoneId = Environment.GetEnvironmentVariable("CloudflareZoneId")?.Trim();
 
-        var rawBaseUrlConfig = Environment.GetEnvironmentVariable("PublicApiBaseUrl")?.Trim()
-            ?? Environment.GetEnvironmentVariable("PUBLIC_API_BASE_URL")?.Trim();
-
-        if (!string.IsNullOrWhiteSpace(rawBaseUrlConfig))
+        _baseUrls = new List<string>
         {
-            _baseUrls = rawBaseUrlConfig
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(b => StripScheme(b.TrimEnd('/')))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-        else
-        {
-            _baseUrls = new List<string>
-            {
-                "api-public.sessionr.org"
-            };
-        }
+            "api-public.sessionr.org"
+        };
     }
 
     public async Task<CloudflarePurgeResult> PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default)
@@ -89,7 +74,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         try
         {
             var purgeEndpoint = $"https://api.cloudflare.com/client/v4/zones/{_zoneId}/purge_cache";
-            var payload = new { files = urlsToPurge };
+            var payload = new { prefixes = urlsToPurge };
             var jsonPayload = JsonSerializer.Serialize(payload);
 
             using var request = new HttpRequestMessage(HttpMethod.Post, purgeEndpoint)

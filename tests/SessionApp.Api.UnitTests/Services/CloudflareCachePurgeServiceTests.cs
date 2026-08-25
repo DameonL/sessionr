@@ -93,10 +93,10 @@ public class CloudflareCachePurgeServiceTests
 
         var json = handler.RequestBodies[0];
         using var doc = JsonDocument.Parse(json);
-        var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
+        var prefixes = doc.RootElement.GetProperty("prefixes").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("api-public.sessionr.org/api/tunes", files);
-        Assert.Contains("api-public.sessionr.org/api/tunes/guid-123", files);
+        Assert.Contains("api-public.sessionr.org/api/tunes", prefixes);
+        Assert.Contains("api-public.sessionr.org/api/tunes/guid-123", prefixes);
     }
 
     [Fact]
@@ -117,10 +117,10 @@ public class CloudflareCachePurgeServiceTests
         Assert.Single(handler.SentRequests);
         var json = handler.RequestBodies[0];
         using var doc = JsonDocument.Parse(json);
-        var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
+        var prefixes = doc.RootElement.GetProperty("prefixes").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Single(files);
-        Assert.Equal("api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files[0]);
+        Assert.Single(prefixes);
+        Assert.Equal("api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", prefixes[0]);
     }
 
     [Fact]
@@ -165,9 +165,9 @@ public class CloudflareCachePurgeServiceTests
         Assert.Single(handler.SentRequests);
         var json = handler.RequestBodies[0];
         using var doc = JsonDocument.Parse(json);
-        var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
+        var prefixes = doc.RootElement.GetProperty("prefixes").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Single(files);
-        Assert.Equal($"api-public.sessionr.org/api/tunes/{tuneId}", files[0]);
+        Assert.Single(prefixes);
+        Assert.Equal($"api-public.sessionr.org/api/tunes/{tuneId}", prefixes[0]);
     }
 }
