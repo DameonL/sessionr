@@ -432,6 +432,83 @@ main {
   fill: var(--accent);
 }
 
+/* Notes are clickable — click one to hear it and see its name */
+.sheet-music .abcjs-note {
+  cursor: pointer;
+}
+
+.sheet-music-hidden {
+  display: none;
+}
+
+/* The per-tune wrapper is the positioning context for the clicked-note badge */
+.tune-view {
+  position: relative;
+}
+
+/* The name of a just-clicked note, floating over the note itself and fading out */
+.note-badge {
+  position: absolute;
+  transform: translate(-50%, -115%);
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  animation: note-badge-fade 1.1s ease-out forwards;
+}
+
+@keyframes note-badge-fade {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ABC view: the same tune as text, with the same playback cursor the staff gets */
+.abc-source-view {
+  margin: 0.5rem 0;
+}
+
+.abc-source-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -0.25rem;
+}
+
+.abc-source-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Mirrors .sheet-music .highlight — the note currently sounding */
+.abc-source-note {
+  background: var(--accent);
+  color: var(--sheet-paper);
+  border-radius: 3px;
+}
+
+/* Mirrors .sheet-music .abcjs-cursor — a position marker to track between notes */
+.abc-source-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  vertical-align: text-bottom;
+  margin-right: -2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
 .search-box {
   width: 100%;
   margin-bottom: 1rem;

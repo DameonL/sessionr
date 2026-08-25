@@ -3,6 +3,9 @@ import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
 import { anchorTimerToAudio, timerDriftMs } from "../services/audioClock";
+import { prefersFlats, spellMidiNotes } from "../services/noteSpelling";
+import { showToast } from "../state/appState";
+import { AbcSourceView, type AbcCursorRange } from "./AbcSourceView";
 import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoice } from "../services/band";
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
@@ -51,7 +54,28 @@ const DRIFT_EASE = 0.25;
  */
 const DRIFT_SNAP_MS = 250;
 
+/** How long a clicked note's name stays on screen before fading. */
+const NOTE_BADGE_MS = 1100;
+
+/** Length of a clicked note, in seconds — long enough to hear the pitch, short enough to click on. */
+const CLICKED_NOTE_SEC = 0.6;
+
 type PlayerStatus = "stopped" | "playing" | "paused";
+
+type SheetViewMode = "sheet" | "abc";
+
+/** The name of a just-clicked note, placed over the note it belongs to. */
+interface NoteBadge {
+  index: number;
+  text: string;
+  x: number;
+  y: number;
+}
+
+/** Which tune's ABC the playback cursor is in, and where. */
+interface AbcCursor extends AbcCursorRange {
+  index: number;
+}
 
 interface ExtendedTuneObject extends abcjs.TuneObject {
   setTiming(bpm?: number, measuresOfDelay?: number): abcjs.NoteTimingEvent[];
@@ -114,6 +138,8 @@ export function SetPlayer({
 }: SetPlayerProps) {
   const tuneKey = items.map((i) => i.userTuneId).join(",");
   const sheetRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Per-tune wrapper, the positioning context the clicked-note badge is placed against. */
+  const tuneRefs = useRef<(HTMLDivElement | null)[]>([]);
   const visualObjsRef = useRef<(ExtendedTuneObject | null)[]>([]);
   const durationsRef = useRef<number[]>([]);
   /** Per tune index, the voices currently loaded for it — length 1 in Solo mode, one per band member in Band mode. Voice 0 is always the leader that drives the timer/cursor. */
@@ -135,6 +161,15 @@ export function SetPlayer({
    * which would otherwise resurrect audio the user already stopped/moved past.
    */
   const playSessionRef = useRef(0);
+  /**
+   * Per tune, the exact string handed to renderAbc. The ABC view, the copy button and abcjs's
+   * startChar/endChar offsets must all reference the identical text, and that text is not
+   * item.abc — fixAbcRepeats rewrites it on the way to the engraver.
+   */
+  const engravedAbcRef = useRef<string[]>([]);
+  /** Per tune, whether its key signature spells accidentals with flats. */
+  const prefersFlatsRef = useRef<boolean[]>([]);
+  const noteBadgeTimeoutRef = useRef<number | null>(null);
   const [initialPrefs] = useState(loadPlayerPrefs);
   const repeatRef = useRef(initialPrefs.repeat);
   const repeatLimitRef = useRef<number | null>(initialPrefs.repeatLimit);
@@ -160,6 +195,9 @@ export function SetPlayer({
   const [instruments, setInstruments] = useState(loadInstruments);
   const [bandPrefs, setBandPrefs] = useState(loadBandPrefs);
   const [bandVoices, setBandVoices] = useState<BandVoice[]>([]);
+  const [viewMode, setViewMode] = useState<SheetViewMode>("sheet");
+  const [noteBadge, setNoteBadge] = useState<NoteBadge | null>(null);
+  const [abcCursor, setAbcCursor] = useState<AbcCursor | null>(null);
   const [positionSec, setPositionSec] = useState(0);
   const [currentTotalSec, setCurrentTotalSec] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -320,6 +358,8 @@ export function SetPlayer({
   useEffect(() => {
     noteTimingsRef.current = [];
     tuneLinesRef.current = [];
+    engravedAbcRef.current = [];
+    prefersFlatsRef.current = [];
     if (!hasRenderableAbc) {
       // Nothing to engrave yet — leave the spinner up rather than rendering an
       // empty staff under a live toolbar. Re-runs when the ABC arrives.
@@ -331,8 +371,13 @@ export function SetPlayer({
     visualObjsRef.current = items.map((item, index) => {
       const host = sheetRefs.current[index];
       if (!host) return null;
-      const visualObj = abcjs.renderAbc(host, fixAbcRepeats(item.abc), {
+      const engravedAbc = fixAbcRepeats(item.abc);
+      engravedAbcRef.current[index] = engravedAbc;
+      prefersFlatsRef.current[index] = prefersFlats(engravedAbc);
+      const visualObj = abcjs.renderAbc(host, engravedAbc, {
         responsive: "resize",
+        add_classes: true,
+        clickListener: (abcElem, _tuneNumber, _classes, analysis) => handleNoteClick(index, abcElem, analysis),
       })[0] as ExtendedTuneObject;
       const timings = visualObj.setTiming(visualObj.getBpm());
       noteTimingsRef.current[index] = timings;
@@ -409,6 +454,87 @@ export function SetPlayer({
     }
   }, [itemsKey, currentBpm, targetBpm]);
 
+  /**
+   * Names and sounds a note the reader clicked on the staff.
+   *
+   * abcjs only makes notes selectable by default (Selectables.canSelect), so bars, clefs and the
+   * rest never arrive here — but rests do, as notes with a rest property, and they have nothing to
+   * play or name.
+   */
+  function handleNoteClick(index: number, abcElem: abcjs.AbcElem, analysis: abcjs.ClickListenerAnalysis) {
+    if (abcElem.rest) return;
+
+    // setTiming() runs on every tune right after renderAbc, which is what fills in midiPitches;
+    // the parsed pitches are the fallback if that hasn't happened for some reason.
+    const pitches =
+      abcElem.midiPitches?.map((p) => p.pitch) ??
+      abcElem.pitches?.map((p) => p.midipitch).filter((p): p is number => typeof p === "number") ??
+      [];
+    if (pitches.length === 0) return;
+
+    // The one-shot synth: no CreateSynth, no init/prime, no audio context of our own — the same
+    // path playMetronomeClick and playTargetNote use. Passing 1000 as the measure length makes
+    // duration read straight through as seconds.
+    const instrument = instrumentsRef.current.melody;
+    abcjs.synth
+      .playEvent(
+        pitches.map((pitch) => ({ pitch, volume: 90, start: 0, duration: CLICKED_NOTE_SEC, instrument, gap: 0 })),
+        [],
+        1000,
+      )
+      .catch(() => {});
+
+    showNoteBadge(index, spellMidiNotes(pitches, prefersFlatsRef.current[index] ?? false), analysis.selectableElement);
+  }
+
+  /** Floats a note's name just above it, fading out on its own. A new click replaces the old badge. */
+  function showNoteBadge(index: number, text: string, target: Element | null) {
+    const host = tuneRefs.current[index];
+    if (!host || !text) return;
+    const targetRect = target?.getBoundingClientRect();
+    if (!targetRect) return;
+    const hostRect = host.getBoundingClientRect();
+
+    if (noteBadgeTimeoutRef.current !== null) window.clearTimeout(noteBadgeTimeoutRef.current);
+    setNoteBadge({
+      index,
+      text,
+      x: targetRect.left + targetRect.width / 2 - hostRect.left,
+      y: targetRect.top - hostRect.top,
+    });
+    noteBadgeTimeoutRef.current = window.setTimeout(() => {
+      noteBadgeTimeoutRef.current = null;
+      setNoteBadge(null);
+    }, NOTE_BADGE_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (noteBadgeTimeoutRef.current !== null) window.clearTimeout(noteBadgeTimeoutRef.current);
+    };
+  }, []);
+
+  function copyAbc(index: number) {
+    const abc = engravedAbcRef.current[index];
+    if (!abc) return;
+    navigator.clipboard
+      ?.writeText(abc)
+      .then(() => showToast("ABC copied", "success"))
+      .catch(() => showToast("Could not copy to clipboard", "error"));
+  }
+
+  /**
+   * Moves the ABC view's cursor to the note this timing event belongs to.
+   *
+   * Tracked whichever view is showing, not just in ABC mode: the two views have to agree the
+   * instant you switch between them, rather than the one you land on sitting blank until the next
+   * note comes round.
+   */
+  function setAbcCursorFromEvent(index: number, ev: abcjs.NoteTimingEvent) {
+    if (typeof ev.startChar !== "number" || ev.startChar < 0) return;
+    setAbcCursor({ index, start: ev.startChar, end: ev.endChar ?? ev.startChar });
+  }
+
   function clearHighlights() {
     for (const el of highlightedRef.current) {
       el.classList.remove("highlight");
@@ -422,6 +548,7 @@ export function SetPlayer({
         cursor.setAttribute("y2", "0");
       }
     }
+    setAbcCursor(null);
   }
 
   function voicesAt(index: number): abcjs.MidiBuffer[] {
@@ -874,6 +1001,7 @@ export function SetPlayer({
               highlightedRef.current.push(el);
             }
           }
+          setAbcCursorFromEvent(index, ev);
           const host = sheetRefs.current[index];
           const svg = host?.querySelector("svg") as SVGSVGElement | null;
           if (typeof ev.left === "number" && typeof ev.top === "number" && typeof ev.height === "number" && svg) {
@@ -1134,6 +1262,14 @@ export function SetPlayer({
               : logPracticeLabel || (isSingle ? "✓ Log practice" : "✓ Log set practice")}
           </button>
         )}
+        <button
+          className={viewMode === "abc" ? "toggled" : ""}
+          aria-pressed={viewMode === "abc"}
+          title="Switch between the engraved staff and the ABC source. Playback follows along in both."
+          onClick={() => setViewMode((v) => (v === "abc" ? "sheet" : "abc"))}
+        >
+          {viewMode === "abc" ? "🔤 ABC" : "🎼 Sheet"}
+        </button>
         <button onClick={toggleFullscreen}>⛶ Fullscreen</button>
         <button
           className={showAdvanced ? "toggled" : ""}
@@ -1400,7 +1536,10 @@ export function SetPlayer({
           return (
             <div
               key={item.userTuneId}
-              className={isSingle ? "" : `set-player-tune ${activeIndex === index ? "active" : ""}`}
+              className={`tune-view ${isSingle ? "" : `set-player-tune ${activeIndex === index ? "active" : ""}`}`}
+              ref={(el) => {
+                tuneRefs.current[index] = el;
+              }}
             >
               {showHeader && (
                 <div className="set-header">
@@ -1420,12 +1559,27 @@ export function SetPlayer({
                   </span>
                 </div>
               )}
+              {/* Never unmounted: the engraving, its note timings and the live abcjs cursor all hang
+                  off this node, and the render effect only re-runs when the tunes themselves change,
+                  so tearing it down for the ABC view would quietly break playback. */}
               <div
-                className="sheet-music"
+                className={`sheet-music ${viewMode === "abc" ? "sheet-music-hidden" : ""}`}
                 ref={(el) => {
                   sheetRefs.current[index] = el;
                 }}
               />
+              {viewMode === "abc" && (
+                <AbcSourceView
+                  abc={engravedAbcRef.current[index] ?? ""}
+                  cursor={abcCursor?.index === index ? abcCursor : null}
+                  onCopy={() => copyAbc(index)}
+                />
+              )}
+              {noteBadge?.index === index && (
+                <span className="note-badge" style={{ left: noteBadge.x, top: noteBadge.y }}>
+                  {noteBadge.text}
+                </span>
+              )}
             </div>
           );
         })}
@@ -1495,6 +1649,7 @@ export function SetPlayer({
           highlightedRef.current.push(el);
         }
       }
+      setAbcCursorFromEvent(targetIndex, bestEvent);
 
       if (svg) {
         updateCursorPosition(svg, bestEvent.left - 2, bestEvent.top, bestEvent.top + bestEvent.height);
@@ -1506,6 +1661,7 @@ export function SetPlayer({
         cursor.setAttribute("y1", "0");
         cursor.setAttribute("y2", "0");
       }
+      setAbcCursor(null);
     }
   }
 }
