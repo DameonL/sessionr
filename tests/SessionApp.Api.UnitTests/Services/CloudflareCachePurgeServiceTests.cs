@@ -95,8 +95,8 @@ public class CloudflareCachePurgeServiceTests
         using var doc = JsonDocument.Parse(json);
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
-        Assert.Contains("https://api-public.sessionr.org/api/tunes", files);
-        Assert.Contains("https://api-public.sessionr.org/api/tunes/guid-123", files);
+        Assert.Contains("api-public.sessionr.org/api/tunes", files);
+        Assert.Contains("api-public.sessionr.org/api/tunes/guid-123", files);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class CloudflareCachePurgeServiceTests
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
         Assert.Single(files);
-        Assert.Equal("https://api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files[0]);
+        Assert.Equal("api-public.sessionr.org/api/tunes/01a03a29-6add-740c-b62f-aa700533589d", files[0]);
     }
 
     [Fact]
@@ -168,6 +168,6 @@ public class CloudflareCachePurgeServiceTests
         var files = doc.RootElement.GetProperty("files").EnumerateArray().Select(e => e.GetString()).ToList();
 
         Assert.Single(files);
-        Assert.Equal($"https://api-public.sessionr.org/api/tunes/{tuneId}", files[0]);
+        Assert.Equal($"api-public.sessionr.org/api/tunes/{tuneId}", files[0]);
     }
 }

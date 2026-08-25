@@ -48,7 +48,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             _baseUrls = rawBaseUrlConfig
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(b => b.TrimEnd('/'))
+                .Select(b => StripScheme(b.TrimEnd('/')))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -56,7 +56,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             _baseUrls = new List<string>
             {
-                "https://api-public.sessionr.org"
+                "api-public.sessionr.org"
             };
         }
     }
@@ -174,7 +174,7 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
     {
         if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            yield return url;
+            yield return StripScheme(url);
             yield break;
         }
 
@@ -183,5 +183,18 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             yield return $"{baseUrl}{path}";
         }
+    }
+
+    private static string StripScheme(string url)
+    {
+        if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url.Substring("https://".Length);
+        }
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url.Substring("http://".Length);
+        }
+        return url;
     }
 }
