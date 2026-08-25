@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate-pwa-assets": "pwa-assets-generator --override && cp assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png public/ && rm -f assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png"
+    "generate-pwa-assets": "pwa-assets-generator --override && cp assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png public/ && rm -f assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png",
+    "harness": "vite --port 5199 --strictPort",
+    "harness:e2e": "node harness/e2e/startSync.mjs 20 && node harness/e2e/cursorSync.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.17.3",
@@ -26,6 +28,7 @@
     "vite": "^8.2.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
