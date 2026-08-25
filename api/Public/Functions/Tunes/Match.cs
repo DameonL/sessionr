@@ -61,11 +61,14 @@ public class Match(TuneMatchIndex matchIndex, ILogger<Match> logger)
         }
 
         var queryIntervals = MelodyFingerprint.ToIntervals(notes);
+        // Built from the absolute notes, which ToIntervals discards — see MelodyFingerprint.
+        var queryPitchClasses = MelodyFingerprint.ToPitchClassProfile(notes);
 
         System.Collections.Generic.IReadOnlyList<TuneMatchCandidateDto> candidates;
         try
         {
-            candidates = await matchIndex.MatchAsync(queryIntervals, TopN, req.HttpContext.RequestAborted);
+            candidates = await matchIndex.MatchAsync(
+                queryIntervals, TopN, queryPitchClasses, req.HttpContext.RequestAborted);
         }
         catch (Exception ex)
         {

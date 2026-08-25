@@ -91,8 +91,7 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
                     tuneTypeById[setting.TuneId] = tuneType;
                 }
 
-                var stats = heuristics.Compute(setting.AbcText, setting.Key, tuneType);
-                setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+                heuristics.ApplyFingerprint(setting, tuneType);
                 settingsUpdated++;
             }
             await db.SaveChangesAsync();

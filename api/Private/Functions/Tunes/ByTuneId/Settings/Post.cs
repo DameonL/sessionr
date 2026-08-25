@@ -45,8 +45,7 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
             SubmitterName = string.IsNullOrWhiteSpace(body.SubmitterName) ? "Anonymous" : body.SubmitterName.Trim(),
             VoteScore = 1
         };
-        var stats = heuristics.Compute(setting.AbcText, setting.Key, tune.TuneType);
-        setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+        heuristics.ApplyFingerprint(setting, tune.TuneType);
         db.TuneSettings.Add(setting);
         await db.SaveChangesAsync();
         await LibraryStatsSupport.MarkTunesChangedAsync(db);

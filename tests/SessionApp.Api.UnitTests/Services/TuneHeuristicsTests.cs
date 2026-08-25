@@ -306,7 +306,7 @@ public class TuneHeuristicsTests
         Assert.Equal(expected.AccidentalCount, tune.AccidentalCount);
         Assert.Equal(expected.PartCount, tune.PartCount);
         Assert.Equal(expected.Difficulty, tune.Difficulty);
-        Assert.Equal(MelodyFingerprint.ToIntervalString(expected.Midis), tune.FingerprintIntervals);
+        Assert.Equal(MelodyFingerprint.ToIntervalString(expected.UnrolledMidis), tune.FingerprintIntervals);
     }
 
     [Fact]
@@ -320,6 +320,86 @@ public class TuneHeuristicsTests
         Assert.Null(tune.EndingMidi);
         Assert.Equal(0, tune.NoteCount);
         Assert.Equal("", tune.FingerprintIntervals);
+    }
+
+    [Fact]
+    public void Compute_UnrollsASimpleRepeatForTheFingerprintButNotTheWrittenMidis()
+    {
+        var stats = _heuristics.Compute("K:C\n|:CDE:|", null, TuneType.Reel);
+
+        // Written-order Midis (what NoteCount/Difficulty are derived from) stays literal.
+        Assert.Equal([60, 62, 64], stats.Midis);
+        Assert.Equal(3, stats.NoteCount);
+        // The fingerprint basis plays the repeated section twice.
+        Assert.Equal([60, 62, 64, 60, 62, 64], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_UnrollsFirstAndSecondEndingsSeparately()
+    {
+        // "|:CDE[1FG:|[2AB|]" plays CDE-FG the first time through, then repeats with
+        // AB swapped in for the [2 ending instead of FG.
+        var stats = _heuristics.Compute("K:C\n|:CDE[1FG:|[2AB|]", null, TuneType.Reel);
+
+        Assert.Equal([60, 62, 64, 65, 67, 60, 62, 64, 69, 71], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_UnrollsARepeatBridgeOnceEachSide()
+    {
+        var stats = _heuristics.Compute("K:C\nCDE::FGA:|", null, TuneType.Reel);
+
+        // "::" both closes the first section's repeat and opens the second's.
+        Assert.Equal([60, 62, 64, 60, 62, 64, 65, 67, 69, 65, 67, 69], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_UnrollsBothSectionsWhenTheirRepeatMarkersAreAdjacent()
+    {
+        // ":| |:" back to back, with no bar between them — the normal way a two-part
+        // tune is written. The opening marker of the second section terminates no bar
+        // of its own, so reading section starts off the *previous* bar's trailing
+        // barline silently lost it and left the second section un-repeated.
+        var stats = _heuristics.Compute("K:C\n|:CDE:||:GAB:|", null, TuneType.Reel);
+
+        Assert.Equal([60, 62, 64, 60, 62, 64, 67, 69, 71, 67, 69, 71], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_UnrollsBothSectionsWhenTheyAreOnSeparateLines()
+    {
+        var stats = _heuristics.Compute("K:C\n|:CDE:|\n|:GAB:|", null, TuneType.Reel);
+
+        Assert.Equal([60, 62, 64, 60, 62, 64, 67, 69, 71, 67, 69, 71], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_SkipsAnIndentedMidTuneKeyChange()
+    {
+        // A key change part-way through a tune is conventionally written indented under the
+        // preceding bar. Requiring the field letter to sit flush against the newline let the
+        // key's own letter be read as a note.
+        var stats = _heuristics.Compute("X:1\nK:C\nCD\n K:G\nEF", null, TuneType.Reel);
+
+        Assert.Equal([60, 62, 64, 65], stats.Midis);
+    }
+
+    [Fact]
+    public void Compute_SkipsAnIndentedFieldLineInTheUnrolledSequenceToo()
+    {
+        // Both scanners (the flat one and the bar-aware one behind UnrolledMidis) have to
+        // agree, or the fingerprint picks up a note the note count never saw.
+        var stats = _heuristics.Compute("X:1\nK:C\n|:CD:|\n K:G\n|:EF:|", null, TuneType.Reel);
+
+        Assert.Equal([60, 62, 60, 62, 64, 65, 64, 65], stats.UnrolledMidis);
+    }
+
+    [Fact]
+    public void Compute_TuneWithNoRepeatsHasIdenticalWrittenAndUnrolledMidis()
+    {
+        var stats = _heuristics.Compute("K:C\nCDEFGABc", null, TuneType.Reel);
+
+        Assert.Equal(stats.Midis, stats.UnrolledMidis);
     }
 
     [Fact]

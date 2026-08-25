@@ -14,6 +14,9 @@ public class TuneSetting
     /// <summary>Same representation as Tune.FingerprintIntervals, computed from this setting's own AbcText.</summary>
     public string? FingerprintIntervals { get; set; }
 
+    /// <summary>Same representation as Tune.PitchClassProfile, computed from this setting's own AbcText.</summary>
+    public string? PitchClassProfile { get; set; }
+
     public Tune Tune { get; set; } = null!;
     public ICollection<TuneSettingVote> Votes { get; set; } = new List<TuneSettingVote>();
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();

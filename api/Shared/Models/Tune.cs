@@ -38,6 +38,14 @@ public class Tune
     /// </summary>
     public string? FingerprintIntervals { get; set; }
 
+    /// <summary>
+    /// Comma-delimited 12-value unit vector of pitch-class usage, computed alongside
+    /// FingerprintIntervals. Absolute pitch is not recoverable from the interval fingerprint,
+    /// so this is stored separately; TuneMatchIndex fuses it with the alignment score as an
+    /// independent signal. Null until computed.
+    /// </summary>
+    public string? PitchClassProfile { get; set; }
+
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<TuneAlias> Aliases { get; set; } = new List<TuneAlias>();
     public ICollection<TuneSetting> Settings { get; set; } = new List<TuneSetting>();

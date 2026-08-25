@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace SessionApp.Api.Services;
@@ -44,6 +45,14 @@ public static class MelodyFingerprint
     private const int OctaveErrorScore = 2;
     private const int MismatchScore = -2;
 
+    // A semitone out is the one wrong interval worth forgiving rather than punishing: it is
+    // what a modal difference between two settings looks like (a C natural against a C sharp)
+    // and also what the pitch detector's own jitter produces at a note boundary. Small on
+    // purpose — enough that a near miss doesn't cost the same as an unrelated note, not enough
+    // to make being a semitone wrong a cheap way to match. Measured on real recordings, +1
+    // lifted every target; +2 started lifting the decoys with them.
+    private const int NearMissScore = 1;
+
     // Affine gap costs (Gotoh's algorithm): opening a gap costs more than
     // continuing one already open, so a burst of several consecutive noise
     // notes — the common failure mode in a loud, busy session — is charged
@@ -51,6 +60,15 @@ public static class MelodyFingerprint
     // this is gapOpen=-2, gapExtend=-0.5, versus a flat -1/note before.
     private const int GapOpenScore = -4;
     private const int GapExtendScore = -1;
+
+    // A live-played query legitimately contains notes with no fingerprint
+    // counterpart at all: rolls/cuts/trebles are full, articulated notes in
+    // a recording even though TuneHeuristics strips ABC grace notes from the
+    // stored fingerprint. Up to this many consecutive query intervals can
+    // consolidate into a single step (see LocalAlign) when their signed sum
+    // still lands on the candidate's next interval, so an ornament scores
+    // like a clean match instead of paying a gap penalty per inserted note.
+    private const int OrnamentConsolidationMax = 3;
 
     /// <summary>
     /// Collapses immediately-repeated pitches (A,A,B -> A,B) and diffs the rest into
@@ -83,6 +101,33 @@ public static class MelodyFingerprint
         string.Join(',', ToIntervals(midis));
 
     /// <summary>
+    /// Repeats a candidate's intervals until it is at least <paramref name="minLength"/> long.
+    ///
+    /// A ~20 second sample of someone playing covers more than one pass of a short tune, so the
+    /// query is routinely *longer* than the stored fingerprint (measured: 127 query intervals
+    /// against a 113-interval reel). <see cref="Confidence"/> normalises by query length, so
+    /// whatever the candidate cannot reach is unalignable and caps the score no matter how well
+    /// the tune was played — and the coverage floor can zero the correct answer outright. Players
+    /// cycle a tune several times through; the fingerprint it is compared against should too.
+    ///
+    /// The junction between repeats is left as a plain concatenation: the interval from the
+    /// tune's last note back to its first is not knowable from the interval sequence alone, and
+    /// one wrong interval per lap is comfortably absorbed by local alignment's affine gaps.
+    /// </summary>
+    public static int[] TileToAtLeast(int[] intervals, int minLength)
+    {
+        if (intervals.Length == 0 || intervals.Length >= minLength) return intervals;
+
+        var laps = (int)Math.Ceiling((double)minLength / intervals.Length);
+        var tiled = new int[intervals.Length * laps];
+        for (var lap = 0; lap < laps; lap++)
+        {
+            Array.Copy(intervals, 0, tiled, lap * intervals.Length, intervals.Length);
+        }
+        return tiled;
+    }
+
+    /// <summary>
     /// Parses a stored fingerprint back into intervals, skipping anything unparseable.
     /// Deliberately lenient: this runs over every row when TuneMatchIndex rebuilds, so one
     /// malformed legacy value (a stray trailing comma, a whitespace-only string) must degrade
@@ -102,6 +147,156 @@ public static class MelodyFingerprint
             }
         }
         return parsed.ToArray();
+    }
+
+    /// <summary>Side length of the pitch-class transition matrix, and its flattened size.</summary>
+    private const int PitchClasses = 12;
+    private const int ProfileCells = PitchClasses * PitchClasses;
+
+    /// <summary>
+    /// How often each ordered pair of consecutive pitch classes occurs, as a flattened 12x12
+    /// unit vector indexed <c>from * 12 + to</c>.
+    ///
+    /// This is deliberately *not* derivable from the interval fingerprint — collapsing a melody
+    /// to intervals discards absolute pitch, which is the whole point of that representation but
+    /// also throws away the tune's key/mode colour.
+    ///
+    /// Transitions rather than a plain histogram of note usage, because a histogram only
+    /// describes a tune's note *inventory*, and a library is full of tunes that share one: two
+    /// reels in D use the same seven notes in roughly the same proportions. Measured on the
+    /// sample recordings, a histogram ranked one of them second behind a decoy it was separated
+    /// from by 0.001 — a coin-flip — while this form ranked every recording first and roughly
+    /// doubled the spread between the correct tune and the field, because it describes how the
+    /// melody *moves* rather than what it is built from.
+    /// </summary>
+    public static double[] ToPitchClassProfile(IReadOnlyList<int> midis)
+    {
+        var counts = new double[ProfileCells];
+        for (var i = 1; i < midis.Count; i++)
+        {
+            var from = ((midis[i - 1] % PitchClasses) + PitchClasses) % PitchClasses;
+            var to = ((midis[i] % PitchClasses) + PitchClasses) % PitchClasses;
+            counts[from * PitchClasses + to]++;
+        }
+
+        var norm = 0.0;
+        foreach (var c in counts) norm += c * c;
+        norm = Math.Sqrt(norm);
+        if (norm == 0) return counts;
+
+        for (var i = 0; i < ProfileCells; i++) counts[i] /= norm;
+        return counts;
+    }
+
+    /// <summary>
+    /// Serializes a profile as <c>index:value</c> pairs for the non-zero cells only. Most of the
+    /// 144 cells are empty for any real tune — a melody only ever uses a handful of the possible
+    /// transitions — so a sparse form keeps these rows close to the size of the plain histogram
+    /// they replace, which matters because the match index materializes every row on rebuild.
+    /// </summary>
+    public static string ToPitchClassProfileString(IReadOnlyList<int> midis)
+    {
+        var profile = ToPitchClassProfile(midis);
+        return string.Join(',', Enumerable.Range(0, ProfileCells)
+            .Where(i => profile[i] > 0)
+            .Select(i => $"{i}:{profile[i].ToString("0.#####", CultureInfo.InvariantCulture)}"));
+    }
+
+    /// <summary>
+    /// Parses a stored profile, returning null if it isn't usable. Lenient for the same reason as
+    /// <see cref="ParseIntervalString"/>: this runs over every row when the index rebuilds, so a
+    /// malformed legacy value — including a profile written in the previous 12-value format —
+    /// must cost that row alone and leave it scoring on alignment only.
+    /// </summary>
+    public static double[]? ParsePitchClassProfile(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+
+        var parsed = new double[ProfileCells];
+        var any = false;
+        foreach (var part in s.Split(','))
+        {
+            var separator = part.IndexOf(':');
+            if (separator <= 0) return null;
+
+            if (!int.TryParse(part[..separator].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                || index < 0 || index >= ProfileCells)
+            {
+                return null;
+            }
+            if (!double.TryParse(part[(separator + 1)..].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            {
+                return null;
+            }
+            parsed[index] = value;
+            any = true;
+        }
+        return any ? parsed : null;
+    }
+
+    /// <summary>
+    /// Cosine similarity (0-1) between two pitch-class transition profiles, maximised over all
+    /// twelve transpositions.
+    ///
+    /// Rotating both axes together is what keeps this transposition-invariant, matching the
+    /// interval fingerprint's existing guarantee. Comparing profiles in place instead is
+    /// measurably better when the player is in the tune's usual key and measurably worse
+    /// otherwise — a query transposed by three semitones dropped every test recording back below
+    /// the surfacing threshold, while this form scored identically either way.
+    /// </summary>
+    public static double PitchClassSimilarity(double[] query, double[] candidate)
+    {
+        if (query.Length != ProfileCells || candidate.Length != ProfileCells) return 0;
+
+        var best = 0.0;
+        for (var rotation = 0; rotation < PitchClasses; rotation++)
+        {
+            var dot = 0.0;
+            for (var from = 0; from < PitchClasses; from++)
+            {
+                for (var to = 0; to < PitchClasses; to++)
+                {
+                    var rotated = ((from + rotation) % PitchClasses) * PitchClasses + (to + rotation) % PitchClasses;
+                    dot += query[from * PitchClasses + to] * candidate[rotated];
+                }
+            }
+            if (dot > best) best = dot;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Share of the final score contributed by pitch-class similarity rather than by melodic
+    /// alignment. Alignment stays dominant deliberately: the profile is a coarse signal that
+    /// says "this is the right key and mode colour", which many tunes in a library share, so
+    /// it is here to break ties and lift a correct-but-noisy alignment over the threshold, not
+    /// to identify a tune on its own.
+    /// </summary>
+    private const double PitchClassWeight = 0.3;
+
+    /// <summary>
+    /// Pitch-class similarity below this counts for nothing, and the range above it is rescaled
+    /// onto 0-100.
+    ///
+    /// Set from where unrelated tunes actually land rather than fitted to an outcome: measured
+    /// against the sample recordings, the mean similarity of every *wrong* tune fell between
+    /// 0.47 and 0.56, so a floor here makes a typical decoy contribute nothing and only a
+    /// genuinely similar profile score at all. Raising it trades absolute confidence for margin.
+    /// </summary>
+    private const double PitchClassFloor = 0.5;
+
+    /// <summary>
+    /// Blends the melodic alignment confidence (0-100) with pitch-class similarity. Falls back
+    /// to alignment alone when a candidate has no stored profile, so a library that hasn't been
+    /// backfilled yet degrades to the previous behaviour rather than scoring everything as zero.
+    /// </summary>
+    public static double FusedConfidence(double alignmentConfidence, double[]? query, double[]? candidate)
+    {
+        if (query is null || candidate is null) return alignmentConfidence;
+
+        var similarity = PitchClassSimilarity(query, candidate);
+        var scaled = Math.Clamp((similarity - PitchClassFloor) / (1 - PitchClassFloor), 0, 1) * 100;
+        return alignmentConfidence * (1 - PitchClassWeight) + scaled * PitchClassWeight;
     }
 
     /// <summary>Hashes every length-<see cref="ShingleLength"/> window of consecutive intervals.</summary>
@@ -189,9 +384,10 @@ public static class MelodyFingerprint
                     fLen[i, j] = fLen[i, j - 1] + 1;
                 }
 
-                var delta = query[i - 1] - candidate[j - 1];
+                var delta = Math.Abs(query[i - 1] - candidate[j - 1]);
                 var subScore = delta == 0 ? ExactMatchScore
-                    : Math.Abs(delta) == 12 || Math.Abs(delta) == 24 ? OctaveErrorScore
+                    : delta == 12 || delta == 24 ? OctaveErrorScore
+                    : delta == 1 ? NearMissScore
                     : MismatchScore;
                 var diag = h[i - 1, j - 1] + subScore;
 
@@ -200,6 +396,24 @@ public static class MelodyFingerprint
                 if (diag > best) { best = diag; bestCellLen = hLen[i - 1, j - 1] + 1; }
                 if (e[i, j] > best) { best = e[i, j]; bestCellLen = eLen[i, j]; }
                 if (f[i, j] > best) { best = f[i, j]; bestCellLen = fLen[i, j]; }
+
+                // Ornament consolidation: k consecutive query notes (an
+                // articulated roll/cut/treble with no fingerprint counterpart)
+                // collapsing into the single candidate interval at j, scored
+                // like a normal match/octave step instead of k gap penalties.
+                var ornamentSum = query[i - 1];
+                for (var k = 2; k <= OrnamentConsolidationMax && i - k >= 0; k++)
+                {
+                    ornamentSum += query[i - k];
+                    var ornamentDelta = ornamentSum - candidate[j - 1];
+                    var ornamentScore = ornamentDelta == 0 ? ExactMatchScore
+                        : Math.Abs(ornamentDelta) == 12 || Math.Abs(ornamentDelta) == 24 ? OctaveErrorScore
+                        : (int?)null;
+                    if (ornamentScore is null) continue;
+
+                    var ornamentVal = h[i - k, j - 1] + ornamentScore.Value;
+                    if (ornamentVal > best) { best = ornamentVal; bestCellLen = hLen[i - k, j - 1] + k; }
+                }
 
                 h[i, j] = best;
                 hLen[i, j] = best == 0 ? 0 : bestCellLen;

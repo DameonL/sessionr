@@ -86,8 +86,7 @@ public static class DbInitializer
         var tuneById = tunes.ToDictionary(t => t.TuneId);
         foreach (var s in settings)
         {
-            var stats = heuristics.Compute(s.AbcText, s.Key, tuneById[s.TuneId].TuneType);
-            s.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+            heuristics.ApplyFingerprint(s, tuneById[s.TuneId].TuneType);
         }
 
         db.TuneSettings.AddRange(settings);

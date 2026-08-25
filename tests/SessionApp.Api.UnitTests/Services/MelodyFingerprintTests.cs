@@ -149,6 +149,23 @@ public class MelodyFingerprintTests
     }
 
     [Fact]
+    public void LocalAlign_ScoresASemitoneNearMissBetweenAMatchAndAWrongNote()
+    {
+        // A semitone out is what a modal difference between two settings looks like, and what
+        // the detector's own jitter produces — worth forgiving, not worth treating as correct.
+        int[] query = [2, 2, 1, 2];
+        int[] nearMiss = [2, 3, 1, 2];   // second interval one semitone out
+        int[] wrongNote = [2, 7, 1, 2];
+
+        var exact = MelodyFingerprint.LocalAlign(query, query).Score;
+        var near = MelodyFingerprint.LocalAlign(query, nearMiss).Score;
+        var wrong = MelodyFingerprint.LocalAlign(query, wrongNote).Score;
+
+        Assert.True(exact > near, $"exact {exact} should beat a near miss {near}");
+        Assert.True(near > wrong, $"a near miss {near} should beat a wrong note {wrong}");
+    }
+
+    [Fact]
     public void LocalAlign_ChargesABurstOfNoiseOnceRatherThanPerNote()
     {
         // Affine gaps: one 3-note burst of inserted noise must cost less than three
@@ -162,6 +179,184 @@ public class MelodyFingerprintTests
 
         Assert.True(burstScore > scatteredScore,
             $"one burst ({burstScore}) should cost less than three scattered inserts ({scatteredScore})");
+    }
+
+    [Fact]
+    public void LocalAlign_ConsolidatesAnOrnamentIntoASingleCandidateStep()
+    {
+        // The stored fingerprint strips ABC grace notes, but a live player's rolls/cuts/
+        // trebles are fully-articulated real notes with no counterpart in the candidate.
+        // Here the candidate's middle "1" interval is played as an inserted extra note:
+        // two query intervals (7, -6) whose signed sum is still 1. A query built this way
+        // should score exactly as well as playing the tune clean, not pay a gap penalty
+        // for the extra note.
+        int[] candidate = [2, 2, 1, 2, 2];
+        int[] ornamented = [2, 2, 7, -6, 2, 2];
+
+        var clean = MelodyFingerprint.LocalAlign(candidate, candidate);
+        var result = MelodyFingerprint.LocalAlign(ornamented, candidate);
+
+        Assert.Equal(clean.Score, result.Score);
+        Assert.Equal(ornamented.Length, result.MatchedLength); // every query note consumed, ornament included
+    }
+
+    [Fact]
+    public void LocalAlign_DoesNotGiveFreeCreditToNotesThatDoNotSumToTheCandidateInterval()
+    {
+        // Same shape as the ornament case, but the two inserted intervals (7, 7) sum to 14 —
+        // not the candidate's "1" (nor its octave, 13 or 25 away) — so this is just two wrong
+        // notes, not a plausible ornament, and must not consolidate for free.
+        int[] candidate = [2, 2, 1, 2, 2];
+        int[] ornamented = [2, 2, 7, -6, 2, 2];
+        int[] wrongPair = [2, 2, 7, 7, 2, 2];
+
+        var ornamentedScore = MelodyFingerprint.LocalAlign(ornamented, candidate).Score;
+        var wrongPairScore = MelodyFingerprint.LocalAlign(wrongPair, candidate).Score;
+
+        Assert.True(wrongPairScore < ornamentedScore,
+            $"two notes that don't sum to the candidate interval ({wrongPairScore}) should score worse than a real ornament ({ornamentedScore})");
+    }
+
+    [Fact]
+    public void TileToAtLeast_RepeatsAShortCandidateToReachTheQuery()
+    {
+        int[] candidate = [2, 2, 1];
+
+        Assert.Equal([2, 2, 1, 2, 2, 1, 2, 2, 1], MelodyFingerprint.TileToAtLeast(candidate, 8));
+    }
+
+    [Fact]
+    public void TileToAtLeast_LeavesACandidateAlreadyLongEnoughUntouched()
+    {
+        int[] candidate = [2, 2, 1, 2, 2];
+
+        Assert.Same(candidate, MelodyFingerprint.TileToAtLeast(candidate, 5));
+        Assert.Same(candidate, MelodyFingerprint.TileToAtLeast(candidate, 2));
+    }
+
+    [Fact]
+    public void TileToAtLeast_LetsAQuerySpanningTwoPassesScoreLikeOne()
+    {
+        // A 20s sample covers more than one pass of a short tune, so the query outruns the
+        // written fingerprint. Untiled, the surplus is unalignable and caps the score.
+        int[] tune = [2, 2, 1, 2, 2, 1, -2, -2];
+        int[] playedTwice = [.. tune, .. tune];
+
+        var untiled = MelodyFingerprint.Confidence(
+            MelodyFingerprint.LocalAlign(playedTwice, tune), playedTwice.Length);
+        var tiled = MelodyFingerprint.Confidence(
+            MelodyFingerprint.LocalAlign(playedTwice, MelodyFingerprint.TileToAtLeast(tune, playedTwice.Length)),
+            playedTwice.Length);
+
+        Assert.Equal(100, tiled);
+        Assert.True(untiled < tiled, $"expected tiling to beat {untiled}, got {tiled}");
+    }
+
+    [Fact]
+    public void PitchClassProfile_IsAUnitVectorOfPitchClassTransitions()
+    {
+        // C -> C, C -> E, E -> G. Indexed from * 12 + to.
+        var profile = MelodyFingerprint.ToPitchClassProfile([60, 60, 64, 67]);
+
+        Assert.Equal(144, profile.Length);
+        Assert.Equal(1.0, Math.Sqrt(profile.Sum(v => v * v)), 6);
+        Assert.True(profile[0 * 12 + 0] > 0, "C to C");
+        Assert.True(profile[0 * 12 + 4] > 0, "C to E");
+        Assert.True(profile[4 * 12 + 7] > 0, "E to G");
+        Assert.Equal(0, profile[7 * 12 + 4]); // G to E never happens
+    }
+
+    [Fact]
+    public void PitchClassProfile_OfAnEmptyMelodyIsAllZero()
+    {
+        Assert.All(MelodyFingerprint.ToPitchClassProfile([]), v => Assert.Equal(0, v));
+    }
+
+    [Fact]
+    public void PitchClassProfile_SeparatesMelodiesThatShareANoteInventory()
+    {
+        // The reason this is a transition matrix and not a histogram. Both melodies use exactly
+        // the same notes the same number of times, so a histogram cannot tell them apart at all;
+        // they differ only in how the melody moves between those notes.
+        int[] ascending = [60, 62, 64, 65, 60, 62, 64, 65];
+        int[] shuffled = [60, 65, 62, 64, 60, 65, 62, 64];
+
+        var a = MelodyFingerprint.ToPitchClassProfile(ascending);
+        var b = MelodyFingerprint.ToPitchClassProfile(shuffled);
+
+        Assert.True(MelodyFingerprint.PitchClassSimilarity(a, a) > MelodyFingerprint.PitchClassSimilarity(a, b),
+            "a tune must match itself better than one built from the same notes in a different order");
+    }
+
+    [Fact]
+    public void PitchClassSimilarity_IsTranspositionInvariant()
+    {
+        // The interval fingerprint is transposition-invariant by design; this must not
+        // quietly reintroduce a key dependency.
+        int[] inC = [60, 62, 64, 60, 67];
+        var transposed = inC.Select(m => m + 3).ToArray();
+
+        var similarity = MelodyFingerprint.PitchClassSimilarity(
+            MelodyFingerprint.ToPitchClassProfile(inC),
+            MelodyFingerprint.ToPitchClassProfile(transposed));
+
+        Assert.Equal(1.0, similarity, 6);
+    }
+
+    [Fact]
+    public void PitchClassSimilarity_SeparatesADifferentMelodicColour()
+    {
+        var diatonic = MelodyFingerprint.ToPitchClassProfile([60, 62, 64, 65, 67, 69, 71]);
+        var chromaticCluster = MelodyFingerprint.ToPitchClassProfile([60, 61, 62, 61, 60, 61, 62]);
+
+        Assert.True(
+            MelodyFingerprint.PitchClassSimilarity(diatonic, diatonic)
+            > MelodyFingerprint.PitchClassSimilarity(diatonic, chromaticCluster));
+    }
+
+    [Fact]
+    public void PitchClassProfile_RoundTripsThroughItsStoredForm()
+    {
+        int[] midis = [60, 62, 64, 67];
+
+        var parsed = MelodyFingerprint.ParsePitchClassProfile(
+            MelodyFingerprint.ToPitchClassProfileString(midis));
+
+        Assert.NotNull(parsed);
+        var expected = MelodyFingerprint.ToPitchClassProfile(midis);
+        for (var i = 0; i < 12; i++) Assert.Equal(expected[i], parsed![i], 4);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("1,2,3")]
+    [InlineData("a,b,c,d,e,f,g,h,i,j,k,l")]
+    public void ParsePitchClassProfile_ReturnsNullForAnythingUnusable(string? stored)
+    {
+        // One malformed legacy row must cost that row and nothing else, as with the intervals.
+        Assert.Null(MelodyFingerprint.ParsePitchClassProfile(stored));
+    }
+
+    [Fact]
+    public void FusedConfidence_FallsBackToAlignmentWhenAProfileIsMissing()
+    {
+        // A library that has not been backfilled yet must degrade to the previous behaviour.
+        var profile = MelodyFingerprint.ToPitchClassProfile([60, 62, 64]);
+
+        Assert.Equal(50, MelodyFingerprint.FusedConfidence(50, null, profile));
+        Assert.Equal(50, MelodyFingerprint.FusedConfidence(50, profile, null));
+    }
+
+    [Fact]
+    public void FusedConfidence_LiftsAMatchingProfileAndNotAClashingOne()
+    {
+        var query = MelodyFingerprint.ToPitchClassProfile([60, 62, 64, 65, 67, 69, 71]);
+        var same = MelodyFingerprint.ToPitchClassProfile([60, 62, 64, 65, 67, 69, 71]);
+        var clashing = MelodyFingerprint.ToPitchClassProfile([60, 61, 62, 61, 60, 61, 62]);
+
+        Assert.True(MelodyFingerprint.FusedConfidence(40, query, same) > 40);
+        Assert.True(MelodyFingerprint.FusedConfidence(40, query, clashing) < 40);
     }
 
     [Theory]

@@ -8,8 +8,12 @@ namespace SessionApp.Api.Services;
 /// <summary>
 /// Melodic facts derived from a tune's ABC, plus a rough difficulty score.
 /// MIDI values are absolute (middle C = 60); null when the ABC has no notes.
-/// Midis is the full ordered note sequence read off the ABC (written order,
-/// repeats not unrolled) — the basis for MelodyFingerprint's interval matching.
+/// Midis is the full ordered note sequence read off the ABC in written order
+/// (repeats not unrolled) — the basis for the display/difficulty heuristics.
+/// UnrolledMidis expands `|: :|`, `::`, and 1st/2nd endings into the note
+/// sequence a full playthrough actually sounds — the basis for
+/// MelodyFingerprint's interval matching, since a live-played sample
+/// naturally spans repeats that the written text only states once.
 /// </summary>
 public record TuneMelodyStats(
     int? StartingMidi,
@@ -20,7 +24,8 @@ public record TuneMelodyStats(
     int AccidentalCount,
     int PartCount,
     int Difficulty,
-    IReadOnlyList<int> Midis);
+    IReadOnlyList<int> Midis,
+    IReadOnlyList<int> UnrolledMidis);
 
 /// <summary>
 /// Pure domain logic that reads the notes out of a tune's ABC to derive
@@ -41,6 +46,11 @@ public class TuneHeuristics
     };
 
     private static readonly Regex NoteRe = new(@"^([\^=_]*)([A-Ga-g])([,']*)", RegexOptions.Compiled);
+
+    // Barline tokens, longest/most-specific alternatives first so a bare "|"
+    // doesn't shadow "|:", "|]", etc. Mirrors frontend/src/services/earTraining.ts's
+    // BARLINE_RE, which this class's repeat-unrolling is ported from.
+    private static readonly Regex BarlineRe = new(@"^(\|\]|\[\||\|\||::|:\||\|:|\||\[[1-9])", RegexOptions.Compiled);
 
     // Difficulty weights. Kept as named constants so the score stays tunable and
     // self-documenting (mirrors SetAnalyzer's style). Higher score = harder.
@@ -87,7 +97,24 @@ public class TuneHeuristics
         tune.AccidentalCount = stats.AccidentalCount;
         tune.PartCount = stats.PartCount;
         tune.Difficulty = stats.Difficulty;
-        tune.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.Midis);
+        tune.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.UnrolledMidis);
+        tune.PitchClassProfile = MelodyFingerprint.ToPitchClassProfileString(stats.UnrolledMidis);
+    }
+
+    /// <summary>
+    /// Computes and writes the match fingerprint for one setting from its own ABC.
+    ///
+    /// Settings are indexed alongside the master tune, so they have to be fingerprinted exactly
+    /// the same way — same unrolled note sequence, same pitch-class profile. This exists so the
+    /// several call sites that add or reprocess settings can't drift apart from
+    /// <see cref="Apply"/>, which is precisely what happened when repeat-unrolling was added to
+    /// the tune path and the setting paths kept using the written-order sequence.
+    /// </summary>
+    public void ApplyFingerprint(TuneSetting setting, TuneType tuneType)
+    {
+        var stats = Compute(setting.AbcText, setting.Key, tuneType);
+        setting.FingerprintIntervals = MelodyFingerprint.ToIntervalString(stats.UnrolledMidis);
+        setting.PitchClassProfile = MelodyFingerprint.ToPitchClassProfileString(stats.UnrolledMidis);
     }
 
     public TuneMelodyStats Compute(string? abc, string? key, TuneType tuneType)
@@ -108,8 +135,8 @@ public class TuneHeuristics
             var ch = body[i];
 
             // Skip header/inline field lines like "K:G", "M:6/8", "T:Title".
-            if ((i == 0 || body[i - 1] == '\n') && i + 1 < body.Length
-                && char.IsLetter(ch) && body[i + 1] == ':')
+            if (StartsAFieldLine(body, i) && i + 1 < body.Length
+                && body[i + 1] == ':')
             {
                 var eol = body.IndexOf('\n', i);
                 i = eol < 0 ? body.Length : eol + 1;
@@ -170,7 +197,7 @@ public class TuneHeuristics
 
         if (midis.Count == 0)
         {
-            return new TuneMelodyStats(null, null, null, null, 0, 0, partCount, 0, midis);
+            return new TuneMelodyStats(null, null, null, null, 0, 0, partCount, 0, midis, midis);
         }
 
         int lowest = midis[0], highest = midis[0];
@@ -181,9 +208,10 @@ public class TuneHeuristics
         }
 
         var difficulty = ScoreDifficulty(highest - lowest, sharps, accidentalCount, midis.Count, partCount, highest, tuneType);
+        var unrolledMidis = UnrollBars(ReadBars(body, sharps));
 
         return new TuneMelodyStats(
-            midis[0], midis[^1], lowest, highest, midis.Count, accidentalCount, partCount, difficulty, midis);
+            midis[0], midis[^1], lowest, highest, midis.Count, accidentalCount, partCount, difficulty, midis, unrolledMidis);
     }
 
     /// <summary>1–5 star band for display, derived from the 0–100 difficulty.</summary>
@@ -245,6 +273,183 @@ public class TuneHeuristics
         return match.Length;
     }
 
+    /// <param name="OpensSection">
+    /// True when this bar follows a repeat-open marker (<c>|:</c> or <c>::</c>).
+    /// Tracked on the bar rather than read off the previous bar's trailing
+    /// barline because the two markers can be adjacent with no bar between
+    /// them — <c>A :| |: B</c> — in which case the <c>|:</c> would otherwise be
+    /// dropped along with the empty bar it appears to terminate, and the second
+    /// section would never be repeated.
+    /// </param>
+    private readonly record struct AbcBar(List<int> Midis, string BarlineAfter, int? EndingNumber, bool OpensSection);
+
+    /// <summary>
+    /// Splits the tune body into bars, tracking each bar's trailing barline
+    /// token and 1st/2nd-ending marker — the structure <see cref="UnrollBars"/>
+    /// needs to replay repeated sections. A second, bar-aware pass over the
+    /// same body <see cref="Compute"/> already scanned flatly; kept separate
+    /// so the well-tested flat scan (written-order Midis/NoteCount/Difficulty)
+    /// is untouched by this addition.
+    /// </summary>
+    private static List<AbcBar> ReadBars(string body, int sharps)
+    {
+        var bars = new List<AbcBar>();
+        var barAccidentals = new Dictionary<string, int>();
+        var currentMidis = new List<int>();
+        int? currentEnding = null;
+        var pendingOpensSection = true; // the first bar opens the first section
+        var unusedAccidentalCount = 0;
+
+        void Flush(string barlineAfter)
+        {
+            if (currentMidis.Count > 0)
+            {
+                bars.Add(new AbcBar(currentMidis, barlineAfter, currentEnding, pendingOpensSection));
+                pendingOpensSection = false;
+            }
+            currentMidis = [];
+            barAccidentals.Clear();
+        }
+
+        var i = 0;
+        while (i < body.Length)
+        {
+            if (StartsAFieldLine(body, i) && i + 1 < body.Length
+                && body[i + 1] == ':')
+            {
+                var eol = body.IndexOf('\n', i);
+                i = eol < 0 ? body.Length : eol + 1;
+                continue;
+            }
+
+            var barMatch = BarlineRe.Match(body[i..]);
+            if (barMatch.Success)
+            {
+                var token = barMatch.Value;
+                Flush(token);
+                i += token.Length;
+
+                if (token is "|:" or "::") pendingOpensSection = true;
+
+                if (token[0] == '[' && token.Length > 1 && char.IsDigit(token[1]))
+                {
+                    currentEnding = token[1] - '0';
+                }
+                else if (i < body.Length && body[i] >= '1' && body[i] <= '9')
+                {
+                    currentEnding = body[i] - '0';
+                    i++;
+                }
+                else
+                {
+                    currentEnding = null;
+                }
+                continue;
+            }
+
+            var ch = body[i];
+            switch (ch)
+            {
+                case '"':
+                    i = SkipTo(body, i + 1, '"');
+                    continue;
+                case '{':
+                    i = SkipTo(body, i + 1, '}');
+                    continue;
+                case '!':
+                    i = SkipTo(body, i + 1, '!');
+                    continue;
+                case '~':
+                case '.':
+                    i++;
+                    continue;
+                case '%':
+                    var nl = body.IndexOf('\n', i);
+                    i = nl < 0 ? body.Length : nl;
+                    continue;
+                case '[':
+                    var close = body.IndexOf(']', i + 1);
+                    if (close > i)
+                    {
+                        var inner = body.Substring(i + 1, close - i - 1);
+                        if (!Regex.IsMatch(inner, "^[A-Za-z]:"))
+                        {
+                            ReadNote(inner, 0, sharps, barAccidentals, currentMidis, ref unusedAccidentalCount);
+                        }
+                        i = close + 1;
+                        continue;
+                    }
+                    i++;
+                    continue;
+            }
+
+            var consumed = ReadNote(body, i, sharps, barAccidentals, currentMidis, ref unusedAccidentalCount);
+            i += consumed > 0 ? consumed : 1;
+        }
+        Flush("|]");
+
+        return bars;
+    }
+
+    /// <summary>
+    /// Replays `|: :|`, `::`, and 1st/2nd endings into the note sequence a
+    /// full playthrough actually sounds, in bar order. Ported from
+    /// frontend/src/services/earTraining.ts's buildEarTrainingTune, which
+    /// unrolls the same way for ear-training excerpts.
+    /// </summary>
+    private static List<int> UnrollBars(List<AbcBar> bars)
+    {
+        var unrolled = new List<AbcBar>();
+        var sectionStart = 0;
+        var playedRepeatForSection = false;
+
+        for (var idx = 0; idx < bars.Count; idx++)
+        {
+            var bar = bars[idx];
+
+            if (idx > 0 && bar.OpensSection)
+            {
+                sectionStart = idx;
+                playedRepeatForSection = false;
+            }
+
+            unrolled.Add(bar);
+
+            var hasRepeat = bar.BarlineAfter == ":|" || bar.BarlineAfter == "::";
+            if (hasRepeat && !playedRepeatForSection)
+            {
+                var sectionBars = bars.GetRange(sectionStart, idx - sectionStart + 1);
+                var firstEndingIndex = sectionBars.FindIndex(b => b.EndingNumber == 1);
+
+                if (firstEndingIndex != -1)
+                {
+                    unrolled.AddRange(sectionBars.Take(firstEndingIndex));
+
+                    var nextIdx = idx + 1;
+                    var secondEndingBars = new List<AbcBar>();
+                    while (nextIdx < bars.Count && bars[nextIdx].EndingNumber == 2)
+                    {
+                        secondEndingBars.Add(bars[nextIdx]);
+                        nextIdx++;
+                    }
+                    unrolled.AddRange(secondEndingBars);
+                    idx = nextIdx - 1;
+                }
+                else
+                {
+                    unrolled.AddRange(sectionBars);
+                }
+
+                playedRepeatForSection = true;
+                sectionStart = idx + 1;
+            }
+        }
+
+        var midis = new List<int>();
+        foreach (var b in unrolled) midis.AddRange(b.Midis);
+        return midis;
+    }
+
     /// <summary>Rough part count: each repeat-end (:|) or repeat-bridge (::) closes a part.</summary>
     private static int CountParts(string body)
     {
@@ -279,6 +484,24 @@ public class TuneHeuristics
         }
 
         return (int)Math.Round(Math.Clamp(score, 0, 100));
+    }
+
+    /// <summary>
+    /// True when position <paramref name="i"/> is the first non-blank character of a line, so a
+    /// "K:" / "M:" / "T:" there is a field line rather than melody. Leading whitespace has to be
+    /// tolerated: a mid-tune key change is conventionally written indented under the preceding
+    /// bar, and requiring the letter to sit flush against the newline let the key letter itself
+    /// be read as a note — an indented "K:G" silently added a G to the tune.
+    /// </summary>
+    private static bool StartsAFieldLine(string body, int i)
+    {
+        if (!char.IsLetter(body[i])) return false;
+        for (var j = i - 1; j >= 0; j--)
+        {
+            if (body[j] == '\n') return true;
+            if (body[j] != ' ' && body[j] != '\t') return false;
+        }
+        return true;
     }
 
     private static int SkipTo(string s, int from, char delimiter)

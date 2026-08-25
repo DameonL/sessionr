@@ -29,7 +29,7 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
 {
     private sealed record IndexEntry(
         Guid TuneId, Guid? TuneSettingId, string Title, string TuneType,
-        string Key, int Difficulty, int[] Intervals);
+        string Key, int Difficulty, int[] Intervals, double[]? PitchClassProfile);
 
     /// <summary>
     /// Entries and their shingle index are always read and replaced together
@@ -65,7 +65,13 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
     /// <summary>Rebuilds the index now, regardless of the TTL. Used by the moderator refresh endpoint.</summary>
     public Task ForceRefreshAsync(CancellationToken ct = default) => RebuildAsync(ct, force: true);
 
-    public async Task<IReadOnlyList<TuneMatchCandidateDto>> MatchAsync(int[] queryIntervals, int topN = 5, CancellationToken ct = default)
+    /// <param name="queryPitchClasses">
+    /// The query's pitch-class profile, or null to score on melodic alignment alone. Absolute
+    /// pitch is gone by the time a melody has been reduced to intervals, so this has to be
+    /// passed alongside rather than derived here.
+    /// </param>
+    public async Task<IReadOnlyList<TuneMatchCandidateDto>> MatchAsync(
+        int[] queryIntervals, int topN = 5, double[]? queryPitchClasses = null, CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct);
         // Captured once so this whole request scores against one consistent
@@ -80,9 +86,16 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         var shortlist = BuildShortlist(snapshot, queryIntervals);
 
         var scored = shortlist
-            .Select(entry => (entry, alignment: MelodyFingerprint.LocalAlign(queryIntervals, entry.Intervals)))
-            .Select(x => (x.entry, confidence: MelodyFingerprint.Confidence(x.alignment, queryIntervals.Length)))
-            .Where(x => x.confidence > 0)
+            // Tiled so a query spanning more than one pass of a short tune can align
+            // end to end instead of being capped by the candidate's written length.
+            .Select(entry => (entry, alignment: MelodyFingerprint.LocalAlign(
+                queryIntervals, MelodyFingerprint.TileToAtLeast(entry.Intervals, queryIntervals.Length))))
+            .Select(x => (x.entry, alignment: MelodyFingerprint.Confidence(x.alignment, queryIntervals.Length)))
+            // Zero alignment means the query never lined up with this tune at all; pitch-class
+            // colour alone must not be able to resurrect it into the results.
+            .Where(x => x.alignment > 0)
+            .Select(x => (x.entry, confidence: MelodyFingerprint.FusedConfidence(
+                x.alignment, queryPitchClasses, x.entry.PitchClassProfile)))
             // Multiple settings (and the master) can match the same tune; keep only its best score.
             .GroupBy(x => x.entry.TuneId)
             .Select(g => g.OrderByDescending(x => x.confidence).First())
@@ -219,7 +232,8 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
                 if (intervals.Length == 0) continue;
                 entries.Add(new IndexEntry(
                     t.TuneId, null, t.Title ?? string.Empty, t.TuneType.ToString(),
-                    t.Key ?? string.Empty, t.Difficulty, intervals));
+                    t.Key ?? string.Empty, t.Difficulty, intervals,
+                    MelodyFingerprint.ParsePitchClassProfile(t.PitchClassProfile)));
             }
 
             foreach (var s in settings)
@@ -229,7 +243,8 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
                 if (intervals.Length == 0) continue;
                 entries.Add(new IndexEntry(
                     s.TuneId, s.TuneSettingId, tune.Title ?? string.Empty, tune.TuneType.ToString(),
-                    s.Key ?? string.Empty, tune.Difficulty, intervals));
+                    s.Key ?? string.Empty, tune.Difficulty, intervals,
+                    MelodyFingerprint.ParsePitchClassProfile(s.PitchClassProfile)));
             }
 
             var shingleIndex = new Dictionary<long, List<int>>();
