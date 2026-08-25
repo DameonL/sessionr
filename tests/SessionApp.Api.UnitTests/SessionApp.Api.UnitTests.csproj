@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../api/Shared/SessionApp.Api.Shared.csproj" />
+    <ProjectReference Include="../../api/Private/SessionApp.Api.Private.csproj" />
     <ProjectReference Include="../SessionApp.Api.TestSupport/SessionApp.Api.TestSupport.csproj" />
   </ItemGroup>
 

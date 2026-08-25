@@ -1,11 +1,17 @@
 "use client";
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import { useRouter } from '@/utils/routerCompat'
-import { createTune, formatTuneType, TUNE_TYPES } from '../../services/api'
-import { extractKeyFromAbc, extractTitleFromAbc, validateAbc } from '../../services/abcTools'
+import { createTune, formatTuneType } from '../../services/api'
+import {
+  extractKeyFromAbc,
+  extractTitleFromAbc,
+  extractTuneTypeFromAbc,
+  normalizeAbcHeaders,
+  validateAbc,
+} from '../../services/abcTools'
 import { useAuthStatus, showToast } from '../../state/appState'
 import { Dialog } from '../../components/Dialog'
 
@@ -28,20 +34,19 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
   const authStatus = useAuthStatus()
 
   const [showAddModal, setShowAddModal] = useState(false)
-  const [addTitle, setAddTitle] = useState('')
-  const [addType, setAddType] = useState('Reel')
   const [addAbc, setAddAbc] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
-  const lastAutoTitleRef = useRef('')
+
+  const detectedTitle = extractTitleFromAbc(addAbc)
+  const detectedTuneType = extractTuneTypeFromAbc(addAbc)
+  const detectedKey = extractKeyFromAbc(addAbc)
 
   const createTuneMutation = useMutation({
     mutationFn: (newTune: { title: string; tuneType: string; key: string; abc: string }) => createTune(newTune),
     onSuccess: (data) => {
       setShowAddModal(false)
-      setAddTitle('')
       setAddAbc('')
       setAddError(null)
-      lastAutoTitleRef.current = ''
       showToast('Tune added to library!', 'success')
       router.push(`/tunes/${data.tuneId}`)
     },
@@ -61,37 +66,22 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
 
   const handleAbcChange = (newAbc: string) => {
     setAddAbc(newAbc)
-    // Auto-fill the title from the ABC's T: header, mirroring how Key is auto-derived below —
-    // but only while the title still matches what we last auto-filled, so a manual edit sticks.
-    if (addTitle.trim() === '' || addTitle === lastAutoTitleRef.current) {
-      const detected = extractTitleFromAbc(newAbc)
-      lastAutoTitleRef.current = detected
-      setAddTitle(detected)
-    }
+    if (addError) setAddError(null)
   }
 
   const handleAddTuneSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!addTitle.trim()) {
-      setAddError('Title is required.')
-      return
-    }
     const validation = validateAbc(addAbc)
     if (!validation.isValid) {
       setAddError(validation.error || 'Invalid ABC notation.')
       return
     }
-    const trimmedAbc = validation.trimmedAbc
-    const derivedKey = extractKeyFromAbc(trimmedAbc)
-    if (!derivedKey) {
-      setAddError('The key could not be read from the ABC. Please include a K: header, e.g. K:G.')
-      return
-    }
+    const { normalizedAbc, title, tuneType, key } = normalizeAbcHeaders(addAbc)
     createTuneMutation.mutate({
-      title: addTitle.trim(),
-      tuneType: addType,
-      key: derivedKey,
-      abc: trimmedAbc,
+      title,
+      tuneType,
+      key,
+      abc: normalizedAbc,
     })
   }
 
@@ -131,18 +121,18 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
         onClose={() => setShowAddModal(false)}
         // A pasted tune is easy to lose to a stray click on the backdrop and tedious to re-fetch.
         onRequestClose={() =>
-          !addAbc.trim() && !addTitle.trim()
+          !addAbc.trim()
             ? true
             : confirm('Discard this tune? What you have entered will be lost.')
         }
         maxWidth="540px"
       >
         <form onSubmit={handleAddTuneSubmit}>
-          {/* ABC leads, because Title and Key are read out of it as it is pasted. */}
+          {/* ABC leads, because Title, Rhythm, and Key are read out of it as it is pasted. */}
           <label style={{ display: 'block', marginBottom: '1rem' }}>
             ABC Notation
             <textarea
-              placeholder="Paste ABC text here (must include K: header, e.g. K:D)..."
+              placeholder="Paste ABC text here (must include T:, R:, and K: headers, e.g. T:My Tune, R:reel, K:D)..."
               value={addAbc}
               onChange={(e) => handleAbcChange(e.target.value)}
               rows={8}
@@ -152,34 +142,13 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: '1rem' }}>
-            Title
-            <input
-              type="text"
-              placeholder="e.g. The Maid Behind The Bar"
-              value={addTitle}
-              onChange={(e) => setAddTitle(e.target.value)}
-              required
-              style={{ display: 'block', width: '100%', marginTop: '0.35rem' }}
-            />
-          </label>
-
-          <div className="form-row" style={{ marginBottom: '1rem', alignItems: 'end' }}>
-            <label>
-              Tune Type
-              <select
-                value={addType}
-                onChange={(e) => setAddType(e.target.value)}
-                style={{ display: 'block', width: '100%', marginTop: '0.35rem' }}
-              >
-                {TUNE_TYPES.map((t) => (
-                  <option key={t} value={t}>{formatTuneType(t)}</option>
-                ))}
-              </select>
-            </label>
-            {/* The key that will actually be saved, which was invisible until after submitting. */}
-            <div className="new-setting-meta" style={{ flex: 1 }}>
-              <span>Key: <strong>{extractKeyFromAbc(addAbc) || 'Read from the K: header'}</strong></span>
+          {/* Read-only detected properties section */}
+          <div className="new-setting-meta" style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--card-bg, #1e1e1e)', borderRadius: '6px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Detected ABC Properties:</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.9rem' }}>
+              <div>Title (T:): <strong>{detectedTitle || '(Required - e.g. T: The Maid Behind The Bar)'}</strong></div>
+              <div>Rhythm / Type (R:): <strong>{detectedTuneType ? `${formatTuneType(detectedTuneType)} (R: ${extractRhythmFromAbc(addAbc)})` : '(Required - e.g. R: reel)'}</strong></div>
+              <div>Key (K:): <strong>{detectedKey || '(Required - e.g. K: D)'}</strong></div>
             </div>
           </div>
 
@@ -198,3 +167,4 @@ export function TuneLibraryFrame({ active, children }: { active: LibraryTab; chi
     </section>
   )
 }
+

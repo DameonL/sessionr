@@ -11,6 +11,7 @@ import {
   searchTunes,
   updateUserTune,
 } from '../services/api'
+import { formatRhythmHeader } from '../services/abcTools'
 
 interface ImportStatus {
   total: number
@@ -245,7 +246,11 @@ export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) 
               raw.customabctext ||
               ''
             if (!abc.trim()) {
-              abc = `X:1\nT:${title}\nK:${key}\n`
+              abc = `X:1\nT:${title}\nR:${formatRhythmHeader(tuneType)}\nK:${key}\n`
+            } else {
+              if (!/^T:/im.test(abc)) abc = `T:${title}\n` + abc
+              if (!/^R:/im.test(abc)) abc = `R:${formatRhythmHeader(tuneType)}\n` + abc
+              if (!/^K:/im.test(abc)) abc = `K:${key}\n` + abc
             }
 
             let rawStatus = (raw.status || 'Learning').trim()

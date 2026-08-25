@@ -7,6 +7,9 @@ import {
   transposeAbcBySemitones,
   extractKeyFromAbc,
   extractTitleFromAbc,
+  extractRhythmFromAbc,
+  extractTuneTypeFromAbc,
+  normalizeAbcHeaders,
   validateAbc,
   normalizeTitleForSorting,
   fixAbcRepeats,
@@ -216,9 +219,61 @@ describe('extractTitleFromAbc', () => {
   })
 })
 
+describe('extractRhythmFromAbc', () => {
+  it('reads the R: header', () => {
+    expect(extractRhythmFromAbc('X:1\nT:Cooley\'s\nR:reel\nK:Edor')).toBe('reel')
+  })
+
+  it('collapses multiple spaces and strips comments', () => {
+    expect(extractRhythmFromAbc('R:  slip   jig  % traditional\nK:G')).toBe('slip jig')
+  })
+
+  it('returns empty string when there is no rhythm header', () => {
+    expect(extractRhythmFromAbc('X:1\nT:Test\nK:D')).toBe('')
+  })
+})
+
+describe('extractTuneTypeFromAbc', () => {
+  it.each([
+    ['R: reel', 'Reel'],
+    ['R: REEL', 'Reel'],
+    ['R: jig', 'Jig'],
+    ['R: slip jig', 'SlipJig'],
+    ['R: slipjig', 'SlipJig'],
+    ['R: hornpipe', 'Hornpipe'],
+    ['R: polka', 'Polka'],
+    ['R: slide', 'Slide'],
+    ['R: waltz', 'Waltz'],
+    ['R: march', 'March'],
+    ['R: strathspey', 'Strathspey'],
+    ['R: barndance', 'Barndance'],
+    ['R: barn dance', 'Barndance'],
+    ['R: mazurka', 'Mazurka'],
+    ['R: air', 'Air'],
+    ['R: custom rhythm', 'Other'],
+  ])('maps %s to TuneType %s', (header, expectedType) => {
+    expect(extractTuneTypeFromAbc(`X:1\nT:Test\n${header}\nK:D`)).toBe(expectedType)
+  })
+})
+
+describe('normalizeAbcHeaders', () => {
+  it('cleans up T:, R:, and K: headers in ABC notation', () => {
+    const input = 'X:1\nT:  the   maid  \nR:  REEL  \nK: D major % comment\n|:FAAF AFDF|'
+    const result = normalizeAbcHeaders(input)
+
+    expect(result.title).toBe('the maid')
+    expect(result.rhythm).toBe('reel')
+    expect(result.tuneType).toBe('Reel')
+    expect(result.key).toBe('D')
+    expect(result.normalizedAbc).toContain('T:the maid')
+    expect(result.normalizedAbc).toContain('R:reel')
+    expect(result.normalizedAbc).toContain('K:D % comment')
+  })
+})
+
 describe('validateAbc', () => {
-  it('accepts a tune with a key and some music', () => {
-    const result = validateAbc('X:1\nT:Cooley\'s\nK:Edor\nEBBA B2EB|')
+  it('accepts a tune with title, rhythm, key, and some music', () => {
+    const result = validateAbc('X:1\nT:Cooley\'s\nR:reel\nK:Edor\nEBBA B2EB|')
 
     expect(result.isValid).toBe(true)
     expect(result.error).toBeUndefined()
@@ -231,30 +286,30 @@ describe('validateAbc', () => {
     expect(result.error).toMatch(/empty/i)
   })
 
-  it('rejects a tune with no key header', () => {
-    const result = validateAbc('X:1\nT:Keyless\nEBBA B2EB|')
+  it('rejects a tune missing required headers', () => {
+    const result = validateAbc('X:1\nEBBA B2EB|')
 
     expect(result.isValid).toBe(false)
-    expect(result.error).toMatch(/Key header/i)
+    expect(result.error).toMatch(/missing required header/i)
   })
 
   it('rejects a key header with no key', () => {
-    expect(validateAbc('K:\nEBBA|').isValid).toBe(false)
+    expect(validateAbc('T:Test\nR:reel\nK:\nEBBA|').isValid).toBe(false)
   })
 
   it('rejects headers with no music at all', () => {
-    const result = validateAbc('X:1\nT:Headers Only\nM:4/4\nK:G')
+    const result = validateAbc('X:1\nT:Headers Only\nR:jig\nM:4/4\nK:G')
 
     expect(result.isValid).toBe(false)
     expect(result.error).toMatch(/music notes or bar lines/i)
   })
 
   it('does not count comment lines as music', () => {
-    expect(validateAbc('K:G\n% just a note to self').isValid).toBe(false)
+    expect(validateAbc('T:Test\nR:reel\nK:G\n% just a note to self').isValid).toBe(false)
   })
 
   it('trims the input it hands back', () => {
-    expect(validateAbc('  \nK:G\nGABc\n  ').trimmedAbc).toBe('K:G\nGABc')
+    expect(validateAbc('  \nT:Test\nR:jig\nK:G\nGABc\n  ').trimmedAbc).toBe('T:Test\nR:jig\nK:G\nGABc')
   })
 
   it('handles null-ish input without throwing', () => {

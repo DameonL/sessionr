@@ -26,21 +26,23 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         }
 
         var body = await req.ReadFromJsonAsync<CreateTuneRequest>();
-        if (body is null || string.IsNullOrWhiteSpace(body.Title) || string.IsNullOrWhiteSpace(body.Abc))
+        if (body is null || string.IsNullOrWhiteSpace(body.Abc))
         {
-            return new BadRequestObjectResult("Title and Abc are required.");
+            return new BadRequestObjectResult("ABC notation is required.");
         }
-        if (!Enum.TryParse<TuneType>(body.TuneType, ignoreCase: true, out var tuneType))
+
+        var parseResult = TuneHeuristics.ParseAndNormalizeAbc(body.Abc);
+        if (!parseResult.IsValid)
         {
-            tuneType = TuneType.Other;
+            return new BadRequestObjectResult($"ABC notation is missing required header(s): {string.Join(", ", parseResult.MissingHeaders)}.");
         }
 
         var tune = new Tune
         {
-            Title = body.Title.Trim(),
-            TuneType = tuneType,
-            Key = body.Key.Trim(),
-            MasterAbcText = body.Abc,
+            Title = parseResult.Title,
+            TuneType = parseResult.TuneType,
+            Key = parseResult.Key,
+            MasterAbcText = parseResult.NormalizedAbc,
         };
         heuristics.Apply(tune);
         db.Tunes.Add(tune);

@@ -414,4 +414,59 @@ public class TuneHeuristicsTests
 
         Assert.Equal(inC.FingerprintIntervals, inD.FingerprintIntervals);
     }
+
+    [Fact]
+    public void ParseAndNormalizeAbc_ValidAbc_ExtractsPropertiesAndNormalizesHeaders()
+    {
+        const string rawAbc = """
+            X:1
+            T:  the   maid  
+            R:  REEL  
+            K: D major % original comment
+            |:FAAF AFDF|
+            """;
+
+        var result = TuneHeuristics.ParseAndNormalizeAbc(rawAbc);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.MissingHeaders);
+        Assert.Equal("the maid", result.Title);
+        Assert.Equal(TuneType.Reel, result.TuneType);
+        Assert.Equal("D", result.Key);
+        Assert.Contains("T:the maid", result.NormalizedAbc);
+        Assert.Contains("R:reel", result.NormalizedAbc);
+        Assert.Contains("K:D % original comment", result.NormalizedAbc);
+    }
+
+    [Fact]
+    public void ParseAndNormalizeAbc_MissingHeaders_ReturnsInvalidAndListsMissing()
+    {
+        const string rawAbc = "X:1\n|:FAAF AFDF|";
+
+        var result = TuneHeuristics.ParseAndNormalizeAbc(rawAbc);
+
+        Assert.False(result.IsValid);
+        Assert.Contains("Title (T: header)", result.MissingHeaders);
+        Assert.Contains("Rhythm (R: header)", result.MissingHeaders);
+        Assert.Contains("Key (K: header)", result.MissingHeaders);
+    }
+
+    [Theory]
+    [InlineData("reel", TuneType.Reel)]
+    [InlineData("jig", TuneType.Jig)]
+    [InlineData("slip jig", TuneType.SlipJig)]
+    [InlineData("hornpipe", TuneType.Hornpipe)]
+    [InlineData("polka", TuneType.Polka)]
+    [InlineData("slide", TuneType.Slide)]
+    [InlineData("waltz", TuneType.Waltz)]
+    [InlineData("march", TuneType.March)]
+    [InlineData("strathspey", TuneType.Strathspey)]
+    [InlineData("barndance", TuneType.Barndance)]
+    [InlineData("mazurka", TuneType.Mazurka)]
+    [InlineData("air", TuneType.Air)]
+    [InlineData("unknown_rhythm", TuneType.Other)]
+    public void ParseTuneType_MapsRhythmStrings(string rhythm, TuneType expectedType)
+    {
+        Assert.Equal(expectedType, TuneHeuristics.ParseTuneType(rhythm));
+    }
 }

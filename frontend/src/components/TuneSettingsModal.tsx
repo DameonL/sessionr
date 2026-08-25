@@ -11,8 +11,9 @@ import {
   updateUserTune,
   clearUserTuneSetting,
   formatTuneType,
+  moderatorDeleteTuneSetting,
 } from '../services/api'
-import { useAuthStatus, showToast } from '../state/appState'
+import { useAuthStatus, currentUserProfile, useSignal, showToast } from '../state/appState'
 import { Spinner } from './Spinner'
 import { Dialog } from './Dialog'
 import { NewSettingForm } from './NewSettingForm'
@@ -53,6 +54,9 @@ export function TuneSettingsModal({
   // the 401 that used to follow was invisible.
   const isAnonymous = authStatus === 'anonymous'
 
+  const profile = useSignal(currentUserProfile)
+  const isModerator = !!profile?.isModerator
+
   // undefined = no explicit user choice yet (show the setting currently in effect, falling back to
   // the first/most-popular one); null = user explicitly collapsed everything; string = user
   // explicitly expanded that setting.
@@ -70,6 +74,15 @@ export function TuneSettingsModal({
     queryKey: ['tune-my-votes', tuneId],
     queryFn: () => getMyTuneVotes(tuneId),
     enabled: authStatus !== 'pending' && authStatus !== 'anonymous' && !!tuneId,
+  })
+
+  const deleteSettingMutation = useMutation({
+    mutationFn: (settingId: string) => moderatorDeleteTuneSetting(settingId),
+    onSuccess: () => {
+      refetch()
+      showToast('Setting deleted.', 'info')
+    },
+    onError: (err: any) => showToast(err.message || 'Failed to delete setting.', 'error'),
   })
 
   // Add or switch setting mutation
@@ -215,6 +228,21 @@ export function TuneSettingsModal({
                         ? 'In use'
                         : actionLabel ?? (userTuneId !== undefined ? 'Switch to this setting' : '+ Add this setting')}
                     </button>
+
+                    {isModerator && (
+                      <button
+                        className="secondary danger-hover"
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete this setting (Key: ${s.key}, by ${s.submitterName})?`)) {
+                            deleteSettingMutation.mutate(s.tuneSettingId)
+                          }
+                        }}
+                        disabled={deleteSettingMutation.isPending}
+                        title="Delete this setting"
+                      >
+                        🗑️ Delete Setting
+                      </button>
+                    )}
                   </div>
                 </div>
 

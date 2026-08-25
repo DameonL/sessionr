@@ -291,6 +291,21 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
                         </button>
                       </Link>
                     )}
+
+                    {isModerator && (
+                      <button
+                        className="secondary danger-hover"
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete this setting (Key: ${s.key}, by ${s.submitterName})?`)) {
+                            deleteSettingMutation.mutate(s.tuneSettingId)
+                          }
+                        }}
+                        disabled={deleteSettingMutation.isPending}
+                        title="Delete this setting"
+                      >
+                        🗑️ Delete Setting
+                      </button>
+                    )}
                   </div>
                 </div>
 

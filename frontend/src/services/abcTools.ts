@@ -650,6 +650,42 @@ export function fixAbcRepeats(abc: string): string {
   return [...headers, fixedMusicText].join('\n')
 }
 
+export function extractRhythmFromAbc(abcText: string): string {
+  if (!abcText) return ''
+  const lines = abcText.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^R:/i.test(trimmed)) {
+      const rawRhythm = trimmed.slice(2).trim().split('%')[0].trim()
+      return rawRhythm.replace(/\s+/g, ' ')
+    }
+  }
+  return ''
+}
+
+export function extractTuneTypeFromAbc(abcText: string): string {
+  const rhythm = extractRhythmFromAbc(abcText).toLowerCase()
+  if (!rhythm) return ''
+
+  if (rhythm.includes('slip') && rhythm.includes('jig')) return 'SlipJig'
+  if (rhythm.includes('jig')) return 'Jig'
+  if (rhythm.includes('reel')) return 'Reel'
+  if (rhythm.includes('hornpipe')) return 'Hornpipe'
+  if (rhythm.includes('polka')) return 'Polka'
+  if (rhythm.includes('slide')) return 'Slide'
+  if (rhythm.includes('waltz')) return 'Waltz'
+  if (rhythm.includes('march')) return 'March'
+  if (rhythm.includes('strathspey')) return 'Strathspey'
+  if (rhythm.includes('barndance') || rhythm.includes('barn dance')) return 'Barndance'
+  if (rhythm.includes('mazurka')) return 'Mazurka'
+  if (rhythm.includes('air')) return 'Air'
+  
+  // Try case-insensitive exact match against known TuneTypes
+  const knownTypes = ['Reel', 'Jig', 'SlipJig', 'Hornpipe', 'Polka', 'Slide', 'Waltz', 'March', 'Strathspey', 'Barndance', 'Mazurka', 'Air', 'Other']
+  const matched = knownTypes.find(t => t.toLowerCase() === rhythm)
+  return matched || 'Other'
+}
+
 export function extractKeyFromAbc(abcText: string): string {
   if (!abcText) return ''
   const lines = abcText.split('\n')
@@ -679,10 +715,69 @@ export function extractTitleFromAbc(abcText: string): string {
   for (const line of lines) {
     const trimmed = line.trim()
     if (/^T:/i.test(trimmed)) {
-      return trimmed.slice(2).trim().split('%')[0].trim()
+      const rawTitle = trimmed.slice(2).trim().split('%')[0].trim()
+      return rawTitle.replace(/\s+/g, ' ')
     }
   }
   return ''
+}
+
+export function formatRhythmHeader(tuneType: string, rawRhythm?: string): string {
+  switch (tuneType) {
+    case 'Reel': return 'reel'
+    case 'Jig': return 'jig'
+    case 'SlipJig': return 'slip jig'
+    case 'Hornpipe': return 'hornpipe'
+    case 'Polka': return 'polka'
+    case 'Slide': return 'slide'
+    case 'Waltz': return 'waltz'
+    case 'March': return 'march'
+    case 'Strathspey': return 'strathspey'
+    case 'Barndance': return 'barndance'
+    case 'Mazurka': return 'mazurka'
+    case 'Air': return 'air'
+    default:
+      return rawRhythm ? rawRhythm.toLowerCase() : 'other'
+  }
+}
+
+export function normalizeAbcHeaders(abcText: string): {
+  normalizedAbc: string
+  title: string
+  rhythm: string
+  tuneType: string
+  key: string
+} {
+  const title = extractTitleFromAbc(abcText)
+  const rawRhythm = extractRhythmFromAbc(abcText)
+  const tuneType = extractTuneTypeFromAbc(abcText)
+  const rhythm = formatRhythmHeader(tuneType, rawRhythm)
+  const key = extractKeyFromAbc(abcText)
+
+  const lines = (abcText || '').trim().split('\n')
+  const normalizedLines = lines.map((line) => {
+    const trimmed = line.trim()
+    if (/^T:/i.test(trimmed) && title) {
+      return `T:${title}`
+    }
+    if (/^R:/i.test(trimmed) && rhythm) {
+      return `R:${rhythm}`
+    }
+    if (/^K:/i.test(trimmed) && key) {
+      const commentMatch = trimmed.slice(2).match(/%.*$/)
+      const comment = commentMatch ? ` ${commentMatch[0]}` : ''
+      return `K:${key}${comment}`
+    }
+    return line
+  })
+
+  return {
+    normalizedAbc: normalizedLines.join('\n'),
+    title,
+    rhythm,
+    tuneType,
+    key,
+  }
 }
 
 export function validateAbc(abcText: string): { isValid: boolean; error?: string; trimmedAbc: string } {
@@ -692,16 +787,22 @@ export function validateAbc(abcText: string): { isValid: boolean; error?: string
   }
 
   const lines = trimmedAbc.split('\n')
+  let hasTitleHeader = false
+  let hasRhythmHeader = false
   let hasKeyHeader = false
   let hasNotesOrBars = false
 
   for (const line of lines) {
     const t = line.trim()
-    if (/^K:/i.test(t)) {
-      const keyVal = t.slice(2).trim().split('%')[0].trim()
-      if (keyVal.length > 0) {
-        hasKeyHeader = true
-      }
+    if (/^T:/i.test(t)) {
+      const val = t.slice(2).trim().split('%')[0].trim()
+      if (val.length > 0) hasTitleHeader = true
+    } else if (/^R:/i.test(t)) {
+      const val = t.slice(2).trim().split('%')[0].trim()
+      if (val.length > 0) hasRhythmHeader = true
+    } else if (/^K:/i.test(t)) {
+      const val = t.slice(2).trim().split('%')[0].trim()
+      if (val.length > 0) hasKeyHeader = true
     } else if (!/^[A-Z]:/.test(t) && !t.startsWith('%')) {
       if (/[a-gA-G|]/.test(t)) {
         hasNotesOrBars = true
@@ -709,10 +810,15 @@ export function validateAbc(abcText: string): { isValid: boolean; error?: string
     }
   }
 
-  if (!hasKeyHeader) {
+  const missingHeaders: string[] = []
+  if (!hasTitleHeader) missingHeaders.push('Title (T: header, e.g. T: The Maid Behind The Bar)')
+  if (!hasRhythmHeader) missingHeaders.push('Rhythm (R: header, e.g. R: reel)')
+  if (!hasKeyHeader) missingHeaders.push('Key (K: header, e.g. K: G)')
+
+  if (missingHeaders.length > 0) {
     return {
       isValid: false,
-      error: 'ABC notation must include a Key header (e.g. K:G or K:Ddor).',
+      error: `ABC notation is missing required header(s): ${missingHeaders.join(', ')}.`,
       trimmedAbc,
     }
   }
@@ -738,3 +844,4 @@ export function normalizeTitleForSorting(title: string): string {
   if (lower.startsWith('an ')) return lower.slice(3).trim()
   return lower
 }
+

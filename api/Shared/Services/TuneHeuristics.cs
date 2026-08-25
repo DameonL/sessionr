@@ -510,21 +510,6 @@ public class TuneHeuristics
         return idx < 0 ? s.Length : idx + 1;
     }
 
-    private static string? ExtractKeyHeader(string? abc)
-    {
-        if (string.IsNullOrEmpty(abc)) return null;
-        foreach (var raw in abc.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (line.StartsWith("K:", StringComparison.OrdinalIgnoreCase))
-            {
-                var val = line[2..].Split('%')[0].Trim();
-                return val.Split(' ')[0]; // key sits first; drop any "clef=" etc.
-            }
-        }
-        return null;
-    }
-
     /// <summary>Default sharp/flat for a note letter implied by the key signature.</summary>
     private static int DefaultAlteration(char letter, int sharps)
     {
@@ -576,5 +561,170 @@ public class TuneHeuristics
         };
 
         return ((tonic + modeOffset) % 12 + 12) % 12;
+    }
+
+    public static string? ExtractTitleHeader(string? abc)
+    {
+        if (string.IsNullOrEmpty(abc)) return null;
+        foreach (var raw in abc.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("T:", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = line[2..].Split('%')[0].Trim();
+                if (string.IsNullOrWhiteSpace(val)) return null;
+                return Regex.Replace(val, @"\s+", " ");
+            }
+        }
+        return null;
+    }
+
+    public static string? ExtractRhythmHeader(string? abc)
+    {
+        if (string.IsNullOrEmpty(abc)) return null;
+        foreach (var raw in abc.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("R:", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = line[2..].Split('%')[0].Trim();
+                if (string.IsNullOrWhiteSpace(val)) return null;
+                return Regex.Replace(val, @"\s+", " ");
+            }
+        }
+        return null;
+    }
+
+    public static string? ExtractKeyHeader(string? abc)
+    {
+        if (string.IsNullOrEmpty(abc)) return null;
+        foreach (var raw in abc.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("K:", StringComparison.OrdinalIgnoreCase))
+            {
+                var val = line[2..].Split('%')[0].Trim();
+                if (string.IsNullOrWhiteSpace(val)) return null;
+                var rawKey = val.Split(' ')[0];
+                return NormalizeKeyHeader(rawKey);
+            }
+        }
+        return null;
+    }
+
+    public static string NormalizeKeyHeader(string rawKey)
+    {
+        if (string.IsNullOrWhiteSpace(rawKey)) return "";
+        var k = rawKey.Trim();
+        var lower = k.ToLowerInvariant();
+        if (lower.EndsWith("major")) k = k[..^5];
+        else if (lower.EndsWith("minor")) k = k[..^5] + "m";
+        else if (lower.EndsWith("dorian")) k = k[..^6] + "dor";
+        else if (lower.EndsWith("mixolydian")) k = k[..^10] + "mix";
+        else if (lower.EndsWith("phrygian")) k = k[..^8] + "phr";
+        else if (lower.EndsWith("lydian")) k = k[..^6] + "lyd";
+        return k;
+    }
+
+    public static TuneType ParseTuneType(string? rhythm)
+    {
+        if (string.IsNullOrWhiteSpace(rhythm)) return TuneType.Other;
+        var lower = rhythm.Trim().ToLowerInvariant();
+
+        if (lower.Contains("slip") && lower.Contains("jig")) return TuneType.SlipJig;
+        if (lower.Contains("jig")) return TuneType.Jig;
+        if (lower.Contains("reel")) return TuneType.Reel;
+        if (lower.Contains("hornpipe")) return TuneType.Hornpipe;
+        if (lower.Contains("polka")) return TuneType.Polka;
+        if (lower.Contains("slide")) return TuneType.Slide;
+        if (lower.Contains("waltz")) return TuneType.Waltz;
+        if (lower.Contains("march")) return TuneType.March;
+        if (lower.Contains("strathspey")) return TuneType.Strathspey;
+        if (lower.Contains("barndance") || lower.Contains("barn dance")) return TuneType.Barndance;
+        if (lower.Contains("mazurka")) return TuneType.Mazurka;
+        if (lower.Contains("air")) return TuneType.Air;
+
+        if (Enum.TryParse<TuneType>(rhythm, ignoreCase: true, out var parsed))
+        {
+            return parsed;
+        }
+
+        return TuneType.Other;
+    }
+
+    public static string FormatRhythmHeader(TuneType tuneType, string? rawRhythm)
+    {
+        return tuneType switch
+        {
+            TuneType.Reel => "reel",
+            TuneType.Jig => "jig",
+            TuneType.SlipJig => "slip jig",
+            TuneType.Hornpipe => "hornpipe",
+            TuneType.Polka => "polka",
+            TuneType.Slide => "slide",
+            TuneType.Waltz => "waltz",
+            TuneType.March => "march",
+            TuneType.Strathspey => "strathspey",
+            TuneType.Barndance => "barndance",
+            TuneType.Mazurka => "mazurka",
+            TuneType.Air => "air",
+            _ => string.IsNullOrWhiteSpace(rawRhythm) ? "other" : rawRhythm.Trim().ToLowerInvariant()
+        };
+    }
+
+    public record AbcParseResult(
+        bool IsValid,
+        IReadOnlyList<string> MissingHeaders,
+        string Title,
+        TuneType TuneType,
+        string Key,
+        string NormalizedAbc);
+
+    public static AbcParseResult ParseAndNormalizeAbc(string? abc)
+    {
+        if (string.IsNullOrWhiteSpace(abc))
+        {
+            return new AbcParseResult(false, ["ABC notation string"], "", TuneType.Other, "", "");
+        }
+
+        var title = ExtractTitleHeader(abc);
+        var rawRhythm = ExtractRhythmHeader(abc);
+        var key = ExtractKeyHeader(abc);
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(title)) missing.Add("Title (T: header)");
+        if (string.IsNullOrWhiteSpace(rawRhythm)) missing.Add("Rhythm (R: header)");
+        if (string.IsNullOrWhiteSpace(key)) missing.Add("Key (K: header)");
+
+        if (missing.Count > 0)
+        {
+            return new AbcParseResult(false, missing, title ?? "", TuneType.Other, key ?? "", abc);
+        }
+
+        var tuneType = ParseTuneType(rawRhythm);
+        var rhythmHeader = FormatRhythmHeader(tuneType, rawRhythm);
+
+        var lines = abc.Trim().Split('\n');
+        for (var idx = 0; idx < lines.Length; idx++)
+        {
+            var trimmed = lines[idx].Trim();
+            if (trimmed.StartsWith("T:", StringComparison.OrdinalIgnoreCase))
+            {
+                lines[idx] = $"T:{title}";
+            }
+            else if (trimmed.StartsWith("R:", StringComparison.OrdinalIgnoreCase))
+            {
+                lines[idx] = $"R:{rhythmHeader}";
+            }
+            else if (trimmed.StartsWith("K:", StringComparison.OrdinalIgnoreCase))
+            {
+                var commentIdx = trimmed.IndexOf('%');
+                var comment = commentIdx >= 0 ? " " + trimmed[commentIdx..] : "";
+                lines[idx] = $"K:{key}{comment}";
+            }
+        }
+
+        var normalizedAbc = string.Join('\n', lines);
+        return new AbcParseResult(true, Array.Empty<string>(), title!, tuneType, key!, normalizedAbc);
     }
 }
