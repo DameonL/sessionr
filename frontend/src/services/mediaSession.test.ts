@@ -237,7 +237,7 @@ describe('the silent audio element', () => {
     expect(() => primeMediaSession()).not.toThrow()
   })
 
-  it('keeps playing while paused so the OS still offers a play button', () => {
+  it('pauses when playback pauses, so the next button press dispatches play and not pause again', () => {
     const a = Symbol('a')
     claimMediaSession(a, noopHandlers())
     primeMediaSession()
@@ -245,7 +245,23 @@ describe('the silent audio element', () => {
     setMediaSessionPlaybackState(a, 'paused')
 
     expect(session.playbackState).toBe('paused')
-    expect(audioInstances[0].pause).not.toHaveBeenCalled()
+    expect(audioInstances[0].pause).toHaveBeenCalled()
+  })
+
+  it('tracks a full play/pause/play cycle on the one element', () => {
+    const a = Symbol('a')
+    claimMediaSession(a, noopHandlers())
+
+    setMediaSessionPlaybackState(a, 'playing')
+    expect(audioInstances[0].play).toHaveBeenCalledTimes(1)
+
+    setMediaSessionPlaybackState(a, 'paused')
+    expect(audioInstances[0].pause).toHaveBeenCalledTimes(1)
+
+    setMediaSessionPlaybackState(a, 'playing')
+    expect(audioInstances).toHaveLength(1)
+    expect(audioInstances[0].play).toHaveBeenCalledTimes(2)
+    expect(session.playbackState).toBe('playing')
   })
 
   it('stops when the owning player releases the session', () => {

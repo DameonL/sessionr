@@ -1332,8 +1332,11 @@ export function SetPlayer({
     positionSec,
     durationSec: currentTotalSec,
     handlers: {
-      play: () => (status === "paused" ? resume() : play()),
-      pause: () => pause(),
+      // Idempotent on purpose: a repeated or spurious action from the OS should do nothing rather
+      // than restart the set from the top, which is what a bare play() on an already-playing
+      // player would do.
+      play: () => (status === "paused" ? resume() : status === "stopped" ? play() : undefined),
+      pause: () => (status === "playing" ? pause() : undefined),
       stop: () => stop(false),
       seekTo: (seconds) => seek(seconds),
       seekBy: (offset) => seek(Math.min(Math.max(positionSec + offset, 0), currentTotalSec)),

@@ -166,8 +166,14 @@ export function setMediaSessionMetadata(token: symbol, info: MediaSessionInfo): 
 export function setMediaSessionPlaybackState(token: symbol, state: MediaSessionPlaybackState): void {
   if (!supported() || owner !== token) return
   navigator.mediaSession.playbackState = state
+  // The silent element has to track real playback, not just start with it. Browsers decide which
+  // action to dispatch from the actual state of the page's media elements rather than from the
+  // playbackState declared above, so leaving it playing through a pause makes the next press of a
+  // play-pause button dispatch 'pause' a second time instead of 'play' — the button goes dead.
+  // Pausing it does not cost us the controls: a paused element keeps its media session, and the
+  // OS shows a play button, exactly as it does for any ordinary audio player.
   if (state === 'playing') primeMediaSession()
-  else if (state === 'none') stopSilentAudio()
+  else stopSilentAudio()
 }
 
 export function setMediaSessionPosition(token: symbol, pos: MediaSessionPosition): void {
