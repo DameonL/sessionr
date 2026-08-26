@@ -7,6 +7,7 @@ import {
   transposeAbcBySemitones,
   extractKeyFromAbc,
   extractTitleFromAbc,
+  extractComposerFromAbc,
   extractRhythmFromAbc,
   extractTuneTypeFromAbc,
   normalizeAbcHeaders,
@@ -216,6 +217,37 @@ describe('extractTitleFromAbc', () => {
 
   it.each(['', 'X:1\nK:G\nGABc'])('returns an empty string when there is no title', (abc) => {
     expect(extractTitleFromAbc(abc)).toBe('')
+  })
+})
+
+describe('extractComposerFromAbc', () => {
+  it('reads the C: header', () => {
+    expect(extractComposerFromAbc('X:1\nT:The Butterfly\nC:Paddy O\'Brien\nK:Em')).toBe("Paddy O'Brien")
+  })
+
+  it('strips a trailing comment', () => {
+    expect(extractComposerFromAbc('C:Turlough O\'Carolan % 1670-1738\nK:D')).toBe("Turlough O'Carolan")
+  })
+
+  it('collapses runs of whitespace', () => {
+    expect(extractComposerFromAbc('C:  Ed   Reavy  \nK:D')).toBe('Ed Reavy')
+  })
+
+  it('takes the first of several composer headers', () => {
+    expect(extractComposerFromAbc('C:Ed Reavy\nC:arr. Someone Else\nK:G')).toBe('Ed Reavy')
+  })
+
+  it('returns empty for the traditional tunes that carry no composer', () => {
+    expect(extractComposerFromAbc('X:1\nT:Cooley\'s\nR:reel\nK:Edor\n|:EBBA B2 EB:|')).toBe('')
+  })
+
+  it('ignores the body, where a line can legitimately start with the note C', () => {
+    // Without stopping at K:, "C:" here reads as a composer header naming the rest of the bar.
+    expect(extractComposerFromAbc('X:1\nT:Test\nK:C\nC:E:G|\n')).toBe('')
+  })
+
+  it('handles empty input', () => {
+    expect(extractComposerFromAbc('')).toBe('')
   })
 })
 

@@ -722,6 +722,22 @@ export function extractTitleFromAbc(abcText: string): string {
   return ''
 }
 
+export function extractComposerFromAbc(abcText: string): string {
+  if (!abcText) return ''
+  const lines = abcText.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // K: closes the header block. Unlike T:, a bare C: is only meaningful up here — past K: we are
+    // in the body, where a line could plausibly begin with the note C.
+    if (/^K:/i.test(trimmed)) break
+    if (/^C:/i.test(trimmed)) {
+      const rawComposer = trimmed.slice(2).trim().split('%')[0].trim()
+      return rawComposer.replace(/\s+/g, ' ')
+    }
+  }
+  return ''
+}
+
 export function formatRhythmHeader(tuneType: string, rawRhythm?: string): string {
   switch (tuneType) {
     case 'Reel': return 'reel'

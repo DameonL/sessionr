@@ -10,9 +10,11 @@ import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoi
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
-import { fixAbcRepeats } from "../services/abcTools";
+import { extractComposerFromAbc, fixAbcRepeats } from "../services/abcTools";
 import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran";
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
+import { primeMediaSession } from "../services/mediaSession";
+import { usePlayerMediaSession } from "../hooks/usePlayerMediaSession";
 import { DEFAULT_EMPHASIS_PERCENT, loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
 import { applyMeterEmphasis } from "../services/meterEmphasis";
@@ -801,6 +803,38 @@ export function SetPlayer({
     startTune(targetIndex, currentBpm, targetPass, startFraction, false);
   }
 
+  /** Absolute position, in seconds from the start of the set, at which tune `index` begins. */
+  function tuneStartSec(index: number): number {
+    return durationsRef.current
+      .slice(0, index)
+      .reduce((sum, duration, i) => sum + duration * (items[i]?.repetitions ?? 1), 0);
+  }
+
+  /**
+   * How far into the current tune the user has to be before "previous" restarts it instead of
+   * stepping back a tune — the convention every hardware transport uses.
+   */
+  const PREV_RESTART_SEC = 3;
+
+  function skipToNextTune() {
+    const index = activeIndex ?? 0;
+    if (index + 1 < items.length) {
+      seek(tuneStartSec(index + 1));
+    } else if (repeatRef.current) {
+      seek(0);
+    }
+  }
+
+  function skipToPreviousTune() {
+    const index = activeIndex ?? 0;
+    const start = tuneStartSec(index);
+    if (positionSec - start > PREV_RESTART_SEC || index === 0) {
+      seek(start);
+    } else {
+      seek(tuneStartSec(index - 1));
+    }
+  }
+
   async function buildSynthsForTune(index: number, bpm: number): Promise<abcjs.MidiBuffer[] | null> {
     const visualObj = visualObjsRef.current[index];
     if (!visualObj) return null;
@@ -916,6 +950,10 @@ export function SetPlayer({
     // The controls are hidden until isReady, but fullscreen/keyboard paths and a
     // mid-flight items change can still get here before the staff exists.
     if (!isReady) return;
+    // Spends the user gesture now: the awaits below (soundfont loading) run long enough for the
+    // browser to forget the activation, and without an audible media element the OS never routes
+    // headset or media-key presses back to us.
+    primeMediaSession();
     const wasStopped = status === "stopped";
     stop(keepPosition);
     const mySession = playSessionRef.current;
@@ -1271,6 +1309,38 @@ export function SetPlayer({
   const activeVisualObj = visualObjsRef.current[activeIndex ?? 0] ?? null;
   const baseBpm = getTuneBaseBpm(activeVisualObj, targetBpm, items[activeIndex ?? 0]?.tuneType);
   const tempoPercent = baseBpm > 0 ? Math.round((currentBpm / baseBpm) * 100) : 100;
+
+  /*
+   * OS media controls: headset play/pause, keyboard media keys, and the lock-screen transport. The
+   * skip handlers are only supplied for a real set — on a single tune there is nothing to skip to,
+   * and handing the OS a handler anyway lights up buttons that would do nothing.
+   */
+  const mediaItem = items[activeIndex ?? 0];
+  /*
+   * Most session tunes are traditional and carry no C: header, so the composer is a bonus rather
+   * than the primary label: fall back to the tune type, which is always the more useful thing to
+   * show on a lock screen than a blank line.
+   */
+  const mediaComposer = extractComposerFromAbc(mediaItem?.abc ?? "");
+  usePlayerMediaSession({
+    status,
+    title: mediaItem?.title?.trim() || "Tune",
+    artist: [mediaComposer || mediaItem?.tuneType, isSingle ? null : `Tune ${(activeIndex ?? 0) + 1} of ${items.length}`]
+      .filter(Boolean)
+      .join(" \u00b7 "),
+    album: "sessionr",
+    positionSec,
+    durationSec: currentTotalSec,
+    handlers: {
+      play: () => (status === "paused" ? resume() : play()),
+      pause: () => pause(),
+      stop: () => stop(false),
+      seekTo: (seconds) => seek(seconds),
+      seekBy: (offset) => seek(Math.min(Math.max(positionSec + offset, 0), currentTotalSec)),
+      nextTrack: isSingle ? undefined : skipToNextTune,
+      previousTrack: isSingle ? undefined : skipToPreviousTune,
+    },
+  });
 
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
