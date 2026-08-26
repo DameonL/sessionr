@@ -11,6 +11,8 @@ import {
   approveGroup,
   moderatorUpdateTune,
   moderatorDeleteTune,
+  moderatorRecomputeHeuristics,
+  moderatorRefreshMatchIndex,
   formatTuneType,
   type ModeratorTuneData,
   type ModeratorGroupData,
@@ -22,7 +24,7 @@ import { Spinner } from '../components/Spinner'
 export function ModeratorView() {
   const profile = useSignal(currentUserProfile)
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'tunes' | 'groups' | 'all-groups'>('tunes')
+  const [activeTab, setActiveTab] = useState<'tunes' | 'groups' | 'all-groups' | 'maintenance'>('tunes')
 
   // Edit Tune Modal State
   const [editingTune, setEditingTune] = useState<ModeratorTuneData | null>(null)
@@ -99,6 +101,45 @@ export function ModeratorView() {
     onError: (err: any) => showToast(err.message || 'Failed to update tune.', 'error'),
   })
 
+  // Maintenance jobs report progress step by step: the backfill is a two-call sequence that can
+  // run for minutes, so a bare spinner would leave the moderator unable to tell how far it got
+  // if the second call fails.
+  const [maintenanceLog, setMaintenanceLog] = useState<string[]>([])
+  const appendLog = (line: string) => setMaintenanceLog((log) => [...log, line])
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      setMaintenanceLog(['Recomputing heuristics and match fingerprints across the library…'])
+      const result = await moderatorRecomputeHeuristics()
+      appendLog(`Recomputed ${result.tunesUpdated} tunes and ${result.settingsUpdated} settings.`)
+      appendLog('Refreshing the in-memory match index…')
+      await moderatorRefreshMatchIndex()
+      appendLog('Match index refreshed. Newly fingerprinted tunes are now identifiable.')
+      return result
+    },
+    onSuccess: (result) =>
+      showToast(`Backfill complete: ${result.tunesUpdated} tunes, ${result.settingsUpdated} settings.`, 'success'),
+    onError: (err: any) => {
+      appendLog(`Failed: ${err?.message || 'Unknown error.'}`)
+      showToast(err?.message || 'Backfill failed.', 'error')
+    },
+  })
+
+  const refreshIndexMutation = useMutation({
+    mutationFn: async () => {
+      setMaintenanceLog(['Refreshing the in-memory match index…'])
+      await moderatorRefreshMatchIndex()
+      appendLog('Match index refreshed.')
+    },
+    onError: (err: any) => {
+      appendLog(`Failed: ${err?.message || 'Unknown error.'}`)
+      showToast(err?.message || 'Refresh failed.', 'error')
+    },
+    onSuccess: () => showToast('Match index refreshed.', 'success'),
+  })
+
+  const maintenanceBusy = backfillMutation.isPending || refreshIndexMutation.isPending
+
   const handleOpenEdit = (tune: ModeratorTuneData) => {
     setEditingTune(tune)
     setEditTitle(tune.title)
@@ -172,6 +213,13 @@ export function ModeratorView() {
           style={{ cursor: 'pointer' }}
         >
           🌐 All & Private Groups Directory
+        </button>
+        <button
+          className={`nav-pill ${activeTab === 'maintenance' ? 'active' : ''}`}
+          onClick={() => setActiveTab('maintenance')}
+          style={{ cursor: 'pointer' }}
+        >
+          🛠️ Maintenance
         </button>
       </div>
 
@@ -324,6 +372,76 @@ export function ModeratorView() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 4: MAINTENANCE */}
+      {activeTab === 'maintenance' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #4dd0a5' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0' }}>🎯 Tune identification backfill</h3>
+            <p style={{ margin: '0 0 0.75rem 0', color: '#cbd5e1', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              Recomputes the melodic heuristics and match fingerprint for every tune and setting from its
+              ABC, then rebuilds the in-memory match index. Every write path already does this for new
+              tunes, so this is only needed for rows written before a fingerprint was stored at all, or
+              after a release changes how fingerprints are built — a tune keeps whatever was stored when
+              it was last written, and a stale fingerprint quietly stops matching.
+            </p>
+            <p style={{ margin: '0 0 1rem 0', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.5 }}>
+              Safe to re-run — it recomputes from each tune&apos;s existing ABC rather than changing it. It
+              rewrites the whole library though, so it can take several minutes on a large one. The
+              backfill marks the library as changed, so every server instance rebuilds its index within
+              about fifteen seconds either way; the refresh below just makes it immediate on the instance
+              that handles the request.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                className="primary"
+                disabled={maintenanceBusy}
+                onClick={() => {
+                  if (confirm('Recompute heuristics and fingerprints for every tune and setting? This can take several minutes.')) {
+                    backfillMutation.mutate()
+                  }
+                }}
+              >
+                {backfillMutation.isPending ? 'Running…' : '▶ Run backfill & refresh index'}
+              </button>
+              <button
+                className="secondary"
+                disabled={maintenanceBusy}
+                onClick={() => refreshIndexMutation.mutate()}
+              >
+                {refreshIndexMutation.isPending ? 'Refreshing…' : '🔄 Refresh match index only'}
+              </button>
+            </div>
+
+            {maintenanceLog.length > 0 && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  background: '#090d16',
+                  padding: '0.75rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  fontFamily: 'monospace',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                {maintenanceLog.map((line, i) => (
+                  <div key={i} style={{ color: line.startsWith('Failed:') ? '#ef6461' : '#cbd5e1' }}>
+                    {line}
+                  </div>
+                ))}
+                {maintenanceBusy && (
+                  <div className="spinner-row" style={{ justifyContent: 'flex-start', marginTop: '0.25rem' }}>
+                    <Spinner />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
