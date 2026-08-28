@@ -25,9 +25,11 @@ real tune with a decorative lead-in, and `?reps=N` sets how many times a probe r
 - `e2e/metronomeDownbeat.mjs` — counts accented clicks over a known number of bars, including a tune
   with a pickup. abcjs counts beats straight through the tune rather than per bar, so this is easy
   to get wrong and impossible to see from the code.
-- `e2e/gaplessRepeats.mjs` — measures the rendered buffer for one pass and for three. Repetitions are
-  unrolled into a single buffer, so all three passes must arrive as one sound of the right length,
-  minus the lead-in the repeats drop. Nothing about a gap or a stray lead-in is visible from the
-  code, and both are invisible to a test that only counts notes.
+- `e2e/gaplessRepeats.mjs` — measures the rendered buffer for one pass and for three, from the
+  per-tune repetition count and from the repeat control alike. Repeats are unrolled into a single
+  buffer, so every pass must arrive as one sound of the right length, minus the lead-in the repeats
+  drop; past the passes a buffer may hold, the browser loops its last pass and playback has to carry
+  on regardless. Nothing about a gap or a stray lead-in is visible from the code, and both are
+  invisible to a test that only counts notes.
 - `e2e/metronomeAudible.mjs` — the click's level against the tune's. The default click used to be a
   hi-hat sitting 15 dB below the music, which no amount of reading the code would have revealed.
