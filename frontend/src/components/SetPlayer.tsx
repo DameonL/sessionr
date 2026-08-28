@@ -201,9 +201,7 @@ export function SetPlayer({
   const builtPassesRef = useRef<number[]>([]);
   /** Per tune, whether the repeats drop its lead-in. Set once from the ABC; independent of how many times it plays. */
   const stripLeadInRef = useRef<boolean[]>([]);
-  /** Per tune, the lead-in that unrolled passes 2..N skip, in seconds at the tune's own tempo; 0 when it is kept. */
-  const naturalPickupSecRef = useRef<number[]>([]);
-  /** The same lead-in scaled to the tempo currently playing, alongside durationsRef. */
+  /** Per tune, the lead-in that unrolled passes 2..N skip, in seconds at the tempo currently playing. */
   const pickupSecRef = useRef<number[]>([]);
   /**
    * Audio the earlier passes of the current tune already used up. The buffer runs straight through
@@ -411,21 +409,20 @@ export function SetPlayer({
    * at the buffer-building stage where the number of passes is finally known.
    */
   function measureLeadIn(index: number, engravedAbc: string, visualObj: ExtendedTuneObject) {
-    stripLeadInRef.current[index] = false;
-    naturalPickupSecRef.current[index] = 0;
-
     const keepLeadIn = shouldKeepLeadIn(visualObj);
-    if (keepLeadIn || !buildPlaybackAbc(engravedAbc, 2, { keepLeadIn }).leadInStripped) return;
+    stripLeadInRef.current[index] =
+      !keepLeadIn && buildPlaybackAbc(engravedAbc, 2, { keepLeadIn }).leadInStripped;
+  }
 
+  /**
+   * A tune's lead-in in seconds at `bpm` — how much sooner than the staff each repeat pass ends,
+   * since the staff shows the lead-in on every pass but the audio only plays it on the first.
+   */
+  function leadInSec(visualObj: abcjs.TuneObject, bpm: number): number {
     const meter = visualObj.getMeterFraction();
     const meterSize = meter?.den ? meter.num / meter.den : 0;
-    if (!meterSize) return;
-
-    stripLeadInRef.current[index] = true;
-    // The staff still shows the lead-in, so every pass after the first finishes this much sooner
-    // than the cursor would on its own. Held at the tune's own tempo and scaled with the durations.
-    naturalPickupSecRef.current[index] =
-      (visualObj.getPickupLength() / meterSize) * (visualObj.millisecondsPerMeasure(visualObj.getBpm()) / 1000);
+    if (!meterSize) return 0;
+    return (visualObj.getPickupLength() / meterSize) * (visualObj.millisecondsPerMeasure(bpm) / 1000);
   }
 
   useEffect(() => {
@@ -436,7 +433,6 @@ export function SetPlayer({
     playVisualObjsRef.current = [];
     builtPassesRef.current = [];
     stripLeadInRef.current = [];
-    naturalPickupSecRef.current = [];
     if (!hasRenderableAbc) {
       // Nothing to engrave yet — leave the spinner up rather than rendering an
       // empty staff under a live toolbar. Re-runs when the ABC arrives.
@@ -565,12 +561,22 @@ export function SetPlayer({
   function applyDurations(bpm: number): number {
     durationsRef.current = items.map((_, index) => {
       const visualObj = visualObjsRef.current[index];
-      const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-      const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
-      const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
-      const scale = bpm > 0 && sourceBpm > 0 ? sourceBpm / bpm : 1;
-      pickupSecRef.current[index] = stripLeadInRef.current[index] ? (naturalPickupSecRef.current[index] ?? 0) * scale : 0;
-      return naturalTotalSec * scale;
+      if (!visualObj) return 0;
+      const effectiveBpm = bpm > 0 ? bpm : getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
+      /*
+       * setTiming is what puts getTotalTime() on this tempo, so it has to be called rather than
+       * assumed. Reading getTotalTime() and scaling it by the tempo ratio, as this used to, reads
+       * back whichever tempo was timed last — and once the synths have been built that is already
+       * the playing tempo, so the ratio gets applied to a figure it has been applied to once
+       * before. Every pass length downstream then comes out wrong by that ratio, and because the
+       * cursor's clock offset grows by a pass length at every repeat, the error compounds: a tempo
+       * change mid-tune sent the cursor seconds ahead of the music by the fifth pass.
+       */
+      const timings = visualObj.setTiming(effectiveBpm);
+      noteTimingsRef.current[index] = timings;
+      tuneLinesRef.current[index] = extractLinesFromTimings(timings);
+      pickupSecRef.current[index] = stripLeadInRef.current[index] ? leadInSec(visualObj, effectiveBpm) : 0;
+      return visualObj.getTotalTime() ?? 0;
     });
     const total = items.reduce((sum, _, index) => sum + tuneTotalSec(index), 0);
     setCurrentTotalSec(total);
@@ -733,11 +739,18 @@ export function SetPlayer({
     }
   }
 
+  /*
+   * Only while stopped. The tempo slider reports every step of a drag, but the audio is not rebuilt
+   * until the drag ends, so recomputing here mid-playback would describe a tempo the buffer is not
+   * playing — and since the cursor's clock offset advances by a pass length at every repeat, the
+   * cursor would jump a pass's worth of error on the next one. play() applies the new durations
+   * itself, at the moment it rebuilds the buffer, which is the only moment the two agree.
+   */
   useEffect(() => {
-    if (visualObjsRef.current.length === items.length) {
+    if (status === "stopped" && visualObjsRef.current.length === items.length) {
       applyDurations(currentBpm);
     }
-  }, [itemsKey, currentBpm, targetBpm]);
+  }, [itemsKey, currentBpm, targetBpm, status]);
 
   /**
    * Names and sounds a note the reader clicked on the staff.

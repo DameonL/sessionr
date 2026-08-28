@@ -31,5 +31,11 @@ real tune with a decorative lead-in, and `?reps=N` sets how many times a probe r
   drop; past the passes a buffer may hold, the browser loops its last pass and playback has to carry
   on regardless. Nothing about a gap or a stray lead-in is visible from the code, and both are
   invisible to a test that only counts notes.
+- `e2e/cursorDrift.mjs` — how far the cursor is from the note being played, pass by pass, across a
+  tempo set before playing, changed during it, dragged without releasing, and a second play at a
+  tempo that is not the tune's own. The cursor and the audio run on unrelated clocks and are
+  reconciled by subtracting the audio earlier passes used, so anything that misdescribes a pass
+  length puts the cursor seconds out within a few repeats — invisible from the code, and invisible
+  to a test that only checks a note is lit.
 - `e2e/metronomeAudible.mjs` — the click's level against the tune's. The default click used to be a
   hi-hat sitting 15 dB below the music, which no amount of reading the code would have revealed.

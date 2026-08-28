@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ALL_METRONOME_SOUNDS,
   BEAT_SOUNDS,
@@ -64,19 +64,25 @@ export function updateCursorPosition(svg: SVGSVGElement | null, x: number, y1: n
  * tick of a drag.
  */
 export function useCommitOnChange(onCommit: () => void) {
-  const inputRef = useRef<HTMLInputElement>(null)
   const commitRef = useRef(onCommit)
   commitRef.current = onCommit
+  const detach = useRef<(() => void) | null>(null)
 
-  useEffect(() => {
-    const el = inputRef.current
+  /*
+   * A callback ref rather than an effect over a ref object. These sliders live inside the Advanced
+   * Controls panel, which is collapsed when the player mounts, so an effect with no dependencies
+   * ran while there was no element to listen to and never ran again — and tempo, swing and emphasis
+   * then never committed at all. The panel could be opened mid-tune and the tempo dragged the whole
+   * way across, and playback would carry on at the tempo it started at.
+   */
+  return useCallback((el: HTMLInputElement | null) => {
+    detach.current?.()
+    detach.current = null
     if (!el) return
     const handleChange = () => commitRef.current()
     el.addEventListener('change', handleChange)
-    return () => el.removeEventListener('change', handleChange)
+    detach.current = () => el.removeEventListener('change', handleChange)
   }, [])
-
-  return inputRef
 }
 
 export interface MetronomePrefsState {
