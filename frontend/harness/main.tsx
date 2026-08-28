@@ -45,9 +45,34 @@ L:1/8
 K:C
 C|CCCC CCCC|CCCC CCCC|CCCC CCCC|CCCC CCC|]`
 
-const PROBE = { reel: PULSE_REEL, jig: PULSE_JIG, pickup: PULSE_PICKUP }[params.get('probe') ?? '']
+// A decorative lead-in: `BA` sits outside the first repeat and is not paid back by a short final
+// bar, so replaying it on every pass would add two eighth notes a pass to a tune of whole bars.
+const COWBOY = `X:1
+T:The Cowboy
+R:jig
+M:6/8
+L:1/8
+K:G
+BA|:GDE G2A|Bgf gdB|ABc BGA|B2B AGE|
+ GDE G2A|Bgf gdB|ABc BGA|1 BGG GBA:|2 BGG GBd||
+ |:e2e edB|egf edB|d2d d2d|dge dBG|
+ c2d e2d|egB A2e|dBG B2A|1 BGG GBd:|2 BGG G3||`
+
+// The Cowboy's shape in miniature: two lead-in notes outside the bar lines, over whole bars, so the
+// repeats must drop them — but short enough to sit through three passes of.
+const PULSE_LEADIN = `X:1
+T:Pulse Lead-in
+M:6/8
+L:1/8
+K:C
+CC|ccc ccc|ccc ccc|ccc ccc|ccc ccc|]`
+
+const PROBE = { reel: PULSE_REEL, jig: PULSE_JIG, pickup: PULSE_PICKUP, cowboy: COWBOY, leadin: PULSE_LEADIN }[
+  params.get('probe') ?? ''
+]
+const probeReps = Number(params.get('reps') ?? '1') || 1
 const items = PROBE
-  ? [{ userTuneId: 'probe', title: 'Probe', abc: PROBE, repetitions: 1 }]
+  ? [{ userTuneId: 'probe', title: 'Probe', abc: PROBE, repetitions: probeReps }]
   : isSet
   ? [
       { userTuneId: 'h1', title: 'Harness Reel', abc: ABC, repetitions: 2 },

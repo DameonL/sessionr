@@ -130,11 +130,20 @@ export function resetAudioClockConfirmation() {
  * How far the cursor is from the music, in ms: positive means the cursor is running behind and
  * needs to move forward. Null when there's nothing to compare — the synth hasn't started, or the
  * timer hasn't latched its zero yet.
+ *
+ * `offsetMs` is how much of the buffer belongs to earlier passes. A tune's repetitions are unrolled
+ * into one continuous buffer, so the synth's clock counts straight through them while the cursor's
+ * timer restarts at the top of the staff for each pass; subtracting the passes already played is
+ * what puts the two back on the same scale.
  */
-export function timerDriftMs(timer: abcjs.TimingCallbacks, synth: abcjs.MidiBuffer): number | null {
+export function timerDriftMs(
+  timer: abcjs.TimingCallbacks,
+  synth: abcjs.MidiBuffer,
+  offsetMs = 0,
+): number | null {
   const rawAudioMs = audioPositionMs(synth)
   if (rawAudioMs === null) return null
-  const audioMs = Math.max(0, rawAudioMs)
+  const audioMs = Math.max(0, rawAudioMs - offsetMs)
   const startTime = (timer as unknown as TimerClock).startTime
   if (typeof startTime !== 'number' || !Number.isFinite(startTime)) return null
   return audioMs - (performance.now() - startTime)
@@ -148,6 +157,8 @@ export interface AnchorOptions {
    * hopping the cursor. Defaults to 1 (snap), which is what you want at a fresh start.
    */
   ease?: number
+  /** Audio already played by earlier passes of the same unrolled buffer. See timerDriftMs. */
+  offsetMs?: number
 }
 
 /**
@@ -158,13 +169,13 @@ export interface AnchorOptions {
 export function anchorTimerToAudio(
   timer: abcjs.TimingCallbacks,
   synth: abcjs.MidiBuffer,
-  { threshold = DEFAULT_THRESHOLD_MS, ease = 1 }: AnchorOptions = {},
+  { threshold = DEFAULT_THRESHOLD_MS, ease = 1, offsetMs = 0 }: AnchorOptions = {},
 ): number {
   const rawAudioMs = audioPositionMs(synth)
   if (rawAudioMs === null) return 0
   // Before the first sample sounds this reads at or below zero (latency compensation pushes it
   // negative). Hold the cursor at the start rather than letting it run on without the music.
-  const audioMs = Math.max(0, rawAudioMs)
+  const audioMs = Math.max(0, rawAudioMs - offsetMs)
 
   const clock = timer as unknown as TimerClock
   // A timer that hasn't latched yet has no position to compare against — anchor it outright.
@@ -173,7 +184,7 @@ export function anchorTimerToAudio(
     return 0
   }
 
-  const error = timerDriftMs(timer, synth)
+  const error = timerDriftMs(timer, synth, offsetMs)
   if (error === null || Math.abs(error) < threshold) return 0
 
   const correction = error * ease

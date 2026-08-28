@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "generate-pwa-assets": "pwa-assets-generator --override && cp assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png public/ && rm -f assets-src/icon-192x192.png assets-src/icon-512x512.png assets-src/maskable-icon-512x512.png assets-src/apple-touch-icon.png",
     "harness": "vite --port 5199 --strictPort",
-    "harness:e2e": "node harness/e2e/startSync.mjs 20 && node harness/e2e/cursorSync.mjs && node harness/e2e/meterEmphasis.mjs reel && node harness/e2e/meterEmphasis.mjs jig && node harness/e2e/metronomeDownbeat.mjs reel && node harness/e2e/metronomeDownbeat.mjs pickup && node harness/e2e/metronomeAudible.mjs"
+    "harness:e2e": "node harness/e2e/startSync.mjs 20 && node harness/e2e/cursorSync.mjs && node harness/e2e/meterEmphasis.mjs reel && node harness/e2e/meterEmphasis.mjs jig && node harness/e2e/metronomeDownbeat.mjs reel && node harness/e2e/metronomeDownbeat.mjs pickup && node harness/e2e/metronomeAudible.mjs && node harness/e2e/gaplessRepeats.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.17.3",

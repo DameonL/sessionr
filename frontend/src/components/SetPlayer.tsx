@@ -11,6 +11,7 @@ import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
 import { extractComposerFromAbc, fixAbcRepeats } from "../services/abcTools";
+import { buildPlaybackAbc, shouldKeepLeadIn } from "../services/abcUnroll";
 import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran";
 import { loadPlayerPrefs, savePlayerPrefs } from "../services/playerPrefs";
 import { primeMediaSession } from "../services/mediaSession";
@@ -177,6 +178,30 @@ export function SetPlayer({
    * item.abc — fixAbcRepeats rewrites it on the way to the engraver.
    */
   const engravedAbcRef = useRef<string[]>([]);
+  /**
+   * Per tune, the tune object the synth plays from: the same music unrolled into `repetitions`
+   * back-to-back passes, so one continuous buffer covers all of them.
+   *
+   * Repetitions used to be played by seeking the single-pass buffer back to zero and starting it
+   * again, which put an audible gap at every repeat, and replayed the tune's lead-in each time —
+   * two extra notes a pass on a tune like The Cowboy, where the lead-in sits outside the repeat.
+   *
+   * It is parsed rather than engraved (abcjs.parseOnly), so unrolling costs no layout: the synth
+   * only ever asks it for the flattened note sequence and the meter. The staff, the cursor and the
+   * ABC view all keep using the single-pass object in visualObjsRef. Null when a tune plays exactly
+   * once, where the two are the same thing.
+   */
+  const playVisualObjsRef = useRef<(abcjs.TuneObject | null)[]>([]);
+  /** Per tune, the lead-in that unrolled passes 2..N skip, in seconds at the tune's own tempo; 0 when it is kept. */
+  const naturalPickupSecRef = useRef<number[]>([]);
+  /** The same lead-in scaled to the tempo currently playing, alongside durationsRef. */
+  const pickupSecRef = useRef<number[]>([]);
+  /**
+   * Audio the earlier passes of the current tune already used up. The buffer runs straight through
+   * every pass while the cursor's timer restarts at the top of the staff for each one, so this is
+   * what keeps anchorTimerToAudio comparing like with like.
+   */
+  const passOffsetMsRef = useRef(0);
   /** Per tune, whether its key signature spells accidentals with flats. */
   const prefersFlatsRef = useRef<boolean[]>([]);
   const noteBadgeTimeoutRef = useRef<number | null>(null);
@@ -369,11 +394,49 @@ export function SetPlayer({
 
   const itemsKey = items.map((i) => `${i.userTuneId}:${i.repetitions}:${i.abc}`).join(",");
 
+  /**
+   * Unrolls one tune's repetitions into the object the synth will play from, and records how much
+   * shorter than the staff each repeat pass runs.
+   *
+   * Falls back to the engraved object when there is nothing to unroll (a tune played once) or when
+   * the unrolled ABC won't parse — playback then repeats it the old way, by restarting the buffer.
+   */
+  function buildPlaybackTune(
+    index: number,
+    item: SetPlayerItem,
+    engravedAbc: string,
+    visualObj: ExtendedTuneObject,
+  ) {
+    playVisualObjsRef.current[index] = null;
+    naturalPickupSecRef.current[index] = 0;
+    if (item.repetitions <= 1) return;
+
+    const playback = buildPlaybackAbc(engravedAbc, item.repetitions, { keepLeadIn: shouldKeepLeadIn(visualObj) });
+    try {
+      const parsed = abcjs.parseOnly(playback.abc)[0];
+      if (!parsed) return;
+      playVisualObjsRef.current[index] = parsed;
+    } catch {
+      return;
+    }
+
+    if (!playback.leadInStripped) return;
+    const meter = visualObj.getMeterFraction();
+    const meterSize = meter?.den ? meter.num / meter.den : 0;
+    if (!meterSize) return;
+    // The staff still shows the lead-in, so every pass after the first finishes this much sooner
+    // than the cursor would on its own. Held at the tune's own tempo and scaled with the durations.
+    naturalPickupSecRef.current[index] =
+      (visualObj.getPickupLength() / meterSize) * (visualObj.millisecondsPerMeasure(visualObj.getBpm()) / 1000);
+  }
+
   useEffect(() => {
     noteTimingsRef.current = [];
     tuneLinesRef.current = [];
     engravedAbcRef.current = [];
     prefersFlatsRef.current = [];
+    playVisualObjsRef.current = [];
+    naturalPickupSecRef.current = [];
     if (!hasRenderableAbc) {
       // Nothing to engrave yet — leave the spinner up rather than rendering an
       // empty staff under a live toolbar. Re-runs when the ABC arrives.
@@ -406,6 +469,7 @@ export function SetPlayer({
         // A tune the sequencer chokes on should still engrave and play; only clicking is lost.
       }
       tuneLinesRef.current[index] = extractLinesFromTimings(timings);
+      buildPlaybackTune(index, item, engravedAbc, visualObj);
       if (index === 0) {
         const baseBpm = getTuneBaseBpm(visualObj, targetBpm, item.tuneType);
         const effectiveTargetBpm = targetBpm ?? (item.tuneType ? getDefaultTargetBpm(item.tuneType) : null) ?? baseBpm;
@@ -466,17 +530,132 @@ export function SetPlayer({
     scrollToKeepLinesVisible(scrollContainer, svg, currentLine, nextLine, nextSvg);
   }
 
+  /**
+   * Recomputes every tune's length at `bpm`, along with the lead-in each of its repeat passes
+   * skips, and returns the running time of the whole set. Both are stored on refs the transport
+   * reads; the total is state because the scrubber renders it.
+   */
+  function applyDurations(bpm: number): number {
+    durationsRef.current = items.map((_, index) => {
+      const visualObj = visualObjsRef.current[index];
+      const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
+      const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
+      const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
+      const scale = bpm > 0 && sourceBpm > 0 ? sourceBpm / bpm : 1;
+      pickupSecRef.current[index] = (naturalPickupSecRef.current[index] ?? 0) * scale;
+      return naturalTotalSec * scale;
+    });
+    const total = items.reduce((sum, _, index) => sum + tuneTotalSec(index), 0);
+    setCurrentTotalSec(total);
+    return total;
+  }
+
+  /**
+   * How long the `pass`th time through tune `index` lasts. Passes after the first are shorter by
+   * the lead-in whenever the unroller dropped it — the staff still shows it, but no sound is made
+   * for it a second time.
+   */
+  function passSec(index: number, pass: number): number {
+    const full = durationsRef.current[index] ?? 0;
+    if (pass <= 1) return full;
+    return Math.max(0, full - (pickupSecRef.current[index] ?? 0));
+  }
+
+  /** Every pass of tune `index` end to end — what it contributes to the set's running time. */
+  function tuneTotalSec(index: number): number {
+    const repetitions = items[index]?.repetitions ?? 1;
+    return passSec(index, 1) + (repetitions - 1) * passSec(index, 2);
+  }
+
+  /** Audio consumed by the passes of tune `index` before `pass` — the offset the two clocks differ by. */
+  function passStartSec(index: number, pass: number): number {
+    return pass <= 1 ? 0 : passSec(index, 1) + (pass - 2) * passSec(index, 2);
+  }
+
+  /**
+   * Splits a position measured from the start of the set into the tune, the pass, and how far into
+   * that pass it falls.
+   */
+  function locate(seconds: number): { index: number; pass: number; offsetSec: number } {
+    let remaining = Math.max(0, seconds);
+    for (let index = 0; index < items.length; index++) {
+      const total = tuneTotalSec(index);
+      const isLast = index === items.length - 1;
+      if (remaining < total || isLast) {
+        const repetitions = items[index]?.repetitions ?? 1;
+        for (let pass = 1; pass <= repetitions; pass++) {
+          const length = passSec(index, pass);
+          if (remaining < length || pass === repetitions) {
+            return { index, pass, offsetSec: Math.min(Math.max(remaining, 0), length) };
+          }
+          remaining -= length;
+        }
+        return { index, pass: 1, offsetSec: 0 };
+      }
+      remaining -= total;
+    }
+    return { index: 0, pass: 1, offsetSec: 0 };
+  }
+
+  /**
+   * Where the cursor belongs on the staff, as a fraction of the engraved tune. The staff always
+   * carries the lead-in, so a repeat pass starts just past it rather than at zero.
+   */
+  function displayFraction(index: number, pass: number, offsetSec: number): number {
+    const full = durationsRef.current[index] ?? 0;
+    if (full <= 0) return 0;
+    // A hair early, because abcjs's setProgress walks events forward while their timestamp is
+    // strictly less than the position asked for. Landing exactly on a note's start is a coin toss
+    // between float roundings — this tune's length as the timer computed it against as we did — and
+    // losing it puts the cursor a note ahead of the music for the rest of the pass. The millisecond
+    // given up is well under a frame, and the audio anchor takes it straight back.
+    const NUDGE_SEC = 0.001;
+    return Math.min(Math.max((skippedSec(index, pass) + offsetSec - NUDGE_SEC) / full, 0), 1);
+  }
+
+  /** Where to seek the unrolled buffer, as a fraction of all of its passes. */
+  function audioFraction(index: number, pass: number, offsetSec: number): number {
+    const total = tuneTotalSec(index);
+    if (total <= 0) return 0;
+    return Math.min(Math.max((passStartSec(index, pass) + offsetSec) / total, 0), 1);
+  }
+
+  /** The lead-in the staff shows on `pass` but the unrolled audio doesn't play. */
+  function skippedSec(index: number, pass: number): number {
+    return pass > 1 ? pickupSecRef.current[index] ?? 0 : 0;
+  }
+
+  /**
+   * The cursor's clock reads in staff time, which still counts the lead-in a repeat pass never
+   * sounds. Taking that back off turns it into a position in the set.
+   */
+  function positionFromTimer(index: number, pass: number, timerMs: number): number {
+    return absoluteSec(index, pass, Math.max(0, timerMs / 1000 - skippedSec(index, pass)));
+  }
+
+  /**
+   * What to subtract from the buffer's clock to read it as staff time.
+   *
+   * The buffer counts every pass end to end, while the cursor's timer restarts at the top of the
+   * staff for each one — and restarts it *past* the lead-in, which the audio dropped. Both
+   * differences have to come off, or the cursor sits a lead-in behind the music for the whole pass.
+   */
+  function passClockOffsetSec(index: number, pass: number): number {
+    return passStartSec(index, pass) - skippedSec(index, pass);
+  }
+
+  /** Parks the playback cursor out of sight on one tune's staff. */
+  function clearCursorLine(index: number) {
+    const cursor = sheetRefs.current[index]?.querySelector("svg")?.querySelector(".abcjs-cursor");
+    if (cursor) {
+      cursor.setAttribute("y1", "0");
+      cursor.setAttribute("y2", "0");
+    }
+  }
+
   useEffect(() => {
     if (visualObjsRef.current.length === items.length) {
-      const newDurations = items.map((_, index) => {
-        const visualObj = visualObjsRef.current[index];
-        const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-        const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
-        const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
-        return currentBpm > 0 ? naturalTotalSec * (sourceBpm / currentBpm) : naturalTotalSec;
-      });
-      durationsRef.current = newDurations;
-      setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
+      applyDurations(currentBpm);
     }
   }, [itemsKey, currentBpm, targetBpm]);
 
@@ -640,7 +819,7 @@ export function SetPlayer({
     requestAnimationFrame(() => {
       if (playSessionRef.current !== session) return;
       if (timerRef.current !== timer) return;
-      anchorTimerToAudio(timer, synth);
+      anchorTimerToAudio(timer, synth, { offsetMs: passOffsetMsRef.current });
     });
   }
 
@@ -671,6 +850,7 @@ export function SetPlayer({
       timerRef.current = null;
     }
     clearHighlights();
+    passOffsetMsRef.current = 0;
     setActiveIndex(null);
     setActivePass(1);
     if (!keepPosition) {
@@ -751,23 +931,7 @@ export function SetPlayer({
     }
 
     const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec);
-    let remaining = clampedSeconds;
-    let targetIndex = 0;
-    let targetPass = 1;
-
-    for (let i = 0; i < items.length; i++) {
-      const tuneDuration = durationsRef.current[i];
-      const totalTuneDuration = tuneDuration * items[i].repetitions;
-      if (remaining < totalTuneDuration) {
-        targetIndex = i;
-        targetPass = Math.floor(remaining / tuneDuration) + 1;
-        remaining = remaining - tuneDuration * (targetPass - 1);
-        break;
-      }
-      remaining -= totalTuneDuration;
-    }
-
-    const startFraction = durationsRef.current[targetIndex] > 0 ? remaining / durationsRef.current[targetIndex] : 0;
+    const { index: targetIndex, pass: targetPass, offsetSec } = locate(clampedSeconds);
 
     if (status === "stopped") {
       setPositionSec(clampedSeconds);
@@ -800,14 +964,19 @@ export function SetPlayer({
       return;
     }
 
-    startTune(targetIndex, currentBpm, targetPass, startFraction, false);
+    startTune(targetIndex, currentBpm, targetPass, offsetSec, false);
   }
 
   /** Absolute position, in seconds from the start of the set, at which tune `index` begins. */
   function tuneStartSec(index: number): number {
-    return durationsRef.current
-      .slice(0, index)
-      .reduce((sum, duration, i) => sum + duration * (items[i]?.repetitions ?? 1), 0);
+    let sum = 0;
+    for (let i = 0; i < index; i++) sum += tuneTotalSec(i);
+    return sum;
+  }
+
+  /** Absolute position, in seconds from the start of the set, of a point inside a tune's pass. */
+  function absoluteSec(index: number, pass: number, offsetSec: number): number {
+    return tuneStartSec(index) + passStartSec(index, pass) + offsetSec;
   }
 
   /**
@@ -841,6 +1010,9 @@ export function SetPlayer({
     const timings = visualObj.setTiming(bpm);
     noteTimingsRef.current[index] = timings;
     tuneLinesRef.current[index] = extractLinesFromTimings(timings);
+    // The staff shows one pass; the synth plays all of them. Everything below that feeds the audio
+    // reads the unrolled tune, so the buffer covers every repetition and never has to be restarted.
+    const playObj = playVisualObjsRef.current[index] ?? visualObj;
     const msPerMeasure = visualObj.millisecondsPerMeasure(bpm);
     const bandMode = isBandModeRef.current;
     const voicesToUse = bandMode ? bandVoicesRef.current : [];
@@ -858,7 +1030,7 @@ export function SetPlayer({
       const pulse = getMeterPulse(meter);
       // Where bar 1 actually starts. Most tunes in this repertoire begin on an upbeat, and without
       // this every accent would land a beat or two off for all of them.
-      const pickupWholeNotes = visualObj.getPickupLength();
+      const pickupWholeNotes = playObj.getPickupLength();
       // Seconds per whole note — converts the strum's wall-clock spread into the units note
       // starts use. Both the band and solo paths need it.
       const meterSize = meter.den ? meter.num / meter.den : 1;
@@ -867,7 +1039,7 @@ export function SetPlayer({
       if (voicesToUse.length > 0) {
         return await Promise.all(
           voicesToUse.map((voice) =>
-            createBandSynth(visualObj, msPerMeasure, voice, tempoMultiplierSec, {
+            createBandSynth(playObj, msPerMeasure, voice, tempoMultiplierSec, {
               swing: compound ? undefined : toAbcjsSwing(swingPercent),
               swingPercent,
               emphasisPercent,
@@ -882,7 +1054,7 @@ export function SetPlayer({
       const bodhranPattern = useBodhran ? getBodhranDrumOption(meter) : undefined;
 
       await synth.init({
-        visualObj,
+        visualObj: playObj,
         millisecondsPerMeasure: msPerMeasure,
         options: {
           ...synthInstrumentOptions(currentInst),
@@ -970,37 +1142,16 @@ export function SetPlayer({
         effectiveBpm = trainer.startBpm;
       }
 
-      const oldDurations = durationsRef.current;
-      const newDurations = items.map((_, index) => {
-        const visualObj = visualObjsRef.current[index];
-        const naturalTotalSec = visualObj?.getTotalTime() ?? 0;
-        const baseBpm = getTuneBaseBpm(visualObj, targetBpm, items[index]?.tuneType);
-        const sourceBpm = (visualObj?.getBpm() ?? 0) > 0 ? visualObj!.getBpm() : baseBpm;
-        return effectiveBpm > 0 ? naturalTotalSec * (sourceBpm / effectiveBpm) : naturalTotalSec;
-      });
-      durationsRef.current = newDurations;
-      setCurrentTotalSec(newDurations.reduce((sum, duration, index) => sum + duration * items[index].repetitions, 0));
+      // Where the old tempo's timeline put us, as a share of the set, so the same musical spot comes
+      // back after the durations are rebuilt at the new one.
+      const oldTotalSec = currentTotalSec;
+      const positionShare = keepPosition && oldTotalSec > 0 ? positionSec / oldTotalSec : 0;
 
-      let targetIndex = 0;
-      let targetPass = 1;
-      let targetFraction = 0;
+      const newTotalSec = applyDurations(effectiveBpm);
 
-      if (keepPosition) {
-        let remaining = positionSec;
-        for (let i = 0; i < items.length; i++) {
-          const tuneDuration = oldDurations[i] ?? 0;
-          const totalTuneDuration = tuneDuration * items[i].repetitions;
-          if (remaining < totalTuneDuration) {
-            targetIndex = i;
-            targetPass = Math.floor(remaining / tuneDuration) + 1;
-            remaining = remaining - tuneDuration * (targetPass - 1);
-            break;
-          }
-          remaining -= totalTuneDuration;
-        }
-        const oldTuneDuration = oldDurations[targetIndex] ?? 0;
-        targetFraction = oldTuneDuration > 0 ? remaining / oldTuneDuration : 0;
-      }
+      const loopStartSec = loop ? loop.a * newTotalSec : null;
+      const resumeSec = loopStartSec ?? (keepPosition ? positionShare * newTotalSec : 0);
+      const { index: targetIndex, pass: targetPass, offsetSec: targetOffsetSec } = locate(resumeSec);
 
       const synthResults = await Promise.all(items.map((_, idx) => buildSynthsForTune(idx, effectiveBpm)));
       if (playSessionRef.current !== mySession) return;
@@ -1013,7 +1164,7 @@ export function SetPlayer({
         passRef.current = 1;
         setPassCount(1);
       }
-      startTune(targetIndex, effectiveBpm, targetPass, loop?.a ?? targetFraction, true, true);
+      startTune(targetIndex, effectiveBpm, targetPass, targetOffsetSec, true, true);
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
     }
@@ -1023,7 +1174,8 @@ export function SetPlayer({
     index: number,
     bpm: number,
     startPass = 1,
-    startFraction = 0,
+    /** How far into that pass to begin, in seconds. */
+    startOffsetSec = 0,
     shouldScroll = true,
     /**
      * Hold the sound until the staff has painted. Only for a fresh start from play(), never for a
@@ -1042,6 +1194,13 @@ export function SetPlayer({
     const synth = voices[0];
     const backers = voices.slice(1);
     let pass = startPass;
+    /**
+     * Whether this tune's buffer holds every pass. When it does, a repeat is nothing but the cursor
+     * going back to the top — the audio never stops, so there is no gap to hear. Only a tune that
+     * couldn't be unrolled falls back to restarting the buffer.
+     */
+    const isUnrolled = playVisualObjsRef.current[index] != null;
+    passOffsetMsRef.current = isUnrolled ? passClockOffsetSec(index, startPass) * 1000 : 0;
 
     setActiveIndex(index);
     setActivePass(startPass);
@@ -1049,13 +1208,8 @@ export function SetPlayer({
       sheetRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
-    const elapsedBeforeTune = durationsRef.current
-      .slice(0, index)
-      .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0);
-    const tuneDuration = durationsRef.current[index] ?? 0;
-
     if (!isDraggingRef.current) {
-      setPositionSec(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction);
+      setPositionSec(absoluteSec(index, startPass, startOffsetSec));
     }
 
     keyRootRef.current = getAbcKeyRoot(items[index].abc);
@@ -1088,11 +1242,21 @@ export function SetPlayer({
           playMetronomeClick(sound, pitch, isDownbeat);
         }
         const activeLoop = loopRef.current;
-        const totalMsAtTempo = currentTotalSec * 1000;
         const ms = timer.currentMillisecond();
-        if (activeLoop && totalMsAtTempo > 0 && ms >= activeLoop.b * totalMsAtTempo) {
-          for (const v of voices) v.seek(activeLoop.a);
-          timer.setProgress(activeLoop.a);
+        if (activeLoop && currentTotalSec > 0 && positionFromTimer(index, pass, ms) >= activeLoop.b * currentTotalSec) {
+          const target = locate(activeLoop.a * currentTotalSec);
+          // A loop that runs back into an earlier tune needs the whole restart that seek() does;
+          // one inside this tune is just a jump in the buffer already playing.
+          if (target.index !== index) {
+            void seek(activeLoop.a * currentTotalSec);
+            return;
+          }
+          pass = target.pass;
+          setActivePass(pass);
+          passOffsetMsRef.current = isUnrolled ? passClockOffsetSec(index, pass) * 1000 : 0;
+          const audioAt = isUnrolled ? audioFraction(index, pass, target.offsetSec) : displayFraction(index, pass, target.offsetSec);
+          for (const v of voices) v.seek(audioAt);
+          timer.setProgress(displayFraction(index, pass, target.offsetSec));
           // Same split-clock problem as a fresh start: the seek lands on the audio clock and
           // setProgress on performance.now(), so re-pin them once the jump has settled.
           anchorOnNextFrame(timer, synth);
@@ -1102,10 +1266,11 @@ export function SetPlayer({
         // Keep the cursor pinned to the audio as playback continues. Free when the two agree, so
         // this costs nothing on the common path.
         if (!isDraggingRef.current && statusRef.current === "playing") {
-          const drift = timerDriftMs(timer, synth);
+          const drift = timerDriftMs(timer, synth, passOffsetMsRef.current);
           if (drift !== null) {
             anchorTimerToAudio(timer, synth, {
               ease: Math.abs(drift) >= DRIFT_SNAP_MS ? 1 : DRIFT_EASE,
+              offsetMs: passOffsetMsRef.current,
             });
           }
         }
@@ -1113,13 +1278,8 @@ export function SetPlayer({
       eventCallback: (ev: abcjs.NoteTimingEvent | null) => {
         clearHighlights();
         if (ev) {
-          const ms = timer.currentMillisecond();
-          const elapsedBeforeTune = durationsRef.current
-            .slice(0, index)
-            .reduce((sum, duration, i) => sum + duration * items[i].repetitions, 0);
-
           if (!isDraggingRef.current) {
-            setPositionSec(elapsedBeforeTune + tuneDuration * (pass - 1) + ms / 1000);
+            setPositionSec(positionFromTimer(index, pass, timer.currentMillisecond()));
           }
 
           for (const group of ev.elements ?? []) {
@@ -1137,20 +1297,27 @@ export function SetPlayer({
           }
           return undefined;
         }
-        // End of one pass through the tune.
-        for (const v of voices) v.stop();
-        timer.stop();
-        const host = sheetRefs.current[index];
-        const svg = host?.querySelector("svg");
-        const cursor = svg?.querySelector(".abcjs-cursor");
-        if (cursor) {
-          cursor.setAttribute("y1", "0");
-          cursor.setAttribute("y2", "0");
-        }
-
+        // The cursor has reached the end of the staff.
         if (pass < items[index].repetitions) {
           pass++;
           setActivePass(pass);
+          if (isUnrolled) {
+            // The buffer is already partway into this pass; only the cursor goes back to the top,
+            // and it skips whatever lead-in the unrolled audio left out. Nothing stops, so there is
+            // nothing to restart and no gap to hear.
+            passOffsetMsRef.current = passClockOffsetSec(index, pass) * 1000;
+            // setProgress moves the clock and lights the pass's first note in the same breath;
+            // start(0) would only reset, leaving the staff blank until the next frame. start() is
+            // still needed after it — doTiming stops rescheduling itself once it has run the tune
+            // out, so nothing would drive the cursor otherwise.
+            timer.setProgress(displayFraction(index, pass, 0));
+            timer.start();
+            anchorOnNextFrame(timer, synth);
+            return "continue";
+          }
+          for (const v of voices) v.stop();
+          timer.stop();
+          clearCursorLine(index);
           for (const v of voices) v.seek(0);
           synth.start();
           startBackersStaggered(index, backers);
@@ -1159,7 +1326,14 @@ export function SetPlayer({
           timer.start(0);
           anchorOnNextFrame(timer, synth);
           return "continue";
-        } else if (index + 1 < items.length) {
+        }
+
+        // End of the tune.
+        for (const v of voices) v.stop();
+        timer.stop();
+        clearCursorLine(index);
+
+        if (index + 1 < items.length) {
           const nextIndex = index + 1;
           if (synthsRef.current[nextIndex] && synthsRef.current[nextIndex].length > 0) {
             startTune(nextIndex, bpm);
@@ -1203,17 +1377,24 @@ export function SetPlayer({
     });
     timerRef.current = timer;
 
+    // Where in the buffer and on the staff this start lands. They differ once a tune is unrolled:
+    // the buffer spans every pass, the staff only ever spans one.
+    const audioStart = isUnrolled
+      ? audioFraction(index, startPass, startOffsetSec)
+      : displayFraction(index, startPass, startOffsetSec);
+    const staffStart = displayFraction(index, startPass, startOffsetSec);
+
     function beginPlayback() {
-      if (startFraction > 0) {
-        for (const v of voices) v.seek(startFraction);
+      if (audioStart > 0) {
+        for (const v of voices) v.seek(audioStart);
       }
       synth.start();
-      if (startFraction === 0) {
+      if (audioStart === 0) {
         startBackersStaggered(index, backers);
       } else {
         for (const backer of backers) backer.start();
       }
-      timer.start(startFraction);
+      timer.start(staffStart);
       // The cursor's zero would otherwise be whenever the first frame after all of the above lands
       // — the React commit, the scrollIntoView, the SVG layout — leaving it that far behind the
       // music for the rest of the tune. Anchoring to the audio clock makes the start delay moot.
@@ -1222,11 +1403,11 @@ export function SetPlayer({
 
     const isPlayerPaused = statusRef.current === "paused";
     if (isPlayerPaused) {
-      for (const v of voices) v.seek(startFraction);
-      timer.start(startFraction);
+      for (const v of voices) v.seek(audioStart);
+      timer.start(staffStart);
       // Not redundant with start(): for a zero offset start() resets startTime to null, and
       // pause() reads startTime to record where it paused. setProgress puts a real value there.
-      timer.setProgress(startFraction);
+      timer.setProgress(staffStart);
       timer.pause();
     } else if (waitForPaint) {
       /*
@@ -1244,7 +1425,7 @@ export function SetPlayer({
       const stillCurrent = () => playSessionRef.current === session && timerRef.current === timer;
       requestAnimationFrame(() => {
         if (!stillCurrent()) return;
-        updateVisualsForTime(elapsedBeforeTune + tuneDuration * (startPass - 1) + tuneDuration * startFraction);
+        updateVisualsForTime(absoluteSec(index, startPass, startOffsetSec));
         // Waits for the output device to actually be rendering before making a sound. Resolves at
         // once on every play after the first, so only the very first start ever pays for it.
         void waitForAudioClock().then(() => {
@@ -1815,21 +1996,10 @@ export function SetPlayer({
     if (durationsRef.current.length !== items.length || noteTimingsRef.current.length !== items.length) return;
 
     const clampedSeconds = Math.min(Math.max(seconds, 0), currentTotalSec);
-    let remaining = clampedSeconds;
-    let targetIndex = 0;
-
-    for (let i = 0; i < items.length; i++) {
-      const tuneDuration = durationsRef.current[i];
-      const totalTuneDuration = tuneDuration * items[i].repetitions;
-      if (remaining < totalTuneDuration) {
-        targetIndex = i;
-        remaining = remaining % tuneDuration;
-        break;
-      }
-      remaining -= totalTuneDuration;
-    }
-
-    const naturalMs = remaining * 1000;
+    const { index: targetIndex, pass, offsetSec } = locate(clampedSeconds);
+    // The staff carries the lead-in on every pass even where the audio drops it, so the cursor sits
+    // that much further in than the elapsed time alone would say.
+    const naturalMs = (skippedSec(targetIndex, pass) + offsetSec) * 1000;
     const timings = noteTimingsRef.current[targetIndex];
     if (!timings || timings.length === 0) return;
 
@@ -1847,15 +2017,7 @@ export function SetPlayer({
     clearHighlights();
 
     items.forEach((_, i) => {
-      if (i !== targetIndex) {
-        const otherHost = sheetRefs.current[i];
-        const otherSvg = otherHost?.querySelector("svg");
-        const otherCursor = otherSvg?.querySelector(".abcjs-cursor");
-        if (otherCursor) {
-          otherCursor.setAttribute("y1", "0");
-          otherCursor.setAttribute("y2", "0");
-        }
-      }
+      if (i !== targetIndex) clearCursorLine(i);
     });
 
     const host = sheetRefs.current[targetIndex];
@@ -1880,11 +2042,7 @@ export function SetPlayer({
         checkAutoScroll(targetIndex, bestEvent);
       }
     } else {
-      const cursor = svg?.querySelector(".abcjs-cursor");
-      if (cursor) {
-        cursor.setAttribute("y1", "0");
-        cursor.setAttribute("y2", "0");
-      }
+      clearCursorLine(targetIndex);
       setAbcCursor(null);
     }
   }

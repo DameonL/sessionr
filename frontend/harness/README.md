@@ -11,7 +11,8 @@ npm run harness:e2e        # the checks below, against a running harness
 
 `?set` renders a two-tune set instead of a single tune. `?probe=reel|jig|pickup` renders a bare tune
 of identical eighth notes — every note the same pitch and length, so anything that shows up as a
-difference in the rendered audio can only have come from the code under test.
+difference in the rendered audio can only have come from the code under test. `?probe=cowboy` is a
+real tune with a decorative lead-in, and `?reps=N` sets how many times a probe repeats.
 
 - `e2e/startSync.mjs` — where the cursor is when the sound starts, under CPU throttling. Reports a
   negative gap when the staff is painted before the first sample, which is what we want: the tune
@@ -24,5 +25,9 @@ difference in the rendered audio can only have come from the code under test.
 - `e2e/metronomeDownbeat.mjs` — counts accented clicks over a known number of bars, including a tune
   with a pickup. abcjs counts beats straight through the tune rather than per bar, so this is easy
   to get wrong and impossible to see from the code.
+- `e2e/gaplessRepeats.mjs` — measures the rendered buffer for one pass and for three. Repetitions are
+  unrolled into a single buffer, so all three passes must arrive as one sound of the right length,
+  minus the lead-in the repeats drop. Nothing about a gap or a stray lead-in is visible from the
+  code, and both are invisible to a test that only counts notes.
 - `e2e/metronomeAudible.mjs` — the click's level against the tune's. The default click used to be a
   hi-hat sitting 15 dB below the music, which no amount of reading the code would have revealed.
