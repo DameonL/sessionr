@@ -235,6 +235,26 @@ function midiToAbcNote(midi: number, newSharps: number): string {
   return bestAccidental + noteChar
 }
 
+/**
+ * A `[` in a tune body is a chord (`[CEG]`), an inline field (`[K:D]`), a bar line (`[|`) or a
+ * variant ending (`[1`). Only the first two enclose content; the rest are bare punctuation and
+ * must not be read as if they had a closing bracket, or the reader swallows the rest of the line.
+ */
+type BracketRead =
+  | { kind: 'punctuation' }
+  | { kind: 'field' | 'chord'; content: string; end: number }
+
+function readBracket(line: string, open: number): BracketRead {
+  const next = line[open + 1]
+  if (next === '|' || (next >= '1' && next <= '9')) return { kind: 'punctuation' }
+
+  const close = line.indexOf(']', open + 1)
+  if (close === -1) return { kind: 'punctuation' }
+
+  const content = line.slice(open + 1, close)
+  return { kind: /^[A-Za-z]:/.test(content) ? 'field' : 'chord', content, end: close }
+}
+
 function transposeLine(line: string, interval: number, oldSharps: number, newSharps: number): string {
   if (line.trim().startsWith('%')) return line
   if (/^[A-HJ-Za-hj-z]:/.test(line.trim())) return line
@@ -277,22 +297,18 @@ function transposeLine(line: string, interval: number, oldSharps: number, newSha
     }
 
     if (char === '[') {
-      let bracketContent = ''
-      result += '['
-      i++
-      while (i < line.length && line[i] !== ']') {
-        bracketContent += line[i]
+      const bracket = readBracket(line, i)
+      if (bracket.kind === 'punctuation') {
+        result += '['
         i++
+        continue
       }
-      if (bracketContent.includes(':')) {
-        result += bracketContent
-      } else {
-        result += transposeLine(bracketContent, interval, oldSharps, newSharps)
-      }
-      if (i < line.length) {
-        result += ']'
-        i++
-      }
+      const inner =
+        bracket.kind === 'field'
+          ? bracket.content
+          : transposeLine(bracket.content, interval, oldSharps, newSharps)
+      result += '[' + inner + ']'
+      i = bracket.end + 1
       continue
     }
 
@@ -496,22 +512,18 @@ function foldNoteLine(line: string, minMidi: number, maxMidi: number, sharps: nu
     }
 
     if (char === '[') {
-      let bracketContent = ''
-      result += '['
-      i++
-      while (i < line.length && line[i] !== ']') {
-        bracketContent += line[i]
+      const bracket = readBracket(line, i)
+      if (bracket.kind === 'punctuation') {
+        result += '['
         i++
+        continue
       }
-      if (bracketContent.includes(':')) {
-        result += bracketContent
-      } else {
-        result += foldNoteLine(bracketContent, minMidi, maxMidi, sharps)
-      }
-      if (i < line.length) {
-        result += ']'
-        i++
-      }
+      const inner =
+        bracket.kind === 'field'
+          ? bracket.content
+          : foldNoteLine(bracket.content, minMidi, maxMidi, sharps)
+      result += '[' + inner + ']'
+      i = bracket.end + 1
       continue
     }
 

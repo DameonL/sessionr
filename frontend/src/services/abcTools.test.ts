@@ -14,6 +14,7 @@ import {
   validateAbc,
   normalizeTitleForSorting,
   fixAbcRepeats,
+  foldAbcOctaves,
 } from './abcTools'
 
 describe('parseKeySignature', () => {
@@ -499,6 +500,36 @@ describe('transposeAbcBySemitones', () => {
     expect(transposed).toContain("T:Cooley's")
     expect(transposed).toContain('M:4/4')
     expect(transposed).toContain('K:Ador')
+  })
+
+  it('transposes a variant ending written with a bracket', () => {
+    // The closing `:|` used to be read as an inline field's colon, which left the whole
+    // first ending untransposed while the second ending beside it moved.
+    expect(transposeAbcBySemitones('K:G\n[1 GABc defg:|\n[2 GABc defa||', 2)).toBe(
+      'K:A\n[1 ABcd efga:|\n[2 ABcd efgb||',
+    )
+  })
+
+  it('transposes variant endings written inline', () => {
+    expect(transposeAbcBySemitones('K:G\nGABc|1 defg:|2 defa||', 2)).toBe(
+      'K:A\nABcd|1 efga:|2 efgb||',
+    )
+  })
+
+  it('transposes a chord but leaves an inline field alone', () => {
+    expect(transposeAbcBySemitones('K:G\n[GBd]2', 2)).toBe('K:A\n[Ace]2')
+    expect(transposeAbcBySemitones('K:G\nGA[K:D]Bc', 2)).toBe('K:A\nAB[K:D]cd')
+  })
+
+  it('does not let an unclosed bracket swallow the rest of the line', () => {
+    expect(transposeAbcBySemitones('K:G\nGA[Bc', 2)).toBe('K:A\nAB[cd')
+  })
+})
+
+describe('foldAbcOctaves', () => {
+  it('folds a variant ending written with a bracket', () => {
+    // Same bracket bug as transposition: the ending's `:|` used to stop the fold dead.
+    expect(foldAbcOctaves("K:G\n[1 GABc g'a'b'c'':|", 60, 84)).toBe("K:G\n[1 GABc gabc':|")
   })
 })
 
