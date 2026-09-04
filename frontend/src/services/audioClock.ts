@@ -83,6 +83,26 @@ export function audioPositionMs(synth: abcjs.MidiBuffer): number | null {
 }
 
 /**
+ * Jumps a voice to `positionSec` and re-latches its clock, which abcjs's seek() does not do.
+ *
+ * MidiBuffer.seek() on a running voice is stop() + _kickOffSound(offset): the sound restarts at the
+ * new offset, but startTimeSec still describes the original start, so audioPositionMs() goes on
+ * reporting the pre-jump position and climbing. Only start() ever writes startTimeSec. Anything
+ * anchored to that clock — the cursor above all — is then dragged straight back to where the jump
+ * came from, which re-triggers whatever asked for the jump — on the next frame, and every frame
+ * after that.
+ *
+ * _kickOffSound calls source.start(0, offset), i.e. immediately, so currentTime here is the zero the
+ * new sound is actually playing from. Output latency stays where it belongs, in audioPositionMs.
+ */
+export function seekAndLatch(synth: abcjs.MidiBuffer, positionSec: number): void {
+  synth.seek(positionSec, 'seconds')
+  const ctx = activeContext()
+  if (!ctx) return
+  ;(synth as unknown as SynthClock).startTimeSec = ctx.currentTime - positionSec
+}
+
+/**
  * Once the output device has been seen running, it stays running for the life of the page, so the
  * wait below only ever costs anything on the first sound.
  */

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
-import { anchorTimerToAudio, timerDriftMs, waitForAudioClock } from "../services/audioClock";
+import { anchorTimerToAudio, seekAndLatch, timerDriftMs, waitForAudioClock } from "../services/audioClock";
 import { prefersFlats, spellMidiNotes } from "../services/noteSpelling";
 import { showToast } from "../state/appState";
 import { AbcSourceView, type AbcCursorRange } from "./AbcSourceView";
@@ -219,6 +219,16 @@ export function SetPlayer({
   const setPassRef = useRef(1);
   const keyRootRef = useRef<number>(72);
   const loopRef = useRef<Loop | null>(null);
+  /**
+   * The set's running time, for the transport to read rather than the state below.
+   *
+   * play() rebuilds the durations and starts the tune in the one render, so the callbacks it
+   * installs close over the *previous* total while every other length they use comes from
+   * durationsRef, which applyDurations has already updated. A loop's bounds are fractions of the
+   * total, so that mismatch put them on the wrong music after a tempo change — and if the total
+   * shrank, past the end of the set, where they never came due at all.
+   */
+  const totalSecRef = useRef(0);
   const trainerRef = useRef<Trainer | null>(null);
   const currentTrainerBpmRef = useRef<number>(80);
   const passRef = useRef(1);
@@ -579,6 +589,7 @@ export function SetPlayer({
       return visualObj.getTotalTime() ?? 0;
     });
     const total = items.reduce((sum, _, index) => sum + tuneTotalSec(index), 0);
+    totalSecRef.current = total;
     setCurrentTotalSec(total);
     return total;
   }
@@ -946,6 +957,9 @@ export function SetPlayer({
     passOffsetMsRef.current = 0;
     setActiveIndex(null);
     setActivePass(1);
+    // The loop survives a stop, so Play picks it straight back up — but a lone A does not. Left
+    // set, it would silently pair with whatever the next press marked, a whole playthrough later.
+    setMarkA(null);
     if (!keepPosition) {
       setPositionSec(0);
     }
@@ -1011,6 +1025,10 @@ export function SetPlayer({
     if (next.repeatLimit !== undefined) setRepeatLimit(nextLimit);
     repeatRef.current = nextRepeat;
     repeatLimitRef.current = nextLimit;
+    // A loop is stored as fractions of the set's running time, and the repeat settings are half of
+    // what that time is made of. Keeping the fractions across a change would silently move the loop
+    // onto different music, so drop it rather than loop somewhere the user never marked.
+    clearLoop();
     if (status !== "stopped") {
       play(currentBpm);
     } else {
@@ -1289,8 +1307,21 @@ export function SetPlayer({
 
       const newTotalSec = applyDurations(effectiveBpm);
 
-      const loopStartSec = loop ? loop.a * newTotalSec : null;
-      const resumeSec = loopStartSec ?? (keepPosition ? positionShare * newTotalSec : 0);
+      /*
+       * A restart stays where it was; only a fresh Play with a loop set starts at the loop's A.
+       * play() is how every settings change commits — tempo, swing, emphasis, instruments, the
+       * bodhran, the repeat count — and a loop used to override keepPosition outright, so each of
+       * those yanked playback back to A mid-phrase. Either way, a position that has fallen outside
+       * the loop is pulled back to its start, since there is nothing to hear out there.
+       */
+      const activeLoop = loopRef.current;
+      const keptSec = keepPosition ? positionShare * newTotalSec : null;
+      let resumeSec = keptSec ?? 0;
+      if (activeLoop) {
+        const loopStartSec = activeLoop.a * newTotalSec;
+        const inLoop = keptSec !== null && keptSec >= loopStartSec && keptSec < activeLoop.b * newTotalSec;
+        if (!inLoop) resumeSec = loopStartSec;
+      }
       const { index: targetIndex, pass: targetPass, offsetSec: targetOffsetSec } = locate(resumeSec);
 
       const synthResults = await Promise.all(items.map((_, idx) => buildSynthsForTune(idx, effectiveBpm)));
@@ -1382,13 +1413,14 @@ export function SetPlayer({
         }
         armAudioLoop(index, voices, pass);
         const activeLoop = loopRef.current;
+        const totalSec = totalSecRef.current;
         const ms = timer.currentMillisecond();
-        if (activeLoop && currentTotalSec > 0 && positionFromTimer(index, pass, ms) >= activeLoop.b * currentTotalSec) {
-          const target = locate(activeLoop.a * currentTotalSec);
+        if (activeLoop && totalSec > 0 && positionFromTimer(index, pass, ms) >= activeLoop.b * totalSec) {
+          const target = locate(activeLoop.a * totalSec);
           // A loop that runs back into an earlier tune needs the whole restart that seek() does;
           // one inside this tune is just a jump in the buffer already playing.
           if (target.index !== index) {
-            void seek(activeLoop.a * currentTotalSec);
+            void seek(activeLoop.a * totalSec);
             return;
           }
           pass = target.pass;
@@ -1397,7 +1429,7 @@ export function SetPlayer({
           passOffsetMsRef.current = isUnrolled
             ? audioClockOffsetSec(index, pass, jumpSec, target.offsetSec) * 1000
             : 0;
-          for (const v of voices) v.seek(jumpSec, "seconds");
+          for (const v of voices) seekAndLatch(v, jumpSec);
           timer.setProgress(displayFraction(index, pass, target.offsetSec));
           // Same split-clock problem as a fresh start: the seek lands on the audio clock and
           // setProgress on performance.now(), so re-pin them once the jump has settled.
@@ -1535,7 +1567,9 @@ export function SetPlayer({
 
     function beginPlayback() {
       if (audioStartSec > 0) {
-        for (const v of voices) v.seek(audioStartSec, "seconds");
+        // start() below latches the leader's clock; the backers only ever get the seek, so they
+        // have to be latched here or their clocks describe a start they never made.
+        for (const v of voices) seekAndLatch(v, audioStartSec);
       }
       synth.start();
       if (audioStartSec === 0) {
@@ -1553,7 +1587,7 @@ export function SetPlayer({
 
     const isPlayerPaused = statusRef.current === "paused";
     if (isPlayerPaused) {
-      for (const v of voices) v.seek(audioStartSec, "seconds");
+      for (const v of voices) seekAndLatch(v, audioStartSec);
       timer.start(staffStart);
       // Not redundant with start(): for a zero offset start() resets startTime to null, and
       // pause() reads startTime to record where it paused. setProgress puts a real value there.
@@ -1975,7 +2009,10 @@ export function SetPlayer({
               )}
               <button
                 className={loop || markA !== null ? "toggled" : ""}
-                disabled={status === "stopped"}
+                // Marking works off the position, and the scrubber moves that while stopped — so a
+                // loop can be set up before playing, and one left over from a stop can be replaced
+                // rather than only cleared.
+                disabled={currentTotalSec <= 0}
                 onClick={markLoopPoint}
                 title="Mark loop start, then loop end, at the current position"
               >

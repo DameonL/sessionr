@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type abcjs from 'abcjs'
-import { outputLatencyMs, audioPositionMs, timerDriftMs, anchorTimerToAudio } from './audioClock'
+import { outputLatencyMs, audioPositionMs, timerDriftMs, anchorTimerToAudio, seekAndLatch } from './audioClock'
 
 const { activeAudioContext } = vi.hoisted(() => ({ activeAudioContext: vi.fn() }))
 
@@ -175,6 +175,54 @@ describe('anchorTimerToAudio', () => {
     const timer = timerAt(10_000 - 300)
     anchorTimerToAudio(timer, synthAt(5))
     expect(10_000 - startTimeOf(timer)!).toBeCloseTo(0)
+  })
+})
+
+describe('seekAndLatch', () => {
+  /**
+   * Stands in for abcjs's MidiBuffer: seek() restarts the sound at the offset and records it, but
+   * deliberately leaves startTimeSec alone, exactly as create-synth.js does.
+   */
+  function seekableSynth(startTimeSec: number) {
+    const synth = {
+      startTimeSec,
+      pausedTimeSec: undefined as number | undefined,
+      seek(position: number, units: string) {
+        expect(units).toBe('seconds')
+        synth.pausedTimeSec = position
+      },
+    }
+    return synth as unknown as abcjs.MidiBuffer & { pausedTimeSec: number | undefined }
+  }
+
+  it('re-latches the clock so the position reads back where the seek landed', () => {
+    activeAudioContext.mockReturnValue(ctx(30))
+    // 30s into the context, playing a tune that started at its zero — so 30s in musically.
+    const synth = seekableSynth(0)
+    expect(audioPositionMs(synth)).toBeCloseTo(30_000)
+
+    seekAndLatch(synth, 4)
+
+    expect(synth.pausedTimeSec).toBe(4)
+    // Without the latch this still reported 30_000: the sound jumped back but the clock did not,
+    // and anything anchored to it was dragged straight back to where the jump came from.
+    expect(audioPositionMs(synth)).toBeCloseTo(4_000)
+  })
+
+  it('keeps counting from the seek point as the context clock runs on', () => {
+    const context = ctx(30)
+    activeAudioContext.mockReturnValue(context)
+    const synth = seekableSynth(0)
+    seekAndLatch(synth, 4)
+    ;(context as { currentTime: number }).currentTime = 32.5
+    expect(audioPositionMs(synth)).toBeCloseTo(6_500)
+  })
+
+  it('still seeks when there is no context to latch against', () => {
+    activeAudioContext.mockReturnValue(null)
+    const synth = seekableSynth(0)
+    seekAndLatch(synth, 4)
+    expect(synth.pausedTimeSec).toBe(4)
   })
 })
 
