@@ -3,30 +3,86 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { addTuneAlias } from '../services/api'
+import { Dialog } from './Dialog'
 
 /**
- * The "alternate names" list and its add form, shared by the settings modal and the library
- * detail page, which each carried their own copy.
+ * The "alternate names" list, shared by the settings modal and the library detail page, which each
+ * carried their own copy.
+ *
+ * Adding a name is a button rather than a live input: on the settings modal the input sat between
+ * the settings list and "Submit an Alternate Setting" as the one always-open form on the page, and
+ * read as part of whichever section it happened to land next to.
  */
 export function TuneAliases({
   tuneId,
   aliases,
   onAdded,
   style,
+  /** False where the caller places the add button itself, e.g. beside the alternate-setting one. */
+  showAddButton = true,
 }: {
   tuneId: string
   aliases: string[]
   onAdded: () => void
   style?: React.CSSProperties
+  showAddButton?: boolean
 }) {
+  return (
+    <div className="modal-section alternate-names-section" style={style}>
+      <h3>Alternate Names</h3>
+      <div className="alias-container">
+        {aliases.length === 0 ? (
+          <span className="tune-meta italic">No alternate names registered yet.</span>
+        ) : (
+          aliases.map((alias, i) => (
+            <span key={i} className="badge badge-learning alias-badge">{alias}</span>
+          ))
+        )}
+      </div>
+
+      {showAddButton && (
+        <AddAliasButton
+          tuneId={tuneId}
+          aliases={aliases}
+          onAdded={onAdded}
+          className="secondary"
+          style={{ marginTop: '0.75rem' }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** The add-a-name button and the dialog it opens. Separate so it can sit in someone else's row. */
+export function AddAliasButton({
+  tuneId,
+  aliases,
+  onAdded,
+  className,
+  style,
+  label = '+ Add an Alternate Name',
+}: {
+  tuneId: string
+  aliases: string[]
+  onAdded: () => void
+  className?: string
+  style?: React.CSSProperties
+  label?: string
+}) {
+  const [isOpen, setIsOpen] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  const close = () => {
+    setIsOpen(false)
+    setName('')
+    setError(null)
+  }
 
   const mutation = useMutation({
     mutationFn: (newName: string) => addTuneAlias(tuneId, newName),
     onSuccess: () => {
-      setName('')
-      setError(null)
+      close()
       onAdded()
     },
     onError: (err: Error) => setError(err.message || 'Failed to add alternate name.'),
@@ -45,36 +101,51 @@ export function TuneAliases({
   }
 
   return (
-    <div className="modal-section alternate-names-section" style={style}>
-      <h3>Alternate Names</h3>
-      <div className="alias-container">
-        {aliases.length === 0 ? (
-          <span className="tune-meta italic">No alternate names registered yet.</span>
-        ) : (
-          aliases.map((alias, i) => (
-            <span key={i} className="badge badge-learning alias-badge">{alias}</span>
-          ))
-        )}
-      </div>
+    <>
+      <button className={className} style={style} onClick={() => setIsOpen(true)}>
+        {label}
+      </button>
 
-      <form onSubmit={handleSubmit} className="add-alias-form" style={{ marginTop: '0.75rem' }}>
-        <input
-          type="text"
-          placeholder="Add alternate name..."
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value)
-            if (error) setError(null)
-          }}
-          disabled={mutation.isPending}
-          aria-label="Alternate name"
-          style={{ flex: 1, padding: '0.35rem 0.6rem', fontSize: '0.85rem' }}
-        />
-        <button type="submit" disabled={mutation.isPending || !name.trim()}>
-          {mutation.isPending ? 'Adding…' : '+ Add Name'}
-        </button>
-      </form>
-      {error && <p className="error" style={{ fontSize: '0.8rem', marginTop: '0.25rem' }}>{error}</p>}
-    </div>
+      <Dialog
+        isOpen={isOpen}
+        title="Add an alternate name"
+        onClose={close}
+        // A half-typed name is worth a second click to discard, the way the setting form's Cancel is.
+        onRequestClose={() => name.trim() === '' || confirm('Discard this alternate name?')}
+        maxWidth="420px"
+      >
+        <form onSubmit={handleSubmit} className="add-alias-form">
+          <label>
+            Alternate name
+            <input
+              type="text"
+              placeholder="e.g. The Maid Behind the Bar"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (error) setError(null)
+              }}
+              disabled={mutation.isPending}
+              data-autofocus
+            />
+          </label>
+
+          {aliases.length > 0 && (
+            <p className="tune-meta">Already listed: {aliases.join(', ')}</p>
+          )}
+
+          {error && <p className="error">{error}</p>}
+
+          <div className="form-actions">
+            <button type="button" className="secondary" onClick={close} disabled={mutation.isPending}>
+              Cancel
+            </button>
+            <button type="submit" disabled={mutation.isPending || !name.trim()}>
+              {mutation.isPending ? 'Adding…' : 'Add Name'}
+            </button>
+          </div>
+        </form>
+      </Dialog>
+    </>
   )
 }

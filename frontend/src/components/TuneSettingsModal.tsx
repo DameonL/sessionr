@@ -17,7 +17,7 @@ import { useAuthStatus, currentUserProfile, useSignal, showToast } from '../stat
 import { Spinner } from './Spinner'
 import { Dialog } from './Dialog'
 import { NewSettingForm } from './NewSettingForm'
-import { TuneAliases } from './TuneAliases'
+import { AddAliasButton, TuneAliases } from './TuneAliases'
 
 // Dynamically import SheetMusic to prevent abcjs SSR errors
 const SheetMusic = lazy(() => import('./SheetMusic').then((m) => ({ default: m.SheetMusic })))
@@ -277,12 +277,20 @@ export function TuneSettingsModal({
         )}
       </div>
 
-      <TuneAliases tuneId={tuneId} aliases={details.aliases} onAdded={refetch} />
+      <TuneAliases tuneId={tuneId} aliases={details.aliases} onAdded={refetch} showAddButton={false} />
 
       {isAnonymous ? (
         <p className="tune-meta">Sign in to add this tune, vote on settings, or submit your own.</p>
       ) : (
-        <div className="modal-section submit-setting-section">
+        // The two ways of adding to a tune, side by side. The setting form opens in place and takes
+        // the row below it; the name is a small enough thing to ask for in a dialog.
+        <div className="modal-section submit-setting-section contribute-actions">
+          <AddAliasButton
+            tuneId={tuneId}
+            aliases={details.aliases}
+            onAdded={refetch}
+            className="secondary"
+          />
           <NewSettingForm tuneId={tuneId} fallbackKey={details.key} onSubmitted={refetch} />
         </div>
       )}

@@ -1221,7 +1221,27 @@ a.stat:hover {
 
 .add-alias-form {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/*
+ * The pair of "add something to this tune" buttons. They share a row until the setting form is
+ * opened, which needs the full width and so drops to a line of its own.
+ */
+.contribute-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.contribute-actions > * {
+  flex: 1 1 12rem;
+}
+
+.contribute-actions .new-setting-form {
+  flex-basis: 100%;
+  margin-top: 0;
 }
 
 .settings-list-container {
