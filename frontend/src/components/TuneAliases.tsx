@@ -6,26 +6,16 @@ import { addTuneAlias } from '../services/api'
 import { Dialog } from './Dialog'
 
 /**
- * The "alternate names" list, shared by the settings modal and the library detail page, which each
- * carried their own copy.
- *
- * Adding a name is a button rather than a live input: on the settings modal the input sat between
- * the settings list and "Submit an Alternate Setting" as the one always-open form on the page, and
- * read as part of whichever section it happened to land next to.
+ * The "alternate names" list. Adding one is AddAliasButton's job, and TuneView places that beside
+ * the alternate-setting button rather than under the list: the two ways of contributing to a tune
+ * belong together, and an always-open input read as part of whichever section it landed next to.
  */
 export function TuneAliases({
-  tuneId,
   aliases,
-  onAdded,
   style,
-  /** False where the caller places the add button itself, e.g. beside the alternate-setting one. */
-  showAddButton = true,
 }: {
-  tuneId: string
   aliases: string[]
-  onAdded: () => void
   style?: React.CSSProperties
-  showAddButton?: boolean
 }) {
   return (
     <div className="modal-section alternate-names-section" style={style}>
@@ -39,16 +29,6 @@ export function TuneAliases({
           ))
         )}
       </div>
-
-      {showAddButton && (
-        <AddAliasButton
-          tuneId={tuneId}
-          aliases={aliases}
-          onAdded={onAdded}
-          className="secondary"
-          style={{ marginTop: '0.75rem' }}
-        />
-      )}
     </div>
   )
 }

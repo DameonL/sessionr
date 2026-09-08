@@ -237,7 +237,6 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
       {showSettingsModal && (
         <TuneSettingsModal
           tuneId={item.tuneId}
-          userId={userId}
           userTuneId={item.userTuneId}
           currentTuneSettingId={item.tuneSettingId}
           isPinnedSetting={item.isPinnedSetting}

@@ -99,7 +99,6 @@ export function GroupRepertoirePanel() {
       {addTuneId !== null && (
         <TuneSettingsModal
           tuneId={addTuneId}
-          userId={userId}
           onClose={() => setAddTuneId(null)}
           onAdded={invalidate}
           onSelectSetting={(settingId) => addGroupTune(groupId, addTuneId, settingId)}

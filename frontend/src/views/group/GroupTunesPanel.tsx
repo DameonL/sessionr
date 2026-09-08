@@ -15,7 +15,7 @@ import { TuneSettingsModal } from '../../components/TuneSettingsModal'
 import { useGroupDetail } from './groupDetailContext'
 
 export function GroupTunesPanel() {
-  const { groupId, userId, isAdmin, details, invalidate } = useGroupDetail()
+  const { groupId, isAdmin, details, invalidate } = useGroupDetail()
 
   const [tuneSearchInput, setTuneSearchInput] = useState('')
   const [submittedTuneSearch, setSubmittedTuneSearch] = useState('')
@@ -128,7 +128,6 @@ export function GroupTunesPanel() {
       {addTuneId !== null && (
         <TuneSettingsModal
           tuneId={addTuneId}
-          userId={userId}
           onClose={() => setAddTuneId(null)}
           onAdded={invalidate}
           onSelectSetting={(settingId) => addGroupTune(groupId, addTuneId, settingId)}
@@ -139,7 +138,6 @@ export function GroupTunesPanel() {
       {settingChangeTarget !== null && (
         <TuneSettingsModal
           tuneId={settingChangeTarget.tuneId}
-          userId={userId}
           onClose={() => setSettingChangeTarget(null)}
           onAdded={invalidate}
           onSelectSetting={(settingId) => updateGroupTune(groupId, settingChangeTarget.groupTuneId, settingId)}

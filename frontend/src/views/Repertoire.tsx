@@ -261,7 +261,6 @@ export function Repertoire() {
       {selectedTuneIdForModal !== null && (
         <TuneSettingsModal
           tuneId={selectedTuneIdForModal}
-          userId={userId}
           onClose={() => setSelectedTuneIdForModal(null)}
           onAdded={invalidate}
         />
