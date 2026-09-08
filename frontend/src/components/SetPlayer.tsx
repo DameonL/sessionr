@@ -231,6 +231,10 @@ export function SetPlayer({
   const totalSecRef = useRef(0);
   const trainerRef = useRef<Trainer | null>(null);
   const currentTrainerBpmRef = useRef<number>(80);
+  /** True while the Speed Trainer, rather than the user, is the one setting the tempo. */
+  const trainerDrivingRef = useRef(false);
+  /** The user's own tempo, put back on the slider once a trainer run ends. */
+  const trainerResumeBpmRef = useRef<number | null>(null);
   const passRef = useRef(1);
 
   const metronome = useMetronomePrefs();
@@ -369,6 +373,10 @@ export function SetPlayer({
   }, [repeat, repeatLimit, bodhran, trainer]);
 
   useEffect(() => {
+    // The Speed Trainer moves the tempo itself, a step at a time. Those are not the user choosing a
+    // tempo for the tune, and saving them would leave the tune sitting at the trainer's target BPM
+    // for good once a run finished.
+    if (trainerDrivingRef.current) return;
     const baseBpm = getTuneBaseBpm(visualObjsRef.current[0], targetBpm, items[0]?.tuneType);
     const tempoPercent = baseBpm > 0 ? Math.round((currentBpm / baseBpm) * 100) : 100;
     saveTunePlaybackPrefs(tuneKey, { tempoPercent, swingPercent, emphasisPercent });
@@ -967,6 +975,13 @@ export function SetPlayer({
     setPassRef.current = 1;
     passRef.current = 1;
     setPassCount(1);
+    if (trainerDrivingRef.current && trainerResumeBpmRef.current !== null) {
+      // Hand the tempo back to the user where they left it. play() sets its own tempo straight
+      // after the stop() it makes between trainer passes, so only a real stop is left showing this.
+      setCurrentBpm(trainerResumeBpmRef.current);
+      trainerResumeBpmRef.current = null;
+    }
+    trainerDrivingRef.current = false;
   }
 
   function pause() {
@@ -1276,7 +1291,12 @@ export function SetPlayer({
     startTune(nextIndex, bpm);
   }
 
-  async function play(targetBpmParam?: number, keepPosition = positionSec > 0) {
+  async function play(
+    targetBpmParam?: number,
+    keepPosition = positionSec > 0,
+    /** Set by the Speed Trainer when it restarts the set a step faster: the pass it is starting. */
+    trainerPass?: number,
+  ) {
     // The controls are hidden until isReady, but fullscreen/keyboard paths and a
     // mid-flight items change can still get here before the staff exists.
     if (!isReady) return;
@@ -1284,7 +1304,19 @@ export function SetPlayer({
     // browser to forget the activation, and without an audible media element the OS never routes
     // headset or media-key presses back to us.
     primeMediaSession();
-    const wasStopped = status === "stopped";
+    /*
+     * Read through the ref, not the `status` state.
+     *
+     * The Speed Trainer restarts the set from a timer callback installed by the play() of an
+     * earlier render — one whose `status` was still "stopped", because setStatus("playing") had not
+     * committed when startTune() closed over it. That stale read made every trainer pass look like
+     * a fresh start, which threw away the stepped-up tempo and put the ladder back on its bottom
+     * rung. statusRef is synced in the render body precisely so deferred callbacks read it fresh.
+     */
+    const wasStopped = statusRef.current === "stopped";
+    // stop() gives the tempo back to the user, and the stop() below is also the one play() makes
+    // between trainer passes — so a run in progress keeps hold of it here.
+    const trainerResumeBpm = trainerResumeBpmRef.current;
     stop(keepPosition);
     const mySession = playSessionRef.current;
     if (wasStopped) {
@@ -1292,13 +1324,18 @@ export function SetPlayer({
     }
     setError(null);
     try {
-      const startingTrainer = trainer.armed && wasStopped;
+      const activeTrainer = trainerRef.current;
+      const startingTrainer = Boolean(activeTrainer?.armed) && wasStopped && trainerPass === undefined;
       let effectiveBpm = targetBpmParam ?? currentBpm;
 
-      if (startingTrainer) {
-        currentTrainerBpmRef.current = trainer.startBpm;
-        effectiveBpm = trainer.startBpm;
+      if (startingTrainer && activeTrainer) {
+        currentTrainerBpmRef.current = activeTrainer.startBpm;
+        effectiveBpm = activeTrainer.startBpm;
+        trainerResumeBpmRef.current = currentBpm;
+      } else if (trainerPass !== undefined) {
+        trainerResumeBpmRef.current = trainerResumeBpm;
       }
+      trainerDrivingRef.current = startingTrainer || trainerPass !== undefined;
 
       // Where the old tempo's timeline put us, as a share of the set, so the same musical spot comes
       // back after the durations are rebuilt at the new one.
@@ -1334,6 +1371,10 @@ export function SetPlayer({
       if (startingTrainer) {
         passRef.current = 1;
         setPassCount(1);
+      } else if (trainerPass !== undefined) {
+        // stop() above cleared the counter; the trainer's own pass count carries on across it.
+        passRef.current = trainerPass;
+        setPassCount(trainerPass);
       }
       startTune(targetIndex, effectiveBpm, targetPass, targetOffsetSec, true, true);
     } catch {
@@ -1526,11 +1567,12 @@ export function SetPlayer({
               stop();
               return undefined;
             }
-            passRef.current++;
-            setPassCount(passRef.current);
-            const nextBpm = Math.min(currentBpmVal + activeTrainer.stepBpm, activeTrainer.targetBpm);
+            // A zero or NaN step would never reach the target, so the ladder would run forever.
+            const step = activeTrainer.stepBpm > 0 ? activeTrainer.stepBpm : 1;
+            const nextBpm = Math.min(currentBpmVal + step, activeTrainer.targetBpm);
             currentTrainerBpmRef.current = nextBpm;
-            play(nextBpm, false);
+            // The pass goes through play(), whose stop() would otherwise reset it to 1.
+            play(nextBpm, false, passRef.current + 1);
             return undefined;
           }
 
