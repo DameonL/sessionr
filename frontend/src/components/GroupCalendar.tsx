@@ -319,9 +319,9 @@ export function GroupCalendar({
           }
 
           if (isRecurring || hasSpecificSession) {
-            bg = 'rgba(77, 208, 165, 0.15)'
+            bg = 'var(--accent-soft)'
           } else if (allCancelled) {
-            bg = 'rgba(148, 148, 148, 0.12)'
+            bg = 'var(--hover-bg)'
           }
 
           if (isSelected) {
@@ -357,7 +357,7 @@ export function GroupCalendar({
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--muted)' }} title="Meeting Cancelled" />
                   )}
                   {hasSpecificSession && (
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6' }} title="Scheduled Session Event" />
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--brand-2)' }} title="Scheduled Session Event" />
                   )}
                 </div>
               )}
@@ -473,7 +473,7 @@ export function GroupCalendar({
                 const isPast = isSessionPast(s.startsAt)
 
                 return (
-                  <div key={s.groupSessionId} style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                  <div key={s.groupSessionId} style={{ padding: '0.65rem 0.75rem', background: 'var(--surface-3)', borderRadius: '6px', borderLeft: '3px solid var(--brand-2)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div>
                         <strong>📍 {s.isCancelled ? '❌ ' : ''}{s.title}</strong> {s.location ? `at ${s.location}` : ''} ({parseServerDate(s.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})

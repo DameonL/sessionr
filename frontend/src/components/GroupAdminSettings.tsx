@@ -272,7 +272,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
           {!showDeleteConfirm ? (
             <button
               type="button"
-              style={{ background: 'var(--danger)', color: '#fff' }}
+              style={{ background: 'var(--danger)', color: 'var(--on-accent)' }}
               onClick={() => setShowDeleteConfirm(true)}
             >
               Delete Group
@@ -309,7 +309,7 @@ export function GroupAdminSettings({ details, userId, isOwner, onSaved }: GroupA
                 </button>
                 <button
                   type="button"
-                  style={{ background: 'var(--danger)', color: '#fff' }}
+                  style={{ background: 'var(--danger)', color: 'var(--on-accent)' }}
                   disabled={!canDelete}
                   onClick={() => deleteMutation.mutate()}
                 >

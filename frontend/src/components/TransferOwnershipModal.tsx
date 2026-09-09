@@ -44,8 +44,8 @@ export function TransferOwnershipModal({
         <div
           className="card"
           style={{
-            background: 'rgba(220, 38, 38, 0.08)',
-            border: '1px solid #dc2626',
+            background: 'var(--danger-soft)',
+            border: '1px solid var(--danger)',
             padding: '1rem',
             margin: '1rem 0',
           }}

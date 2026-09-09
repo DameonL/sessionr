@@ -53,7 +53,7 @@ function HomePage() {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
   if (status === 'pending') {
-    return <div className="spinner-row" style={{ minHeight: '80vh' }}><Spinner /></div>
+    return <div className="spinner-row" style={{ minHeight: '80dvh' }}><Spinner /></div>
   }
   return userId ? <Dashboard /> : <Landing />
 }
@@ -101,7 +101,7 @@ export function App() {
       <Providers>
         <NavBar />
         <main>
-          <Suspense fallback={<div className="spinner-row" style={{ minHeight: '80vh' }}><Spinner /></div>}>
+          <Suspense fallback={<div className="spinner-row" style={{ minHeight: '80dvh' }}><Spinner /></div>}>
             <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<MsalLoginPanel />} />

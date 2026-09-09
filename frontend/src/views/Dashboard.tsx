@@ -86,7 +86,7 @@ export function Dashboard() {
           alignItems: 'center',
           padding: '1rem 1.25rem',
           marginBottom: '1.25rem',
-          background: 'linear-gradient(135deg, rgba(77, 208, 165, 0.15), rgba(59, 130, 246, 0.15))',
+          background: 'linear-gradient(135deg, var(--accent-soft), var(--brand-2-soft))',
           borderLeft: '4px solid var(--accent)',
           borderRadius: '8px',
           flexWrap: 'wrap',
@@ -114,7 +114,7 @@ export function Dashboard() {
           style={{
             padding: '0.85rem 1rem',
             marginBottom: '1.25rem',
-            background: 'rgba(234, 179, 8, 0.15)',
+            background: 'var(--rust-soft)',
             borderLeft: '4px solid var(--learning)',
             borderRadius: '8px',
           }}

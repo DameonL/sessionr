@@ -161,10 +161,10 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
           style={{
             padding: '0.75rem 1.25rem',
             marginBottom: '1rem',
-            background: 'rgba(239, 100, 97, 0.15)',
-            border: '1px solid #ef6461',
+            background: 'var(--danger-soft)',
+            border: '1px solid var(--danger)',
             borderRadius: '8px',
-            color: '#fca5a5',
+            color: 'var(--danger)',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
@@ -230,7 +230,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
       )}
 
       {!isMember && (
-        <div className="card" style={{ background: 'rgba(234, 179, 8, 0.1)', border: '1px solid var(--accent)', padding: '1rem', marginBottom: '1.5rem' }}>
+        <div className="card" style={{ background: 'var(--rust-soft)', border: '1px solid var(--accent)', padding: '1rem', marginBottom: '1.5rem' }}>
           <p style={{ margin: 0, color: 'var(--accent)' }}>
             <strong>Guest View:</strong> You are viewing this group dashboard{showSignedInUi ? '' : ' as a visitor'}.{' '}
             {showSignedInUi ? 'Join the group to share your repertoire and play history.' : (
@@ -304,7 +304,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
                   background: active ? 'var(--surface)' : 'transparent',
                   color: active ? 'var(--text)' : 'var(--muted)',
                   cursor: 'pointer',
-                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
+                  boxShadow: active ? 'var(--shadow-sm)' : 'none',
                   outline: active ? '1px solid var(--accent)' : 'none',
                   transition: 'all 0.15s ease',
                 }}
@@ -319,7 +319,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
                       padding: '0.1rem 0.45rem',
                       borderRadius: '999px',
                       background: active ? 'var(--accent)' : 'var(--border)',
-                      color: active ? '#000' : 'var(--text)',
+                      color: active ? 'var(--on-accent)' : 'var(--text)',
                     }}
                   >
                     {tab.badge}

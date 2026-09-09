@@ -179,8 +179,8 @@ export function PublicProfile({ username }: { username?: string }) {
           style={{
             padding: '1rem 1.25rem',
             marginBottom: '1rem',
-            background: 'rgba(77, 208, 165, 0.15)',
-            border: '1px solid #4dd0a5',
+            background: 'var(--accent-soft)',
+            border: '1px solid var(--accent)',
             borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
@@ -271,7 +271,7 @@ export function PublicProfile({ username }: { username?: string }) {
                     className="secondary"
                     onClick={() => removeFriendMutation.mutate()}
                     disabled={removeFriendMutation.isPending}
-                    style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171' }}
+                    style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
                   >
                     {removeFriendMutation.isPending ? 'Removing…' : '✓ Friends (Unfriend)'}
                   </button>
@@ -293,13 +293,13 @@ export function PublicProfile({ username }: { username?: string }) {
             style={{
               padding: '1rem',
               marginTop: '1rem',
-              background: 'rgba(51, 65, 85, 0.4)',
-              border: '1px solid rgba(77, 208, 165, 0.4)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--accent)',
               borderRadius: '8px',
               fontSize: '0.85rem',
             }}
           >
-            <strong style={{ color: '#4dd0a5' }}>🛡️ Moderator Inspection Details:</strong>
+            <strong style={{ color: 'var(--accent)' }}>🛡️ Moderator Inspection Details:</strong>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
               <div>📧 <strong>Email:</strong> {moderatorDetails.data.email}</div>
               <div>🔑 <strong>User ID:</strong> {moderatorDetails.data.userId}</div>
@@ -363,7 +363,7 @@ export function PublicProfile({ username }: { username?: string }) {
         <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="modal-card" style={{ maxWidth: '550px', width: '100%', padding: '1.75rem' }}>
             <h2 style={{ marginTop: 0 }}>🛡️ Edit User Profile: {displayName}</h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
               Clear or sanitize inappropriate text in this user's profile fields.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '1rem' }}>

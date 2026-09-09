@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from '@/utils/routerCompat'
 import { usePathname } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
@@ -25,6 +25,7 @@ export function NavBar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
   const profile = useSignal(currentUserProfile)
+  const headerRef = useRef<HTMLElement | null>(null)
 
   const links = [...NAV_LINKS]
   if (profile?.isModerator) {
@@ -35,13 +36,33 @@ export function NavBar() {
     setMounted(true)
   }, [])
 
+  /*
+   * Publishes the sticky header's real height as --header-block so CSS can size
+   * against it. The drawer needs it to cap itself at the visible viewport (it is
+   * absolutely positioned, so nothing else bounds it and its lower items become
+   * unreachable on a phone in landscape), and the sticky player toolbar needs it
+   * to offset by. A constant won't do: NetworkStatusBanner sits inside the
+   * header and appears and disappears, and the bar itself shrinks in landscape.
+   */
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const publish = () => {
+      document.documentElement.style.setProperty('--header-block', `${el.offsetHeight}px`)
+    }
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Auto-close mobile drawer on route change
   useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
 
   return (
-    <header className="app-header">
+    <header className={`app-header${mobileOpen ? ' drawer-open' : ''}`} ref={headerRef}>
       <div className="nav-container">
         <Link href="/" className="nav-brand" prefetch={false}>
           <span className="brand-icon"><img src="/favicon-96x96.png" /></span>

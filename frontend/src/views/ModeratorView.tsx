@@ -151,7 +151,7 @@ export function ModeratorView() {
   if (!profile?.isModerator) {
     return (
       <section className="card" style={{ padding: '2rem', textAlign: 'center', margin: '2rem auto', maxWidth: '600px' }}>
-        <h2 style={{ color: '#ef6461' }}>🛡️ Access Restricted</h2>
+        <h2 style={{ color: 'var(--danger)' }}>🛡️ Access Restricted</h2>
         <p>You must be an authenticated Moderator (Azure Entra ID Group member) to view this dashboard.</p>
         <Link href="/" className="nav-pill" style={{ display: 'inline-block', marginTop: '1rem' }}>
           Back to Dashboard
@@ -168,10 +168,10 @@ export function ModeratorView() {
         style={{
           padding: '1.75rem',
           marginBottom: '1.5rem',
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
-          border: '1px solid rgba(77, 208, 165, 0.3)',
+          background: 'var(--auth-panel-bg)',
+          border: '1px solid var(--accent)',
           borderRadius: '12px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          boxShadow: 'var(--shadow-md)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -179,7 +179,7 @@ export function ModeratorView() {
             <h1 style={{ margin: 0, fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span>🛡️ Moderator Command Center</span>
             </h1>
-            <p style={{ margin: '0.5rem 0 0 0', color: '#94a3b8', fontSize: '0.95rem' }}>
+            <p style={{ margin: '0.5rem 0 0 0', color: 'var(--muted)', fontSize: '0.95rem' }}>
               Review recent user submissions, approve pending tunes and groups, inspect private groups, and moderate content.
             </p>
           </div>
@@ -192,7 +192,7 @@ export function ModeratorView() {
       </div>
 
       {/* Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
         <button
           className={`nav-pill ${activeTab === 'tunes' ? 'active' : ''}`}
           onClick={() => setActiveTab('tunes')}
@@ -231,13 +231,13 @@ export function ModeratorView() {
           ) : unreviewedTunes.isError ? (
             <p className="error">Failed to load unreviewed tunes.</p>
           ) : unreviewedTunes.data?.length === 0 ? (
-            <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+            <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
               <p style={{ fontSize: '1.1rem', margin: 0 }}>🎉 All submitted tunes have been reviewed!</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {unreviewedTunes.data?.map((tune) => (
-                <div key={tune.tuneId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #f59e0b' }}>
+                <div key={tune.tuneId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--rust)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
                       <h3 style={{ margin: '0 0 0.25rem 0' }}>
@@ -278,7 +278,7 @@ export function ModeratorView() {
                     </div>
                   </div>
 
-                  <div style={{ marginTop: '1rem', background: '#090d16', padding: '0.75rem', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto' }}>
+                  <div style={{ marginTop: '1rem', background: 'var(--sunken-bg)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto' }}>
                     {tune.masterAbcText}
                   </div>
                 </div>
@@ -296,13 +296,13 @@ export function ModeratorView() {
           ) : unreviewedGroups.isError ? (
             <p className="error">Failed to load unreviewed groups.</p>
           ) : unreviewedGroups.data?.length === 0 ? (
-            <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+            <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
               <p style={{ fontSize: '1.1rem', margin: 0 }}>🎉 All newly created groups have been reviewed!</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {unreviewedGroups.data?.map((group) => (
-                <div key={group.groupId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #3b82f6' }}>
+                <div key={group.groupId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--brand-2)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
                       <h3 style={{ margin: '0 0 0.25rem 0' }}>
@@ -330,7 +330,7 @@ export function ModeratorView() {
                   </div>
 
                   {group.description && (
-                    <p style={{ marginTop: '0.75rem', marginBottom: 0, color: '#cbd5e1', fontSize: '0.9rem' }}>
+                    <p style={{ marginTop: '0.75rem', marginBottom: 0, color: 'var(--muted)', fontSize: '0.9rem' }}>
                       {group.description}
                     </p>
                   )}
@@ -378,16 +378,16 @@ export function ModeratorView() {
       {/* TAB 4: MAINTENANCE */}
       {activeTab === 'maintenance' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #4dd0a5' }}>
+          <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--accent)' }}>
             <h3 style={{ margin: '0 0 0.5rem 0' }}>🎯 Tune identification backfill</h3>
-            <p style={{ margin: '0 0 0.75rem 0', color: '#cbd5e1', fontSize: '0.9rem', lineHeight: 1.5 }}>
+            <p style={{ margin: '0 0 0.75rem 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
               Recomputes the melodic heuristics and match fingerprint for every tune and setting from its
               ABC, then rebuilds the in-memory match index. Every write path already does this for new
               tunes, so this is only needed for rows written before a fingerprint was stored at all, or
               after a release changes how fingerprints are built — a tune keeps whatever was stored when
               it was last written, and a stale fingerprint quietly stops matching.
             </p>
-            <p style={{ margin: '0 0 1rem 0', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.5 }}>
+            <p style={{ margin: '0 0 1rem 0', color: 'var(--muted)', fontSize: '0.85rem', lineHeight: 1.5 }}>
               Safe to re-run — it recomputes from each tune&apos;s existing ABC rather than changing it. It
               rewrites the whole library though, so it can take several minutes on a large one. The
               backfill marks the library as changed, so every server instance rebuilds its index within
@@ -419,7 +419,7 @@ export function ModeratorView() {
               <div
                 style={{
                   marginTop: '1rem',
-                  background: '#090d16',
+                  background: 'var(--sunken-bg)',
                   padding: '0.75rem',
                   borderRadius: '6px',
                   fontSize: '0.85rem',
@@ -430,7 +430,7 @@ export function ModeratorView() {
                 }}
               >
                 {maintenanceLog.map((line, i) => (
-                  <div key={i} style={{ color: line.startsWith('Failed:') ? '#ef6461' : '#cbd5e1' }}>
+                  <div key={i} style={{ color: line.startsWith('Failed:') ? 'var(--danger)' : 'var(--muted)' }}>
                     {line}
                   </div>
                 ))}

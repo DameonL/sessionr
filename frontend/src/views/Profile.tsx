@@ -25,6 +25,40 @@ import { BadgeModal } from '../components/BadgeModal'
 import { QRCodeModal } from '../components/QRCodeModal'
 import { QRScannerModal } from '../components/QRScannerModal'
 import { Spinner } from '../components/Spinner'
+import { setThemePreference, themePreference, type ThemePreference } from '../services/theme'
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'system', label: '🖥️ System' },
+  { value: 'light', label: '☀️ Light' },
+  { value: 'dark', label: '🌙 Dark' },
+]
+
+function AppearanceCard() {
+  const pref = useSignal(themePreference)
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <h2 style={{ marginTop: 0 }}>🎨 Appearance</h2>
+      <p className="tune-meta" style={{ marginTop: 0 }}>
+        Choose a colour theme. “System” follows your device setting.
+      </p>
+      <div className="theme-picker" role="radiogroup" aria-label="Colour theme">
+        {THEME_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={pref === opt.value}
+            className={`theme-option ${pref === opt.value ? 'active' : ''}`}
+            onClick={() => setThemePreference(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function OfflinePreloadCard() {
   const loading = useSignal(isPreloading)
@@ -68,7 +102,7 @@ function OfflinePreloadCard() {
               style={{
                 width: `${status.percent}%`,
                 height: '100%',
-                background: status.error ? '#ef4444' : '#3b82f6',
+                background: status.error ? 'var(--danger)' : 'var(--brand-2)',
                 transition: 'width 0.3s ease',
               }}
             />
@@ -275,6 +309,8 @@ export function Profile() {
 
       <BadgeModal badge={selectedBadge} onClose={() => setSelectedBadge(null)} />
 
+      <AppearanceCard />
+
       {!isEditing ? (
         <div className="card" style={{ padding: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
@@ -316,7 +352,7 @@ export function Profile() {
                 <p className="tune-meta" style={{ margin: '0.25rem 0 0' }}>Checking…</p>
               )}
               {usernameStatus === 'available' && (
-                <p className="tune-meta" style={{ margin: '0.25rem 0 0', color: '#4dd0a5' }}>✓ Available</p>
+                <p className="tune-meta" style={{ margin: '0.25rem 0 0', color: 'var(--accent)' }}>✓ Available</p>
               )}
               {usernameStatus === 'taken' && (
                 <p className="error" style={{ margin: '0.25rem 0 0' }}>✗ That username is already taken.</p>
@@ -411,8 +447,8 @@ export function Profile() {
 
         {/* Pending Requests Sub-section */}
         {pendingRequestsQuery.data && pendingRequestsQuery.data.length > 0 && (
-          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(77, 208, 165, 0.1)', borderRadius: '8px', border: '1px solid rgba(77, 208, 165, 0.3)' }}>
-            <h3 style={{ marginTop: 0, fontSize: '1.05rem', color: '#4dd0a5' }}>
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--accent-soft)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
+            <h3 style={{ marginTop: 0, fontSize: '1.05rem', color: 'var(--accent)' }}>
               📩 Pending Friend Requests ({pendingRequestsQuery.data.length})
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -481,7 +517,7 @@ export function Profile() {
                     className="secondary btn-sm"
                     onClick={() => removeFriendMutation.mutate(friend.userId)}
                     disabled={removeFriendMutation.isPending}
-                    style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#f87171' }}
+                    style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
                   >
                     Unfriend
                   </button>

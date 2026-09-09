@@ -186,7 +186,10 @@ export function QRScannerModal({ isOpen, onClose }: QRScannerModalProps) {
               position: 'relative',
               width: '100%',
               maxWidth: '320px',
-              height: '240px',
+              // Capped against the viewport as well as a fixed size: in landscape
+              // the dialog only has ~300px of height to give away.
+              height: 'min(240px, 40dvh)',
+              // The camera surround stays black in both themes — it frames video.
               background: '#000',
               borderRadius: '12px',
               overflow: 'hidden',
@@ -196,7 +199,7 @@ export function QRScannerModal({ isOpen, onClose }: QRScannerModalProps) {
             }}
           >
             {hasCameraPermission === false ? (
-              <div style={{ padding: '1rem', textAlign: 'center', color: '#cbd5e1' }}>
+              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--muted)' }}>
                 <p>Camera access unavailable or declined.</p>
                 <p style={{ fontSize: '0.85rem' }}>Switching to photo upload mode.</p>
               </div>
@@ -211,7 +214,7 @@ export function QRScannerModal({ isOpen, onClose }: QRScannerModalProps) {
                   style={{
                     position: 'absolute',
                     inset: '20px',
-                    border: '2px dashed #4dd0a5',
+                    border: '2px dashed var(--accent)',
                     borderRadius: '12px',
                     pointerEvents: 'none',
                     boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.4)',

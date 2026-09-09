@@ -6,11 +6,29 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Kept in sync at runtime by services/theme.ts; the value here is the
+         dark --bg token, which is also the pre-script default. -->
     <meta name="theme-color" content="#121212" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="sessionr" />
     <title>sessionr</title>
+    <script>
+      // Runs before the stylesheet paints, so an explicit light/dark choice does
+      // not flash the other palette on load. Mirrors services/theme.ts, which
+      // takes over once the bundle is up. 'system' leaves the attribute off so
+      // the prefers-color-scheme block in index.css applies.
+      (function () {
+        try {
+          var pref = localStorage.getItem('sessionapp.theme');
+          if (pref === 'light' || pref === 'dark') {
+            document.documentElement.setAttribute('data-theme', pref);
+          }
+        } catch (e) {
+          /* storage blocked — fall back to the OS preference */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

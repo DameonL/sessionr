@@ -32,6 +32,8 @@ export function QRCodeModal({
     QRCode.toDataURL(url, {
       width: 400,
       margin: 2,
+      // Deliberately outside the theme: a QR code has to stay dark-on-white to
+      // scan reliably, so it keeps its own plate in both palettes.
       color: {
         dark: '#0f172a',
         light: '#ffffff',
@@ -76,9 +78,10 @@ export function QRCodeModal({
           <div
             style={{
               padding: '1rem',
+              // The white plate the code is printed on — see the note above.
               background: '#ffffff',
               borderRadius: '12px',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+              boxShadow: 'var(--shadow-sm)',
               display: 'inline-flex',
               justifyContent: 'center',
               alignItems: 'center',
@@ -131,6 +134,7 @@ export function QRCodeModal({
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
+            // Full-screen scan mode stays white in both themes, for the same reason.
             background: '#ffffff',
             display: 'flex',
             flexDirection: 'column',
@@ -147,7 +151,7 @@ export function QRCodeModal({
             <img
               src={dataUrl}
               alt="QR Code Fullscreen"
-              style={{ width: '85vw', maxWidth: '360px', height: 'auto', aspectRatio: '1/1' }}
+              style={{ width: 'min(85vw, 60dvh)', maxWidth: '360px', height: 'auto', aspectRatio: '1/1' }}
             />
           )}
           <p style={{ color: '#64748b', marginTop: '1.5rem', fontSize: '0.9rem' }}>
