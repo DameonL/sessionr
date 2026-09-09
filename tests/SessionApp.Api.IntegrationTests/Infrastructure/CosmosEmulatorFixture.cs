@@ -75,6 +75,10 @@ public sealed class CosmosEmulatorFixture : IAsyncLifetime
         services.AddSingleton<TuneHeuristics>();
         services.AddSingleton<TuneMatchIndex>();
         services.AddHttpClient();
+        // As Program.cs registers it. With no CloudflareCacheToken in the environment it makes no
+        // HTTP call at all — but the endpoints that purge the edge cache cannot be constructed
+        // without it, and every one of them failed to activate here before it was registered.
+        services.AddSingleton<ICloudflareCachePurgeService, CloudflareCachePurgeService>();
         services.AddScoped<GamificationService>();
         _services = services.BuildServiceProvider();
 

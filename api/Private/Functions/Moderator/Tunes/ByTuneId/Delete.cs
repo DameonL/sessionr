@@ -36,6 +36,8 @@ public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
         await LibraryStatsSupport.DecrementTuneCountAsync(db);
 
         var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
+        // The repertoire and group rows outlive the tune here, so the sets are still findable.
+        await SetCachePurge.PurgeSetsContainingTuneAsync(db, purgeService, tuneId);
 
         return new OkObjectResult(new { success = true, cloudflarePurgeResponse = purgeResult.IsSuccess ? null : purgeResult });
     }

@@ -11,7 +11,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Sets.BySetId;
 
-public class Put(AppDbContext db, SetAnalyzer analyzer)
+public class Put(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PUT /api/sets/{setId} — replace the set's title and tune order.</summary>
     [Function("UpdateSet")]
@@ -32,7 +32,7 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
         }
 
         var body = await req.ReadFromJsonAsync<SaveSetRequest>();
-        var postHelper = new Post(db, analyzer);
+        var postHelper = new Post(db, analyzer, purgeService);
         var validation = await postHelper.ValidateSaveRequest(body, callerUserId.Value);
         if (validation is not null)
         {
@@ -45,6 +45,8 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
         db.SetItems.RemoveRange(existingItems);
         Post.ApplyItems(db, set, body.Items);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeSetAsync(setId);
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, setId);
     }

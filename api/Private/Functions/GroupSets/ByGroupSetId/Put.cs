@@ -10,7 +10,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.GroupSets.ByGroupSetId;
 
-public class Put(AppDbContext db, SetAnalyzer analyzer)
+public class Put(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PUT /api/groupsets/{groupSetId} — replace the set's title and tune order. Admin/owner only.</summary>
     [Function("UpdateGroupSet")]
@@ -30,7 +30,7 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
             return new NotFoundResult();
         }
 
-        var postHelper = new Groups.ByGroupId.Sets.Post(db, analyzer);
+        var postHelper = new Groups.ByGroupId.Sets.Post(db, analyzer, purgeService);
         var (validationResult, body) = await postHelper.ValidateSaveRequest(req, groupSet.GroupId, callerUserId.Value);
         if (validationResult is not null)
         {
@@ -43,6 +43,8 @@ public class Put(AppDbContext db, SetAnalyzer analyzer)
         db.GroupSetItems.RemoveRange(existingItems);
         Groups.ByGroupId.Sets.Post.ApplyItems(db, groupSet, body.Items);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeGroupSetAsync(groupSetId, groupSet.GroupId);
 
         return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSetId, callerUserId.Value);
     }

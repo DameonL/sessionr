@@ -20,6 +20,9 @@ public interface ICloudflareCachePurgeService
     Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeGroupSetsAsync(IEnumerable<Guid> groupSetIds, Guid? groupId = null, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeSetAsync(Guid setId, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeSetsAsync(IEnumerable<Guid> setIds, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default);
 }
 
@@ -130,13 +133,41 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
 
     public Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default)
     {
-        var urls = new List<string> { $"/api/groups/sets/{groupSetId}" };
+        // The route is /api/groupsets/{id} — this asked for /api/groups/sets/{id}, a path the API has
+        // never served, so the call purged nothing even where it was made.
+        var urls = new List<string> { $"/api/groupsets/{groupSetId}" };
         if (groupId.HasValue)
         {
             urls.Add($"/api/groups/{groupId.Value}/sets");
             urls.Add($"/api/groups/{groupId.Value}");
         }
         return PurgeUrlsAsync(urls, cancellationToken);
+    }
+
+    public Task<CloudflarePurgeResult> PurgeGroupSetsAsync(IEnumerable<Guid> groupSetIds, Guid? groupId = null, CancellationToken cancellationToken = default)
+    {
+        var urls = groupSetIds.Distinct().Select(id => $"/api/groupsets/{id}").ToList();
+        if (groupId.HasValue)
+        {
+            urls.Add($"/api/groups/{groupId.Value}/sets");
+            urls.Add($"/api/groups/{groupId.Value}");
+        }
+        return PurgeUrlsAsync(urls, cancellationToken);
+    }
+
+    /// <summary>
+    /// A set's public read, which the app uses even for the owner's own sets. It is worth purging on
+    /// create as well as on edit: the caching middleware stamps its long s-maxage before the handler
+    /// runs, so the 404 for a set that did not exist yet is held just as long as the set itself.
+    /// </summary>
+    public Task<CloudflarePurgeResult> PurgeSetAsync(Guid setId, CancellationToken cancellationToken = default)
+    {
+        return PurgeUrlsAsync(new[] { $"/api/sets/{setId}" }, cancellationToken);
+    }
+
+    public Task<CloudflarePurgeResult> PurgeSetsAsync(IEnumerable<Guid> setIds, CancellationToken cancellationToken = default)
+    {
+        return PurgeUrlsAsync(setIds.Distinct().Select(id => $"/api/sets/{id}"), cancellationToken);
     }
 
     public Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default)

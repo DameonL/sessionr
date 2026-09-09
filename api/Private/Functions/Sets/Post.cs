@@ -13,7 +13,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Sets;
 
-public class Post(AppDbContext db, SetAnalyzer analyzer)
+public class Post(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/sets — create a set from an ordered list of repertoire tunes.</summary>
     [Function("CreateSet")]
@@ -37,6 +37,10 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
         db.Sets.Add(set);
         ApplyItems(db, set, body.Items);
         await db.SaveChangesAsync();
+
+        // The set reads from the public API, whose 404 for an id that did not exist yet is cached
+        // for as long as the set would have been.
+        await purgeService.PurgeSetAsync(set.SetId);
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, set.SetId);
     }

@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Sets.BySetId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/sets/{setId}</summary>
     [Function("DeleteSet")]
@@ -29,8 +30,14 @@ public class Delete(AppDbContext db)
             return new NotFoundResult();
         }
 
+        // No cascade delete in Cosmos — the set's items are separate documents, and were being left
+        // behind pointing at a set that no longer exists.
+        var items = await db.SetItems.Where(si => si.SetId == setId).ToListAsync();
+        db.SetItems.RemoveRange(items);
         db.Sets.Remove(set);
         await db.SaveChangesAsync();
+
+        await purgeService.PurgeSetAsync(setId);
         return new NoContentResult();
     }
 }

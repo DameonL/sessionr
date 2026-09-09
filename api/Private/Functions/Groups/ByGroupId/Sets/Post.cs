@@ -14,7 +14,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Sets;
 
-public class Post(AppDbContext db, SetAnalyzer analyzer)
+public class Post(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/sets — create a set list from the group's master tune list. Admin/owner only.</summary>
     [Function("CreateGroupSet")]
@@ -41,6 +41,10 @@ public class Post(AppDbContext db, SetAnalyzer analyzer)
 
         await RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupSetCreated,
             new GroupFeedTitlePayload(groupSet.Title));
+
+        // Anyone not signed in reads the group's sets through the public API, where the list — and
+        // the 404 for a set id that did not exist yet — is cached at the edge for a month.
+        await purgeService.PurgeGroupSetAsync(groupSet.GroupSetId, groupId);
 
         return await GroupSetSupport.LoadedSetResultAsync(db, analyzer, groupSet.GroupSetId, callerUserId.Value);
     }

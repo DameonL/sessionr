@@ -37,6 +37,8 @@ public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
 
         var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
+        // Anyone whose set was pinned to the deleted setting now sees different music in it.
+        await SetCachePurge.PurgeSetsContainingTuneAsync(db, purgeService, tuneId);
 
         return new OkObjectResult(new { success = true, cloudflarePurgeResponse = purgeResult.IsSuccess ? null : purgeResult });
     }

@@ -15,7 +15,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Repertoire.Items.ByUserTuneId;
 
-public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService gamification)
+public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService gamification, ICloudflareCachePurgeService purgeService)
 {
     private static readonly TimeSpan TuneLearnedMergeWindow = TimeSpan.FromMinutes(30);
     private const int TuneLearnedDedupeLookback = 20;
@@ -95,6 +95,13 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
         }
 
         await db.SaveChangesAsync();
+
+        // A set's cached copy carries this tune's ABC and key, so a setting switch or a custom
+        // setting leaves every set the tune sits in showing the old music.
+        if (body.CustomAbcText is not null || body.ClearTuneSetting || body.TuneSettingId is not null)
+        {
+            await SetCachePurge.PurgeSetsForUserTunesAsync(db, purgeService, new[] { userTuneId });
+        }
 
         if (previousStatus != TuneStatus.Active && userTune.Status == TuneStatus.Active)
         {

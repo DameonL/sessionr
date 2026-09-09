@@ -12,6 +12,9 @@ using Xunit;
 
 namespace SessionApp.Api.UnitTests.Services;
 
+// The credentials come out of the environment, which is process-wide: this keeps these tests from
+// running alongside the endpoint tests that set the same variables.
+[Collection("CloudflareEnv")]
 public class CloudflareCachePurgeServiceTests
 {
     private class MockHttpMessageHandler : HttpMessageHandler
@@ -170,4 +173,79 @@ public class CloudflareCachePurgeServiceTests
         Assert.Single(prefixes);
         Assert.Equal($"api-public.sessionr.org/api/tunes/{tuneId}", prefixes[0]);
     }
+
+    [Fact]
+    public async Task PurgeSetAsync_PurgesTheSetsPublicUrl()
+    {
+        var service = ConfiguredService(out var handler);
+        var setId = Guid.NewGuid();
+
+        await service.PurgeSetAsync(setId);
+
+        Assert.Equal(new[] { $"api-public.sessionr.org/api/sets/{setId}" }, Prefixes(handler));
+    }
+
+    [Fact]
+    public async Task PurgeSetsAsync_PurgesEveryDistinctSetInOneCall()
+    {
+        var service = ConfiguredService(out var handler);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        await service.PurgeSetsAsync(new[] { first, second, first });
+
+        Assert.Single(handler.SentRequests);
+        Assert.Equal(
+            new[] { $"api-public.sessionr.org/api/sets/{first}", $"api-public.sessionr.org/api/sets/{second}" },
+            Prefixes(handler));
+    }
+
+    /// <summary>
+    /// The route is /api/groupsets/{id}. This asked for /api/groups/sets/{id} — a path the API has
+    /// never served — so a group set's cached copy survived every purge aimed at it.
+    /// </summary>
+    [Fact]
+    public async Task PurgeGroupSetAsync_UsesTheRouteTheApiActuallyServes()
+    {
+        var service = ConfiguredService(out var handler);
+        var groupSetId = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+
+        await service.PurgeGroupSetAsync(groupSetId, groupId);
+
+        var prefixes = Prefixes(handler);
+        Assert.Contains($"api-public.sessionr.org/api/groupsets/{groupSetId}", prefixes);
+        Assert.Contains($"api-public.sessionr.org/api/groups/{groupId}/sets", prefixes);
+        Assert.DoesNotContain(prefixes, p => p!.Contains("/api/groups/sets/"));
+    }
+
+    [Fact]
+    public async Task PurgeGroupSetsAsync_PurgesEverySetAndTheGroupsList()
+    {
+        var service = ConfiguredService(out var handler);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+
+        await service.PurgeGroupSetsAsync(new[] { first, second }, groupId);
+
+        var prefixes = Prefixes(handler);
+        Assert.Contains($"api-public.sessionr.org/api/groupsets/{first}", prefixes);
+        Assert.Contains($"api-public.sessionr.org/api/groupsets/{second}", prefixes);
+        Assert.Contains($"api-public.sessionr.org/api/groups/{groupId}/sets", prefixes);
+    }
+
+    private static CloudflareCachePurgeService ConfiguredService(out MockHttpMessageHandler handler)
+    {
+        Environment.SetEnvironmentVariable("CloudflareCacheToken", "test_token");
+        Environment.SetEnvironmentVariable("CloudflareZoneId", "11112222333344445555666677778888");
+        handler = new MockHttpMessageHandler();
+        return new CloudflareCachePurgeService(new HttpClient(handler), NullLogger<CloudflareCachePurgeService>.Instance);
+    }
+
+    private static List<string?> Prefixes(MockHttpMessageHandler handler) =>
+        handler.RequestBodies
+            .SelectMany(body => JsonDocument.Parse(body).RootElement.GetProperty("prefixes").EnumerateArray())
+            .Select(e => e.GetString())
+            .ToList();
 }

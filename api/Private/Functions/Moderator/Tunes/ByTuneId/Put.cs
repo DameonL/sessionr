@@ -55,6 +55,8 @@ public class Put(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePur
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
 
         await purgeService.PurgeTuneAsync(tuneId);
+        // Sets carry a copy of the title, key and ABC being edited here, not a reference to them.
+        await SetCachePurge.PurgeSetsContainingTuneAsync(db, purgeService, tuneId);
 
         return new OkObjectResult(new UnreviewedTunes.Get.ModeratorTuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.MasterAbcText, tune.IsReviewed, tune.ReviewedAt, tune.ReviewedBy, tune.CreatedAt));
     }

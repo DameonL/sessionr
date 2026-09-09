@@ -6,11 +6,12 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Tunes.ByGroupTuneId;
 
-public class Patch(AppDbContext db)
+public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PATCH /api/groups/{groupId}/tunes/{groupTuneId} — update setting on a group tune. Admin/Owner only.</summary>
     [Function("UpdateGroupTune")]
@@ -35,6 +36,9 @@ public class Patch(AppDbContext db)
         groupTune.TuneSettingId = body?.TuneSettingId;
 
         await db.SaveChangesAsync();
+
+        // Every set holding this tune shows the setting's key and ABC, not a reference to it.
+        await SetCachePurge.PurgeGroupSetsForGroupTuneAsync(db, purgeService, groupId, groupTuneId);
         return new OkObjectResult(new { groupTune.GroupTuneId, groupTune.TuneSettingId });
     }
 }
