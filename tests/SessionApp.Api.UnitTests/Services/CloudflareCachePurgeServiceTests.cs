@@ -235,6 +235,74 @@ public class CloudflareCachePurgeServiceTests
         Assert.Contains($"api-public.sessionr.org/api/groups/{groupId}/sets", prefixes);
     }
 
+    [Fact]
+    public async Task PurgeUserProfileAsync_PurgesTheUrlTheProfileIsActuallyServedFrom()
+    {
+        // Regression: this purged /api/users/{username}/profile, but the route is
+        // users/by-username/{username}/profile — no URL matched, so the profile document was never
+        // invalidated and a rename or a moderator sanitize served stale for the full 30-day TTL.
+        var service = ConfiguredService(out var handler);
+
+        await service.PurgeUserProfileAsync("nora-reel");
+
+        Assert.Contains("api-public.sessionr.org/api/users/by-username/nora-reel/profile", Prefixes(handler));
+    }
+
+    [Fact]
+    public async Task PurgeUserProfileAsync_PurgesTheIdKeyedReadsAlongsideIt()
+    {
+        var service = ConfiguredService(out var handler);
+        var userId = Guid.NewGuid();
+
+        await service.PurgeUserProfileAsync("nora-reel", userId);
+
+        var prefixes = Prefixes(handler);
+        Assert.Contains($"api-public.sessionr.org/api/users/{userId}/active-tunes", prefixes);
+        Assert.Contains($"api-public.sessionr.org/api/users/{userId}/gamification", prefixes);
+    }
+
+    [Fact]
+    public async Task PurgeUserSetsAsync_PurgesThePublicSetListUrl()
+    {
+        var service = ConfiguredService(out var handler);
+
+        await service.PurgeUserSetsAsync(new[] { "nora-reel", "nora-reel", "sean-fiddle" });
+
+        Assert.Equal(
+            new[]
+            {
+                "api-public.sessionr.org/api/users/by-username/nora-reel/sets",
+                "api-public.sessionr.org/api/users/by-username/sean-fiddle/sets",
+            },
+            Prefixes(handler));
+    }
+
+    [Fact]
+    public async Task PurgeGroupDetailAsync_PurgesOnlyThatGroup()
+    {
+        // The whole point of this method over PurgeGroupAsync: "/api/groups" is a prefix of every
+        // group URL in the zone, so emitting it would invalidate every group on a single RSVP.
+        var service = ConfiguredService(out var handler);
+        var groupId = Guid.NewGuid();
+
+        await service.PurgeGroupDetailAsync(groupId);
+
+        var prefixes = Prefixes(handler);
+        Assert.Equal(new[] { $"api-public.sessionr.org/api/groups/{groupId}" }, prefixes);
+        Assert.DoesNotContain("api-public.sessionr.org/api/groups", prefixes);
+    }
+
+    [Fact]
+    public async Task PurgeGamificationAsync_PurgesOnlyTheGamificationUrl()
+    {
+        var service = ConfiguredService(out var handler);
+        var userId = Guid.NewGuid();
+
+        await service.PurgeGamificationAsync(userId);
+
+        Assert.Equal(new[] { $"api-public.sessionr.org/api/users/{userId}/gamification" }, Prefixes(handler));
+    }
+
     private static CloudflareCachePurgeService ConfiguredService(out MockHttpMessageHandler handler)
     {
         Environment.SetEnvironmentVariable("CloudflareCacheToken", "test_token");

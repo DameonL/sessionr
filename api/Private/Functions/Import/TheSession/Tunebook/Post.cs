@@ -13,7 +13,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Import.TheSession.Tunebook;
 
-public class Post(AppDbContext db, TheSessionImportService importService, ILogger<Post> logger)
+public class Post(AppDbContext db, TheSessionImportService importService, ILogger<Post> logger, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>
     /// POST /api/import/thesession/tunebook — bulk-import a member's whole
@@ -89,6 +89,7 @@ public class Post(AppDbContext db, TheSessionImportService importService, ILogge
                         Status = TuneStatus.Learning,
                         TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
                     });
+                    // See Repertoire/Post.cs: the count is knowingly left stale on the tune list.
                     tune.RepertoireCount++;
                     await db.SaveChangesAsync();
 
@@ -105,6 +106,12 @@ public class Post(AppDbContext db, TheSessionImportService importService, ILogge
         logger.LogInformation(
             "Tunebook import for member {MemberId}: {Found} found, {Imported} imported, {Added} added",
             memberId, entries.Count, imported, added);
+
+        // Once for the whole import, not once per tune: this loop upserts up to maxTunes of them.
+        if (imported > 0)
+        {
+            await purgeService.PurgeAllTunesAsync();
+        }
 
         return new OkObjectResult(result with
         {

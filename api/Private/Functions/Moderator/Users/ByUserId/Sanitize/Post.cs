@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Moderator.Users.ByUserId.Sanitize;
 
 [RequireModerator]
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     public record SanitizeProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments);
 
@@ -44,6 +45,10 @@ public class Post(AppDbContext db)
         if (body.Instruments is not null) user.Instruments = string.IsNullOrWhiteSpace(body.Instruments) ? null : body.Instruments.Trim();
 
         await db.SaveChangesAsync();
+
+        // Without this the offending text keeps being served from the edge for the full 30 days,
+        // which rather defeats the point of sanitizing it.
+        await UserCachePurge.PurgeProfileAsync(db, purgeService, user.UserId);
 
         var groupCount = await db.GroupMemberships.Where(gm => gm.UserId == userId).Select(gm => gm.GroupMembershipId).CosmosCountAsync();
         var tuneCount = await db.UserTunes.Where(ut => ut.UserId == userId).Select(ut => ut.UserTuneId).CosmosCountAsync();

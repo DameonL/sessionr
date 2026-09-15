@@ -20,6 +20,7 @@ import {
 import { currentUserId, useSignal } from '../state/appState'
 import { parseSuggestionReason } from '../services/suggestions'
 import { Spinner } from '../components/Spinner'
+import { compareTitles } from '../services/titleSort'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
 const SetPlayer = lazy(() => import('../components/SetPlayer').then((m) => ({ default: m.SetPlayer })))
@@ -50,7 +51,11 @@ export function SetBuilder() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft | null>(null)
 
-  const sets = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
+  const setsQuery = useQuery({ queryKey: ['sets', userId], queryFn: () => getSets(), enabled: !!userId })
+  const sets = useMemo(
+    () => [...(setsQuery.data ?? [])].sort((a, b) => compareTitles(a.title, b.title)),
+    [setsQuery.data],
+  )
   const repertoire = useQuery({
     queryKey: ['repertoire', userId],
     queryFn: getFullRepertoire,
@@ -117,8 +122,8 @@ export function SetBuilder() {
       <h1>Set Builder</h1>
       <button onClick={() => setDraft({ setId: null, title: '', items: [], isCustomTitle: false })}>+ New set</button>
 
-      {sets.isPending && <div className="spinner-row"><Spinner /></div>}
-      {(sets.data ?? []).map((set) => (
+      {setsQuery.isPending && <div className="spinner-row"><Spinner /></div>}
+      {sets.map((set) => (
         <div key={set.setId} className="card set-card">
           <div className="set-header">
             <h2>
@@ -156,7 +161,7 @@ export function SetBuilder() {
           </div>
         </div>
       ))}
-      {!sets.isPending && (sets.data ?? []).length === 0 && (
+      {!setsQuery.isPending && sets.length === 0 && (
         <p>No sets yet — build your first medley.</p>
       )}
     </section>

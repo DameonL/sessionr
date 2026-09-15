@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Moderator.Tunes.Aliases.ByAliasId;
 
 [RequireModerator]
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/moderator/tunes/aliases/{aliasId} — delete a tune alias.</summary>
     [Function("ModeratorDeleteTuneAlias")]
@@ -30,8 +31,13 @@ public class Delete(AppDbContext db)
             return new NotFoundResult();
         }
 
+        var tuneId = alias.TuneId;
         db.TuneAliases.Remove(alias);
         await db.SaveChangesAsync();
+
+        // Aliases are part of the tune's cached detail payload.
+        await purgeService.PurgeTuneAsync(tuneId);
+
         return new NoContentResult();
     }
 }

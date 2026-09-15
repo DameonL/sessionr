@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.GroupFeedSupport;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Tunes;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/tunes — add a master tune to the group's repertoire.</summary>
     [Function("AddGroupTune")]
@@ -59,6 +60,7 @@ public class Post(AppDbContext db)
         await RecordGroupTuneChangeAsync(db, groupId, callerUserId.Value, GroupFeedEventType.GroupTuneAdded, body.TuneId);
 
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         var setting = body.TuneSettingId.HasValue
             ? await db.TuneSettings.AsNoTracking().SingleOrDefaultAsync(s => s.TuneSettingId == body.TuneSettingId.Value)

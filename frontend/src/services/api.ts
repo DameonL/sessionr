@@ -1394,6 +1394,9 @@ export interface PublicUserProfile {
   bio: string | null
   location: string | null
   instruments: string | null
+  /** Counts carried here so the profile tabs can be labelled without fetching either list. */
+  activeTuneCount: number
+  setCount: number
 }
 
 export const getPublicUserProfile = (username: string) =>

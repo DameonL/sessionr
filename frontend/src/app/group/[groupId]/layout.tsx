@@ -9,6 +9,7 @@ import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../
 import { GroupDetailProvider } from '../../../views/group/groupDetailContext'
 import { QRCodeModal } from '../../../components/QRCodeModal'
 import { Spinner } from '../../../components/Spinner'
+import { TabNav, type Tab } from '../../../components/TabNav'
 
 export default function GroupDetailLayout({ children }: { children: React.ReactNode }) {
   const { groupId } = useParams<{ groupId: string }>()
@@ -139,7 +140,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
   }
 
   const base = `/group/${groupId}`
-  const tabs: { href: string; label: string; icon: string; badge?: number }[] = [
+  const tabs: Tab[] = [
     { href: base, label: 'Overview & Calendar', icon: '📅' },
     { href: `${base}/tunes`, label: 'Master Tune List', icon: '🎵', badge: details.masterTunes.length },
     { href: `${base}/sets`, label: 'Set Lists', icon: '🎼' },
@@ -242,94 +243,7 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
         </div>
       )}
 
-      {/* Responsive Group Navigation Menu */}
-      <nav className="group-detail-nav" aria-label="Group Details Section Navigation" style={{ marginBottom: '1.75rem' }}>
-        {/* Mobile Section Picker Dropdown */}
-        <div className="mobile-tab-select" style={{ marginBottom: '0.75rem' }}>
-          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '0.35rem' }}>
-            Jump to section:
-          </label>
-          <select
-            value={tabs.find((t) => t.href === pathname)?.href ?? base}
-            onChange={(e) => router.push(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.6rem 0.85rem',
-              fontSize: '0.95rem',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-              background: 'var(--surface-2)',
-              color: 'var(--text)',
-            }}
-          >
-            {tabs.map((tab) => (
-              <option key={tab.href} value={tab.href}>
-                {tab.icon} {tab.label}{tab.badge !== undefined ? ` (${tab.badge})` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Desktop / Responsive Segmented Pill Navigation Bar */}
-        <div
-          className="group-tabs-pills"
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '0.4rem',
-            padding: '0.35rem',
-            background: 'var(--surface-2)',
-            borderRadius: '10px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          {tabs.map((tab) => {
-            const active = pathname === tab.href
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                prefetch={false}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  padding: '0.5rem 0.85rem',
-                  fontSize: '0.9rem',
-                  fontWeight: active ? 600 : 400,
-                  borderRadius: '7px',
-                  border: 'none',
-                  textDecoration: 'none',
-                  background: active ? 'var(--surface)' : 'transparent',
-                  color: active ? 'var(--text)' : 'var(--muted)',
-                  cursor: 'pointer',
-                  boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                  outline: active ? '1px solid var(--accent)' : 'none',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
-                {tab.badge !== undefined && (
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      padding: '0.1rem 0.45rem',
-                      borderRadius: '999px',
-                      background: active ? 'var(--accent)' : 'var(--border)',
-                      color: active ? 'var(--on-accent)' : 'var(--text)',
-                    }}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
-        </div>
-      </nav>
+      <TabNav tabs={tabs} activeHref={pathname} fallbackHref={base} label="Group Details" />
 
       <GroupDetailProvider
         value={{ groupId, userId, details, viewer, isAdmin, isMember, isOwner, isModerator, showSignedInUi, invalidate }}

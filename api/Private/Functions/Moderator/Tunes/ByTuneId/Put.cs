@@ -55,6 +55,9 @@ public class Put(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePur
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
 
         await purgeService.PurgeTuneAsync(tuneId);
+        // The library list and every search result carry the title and key too, so purging only the
+        // tune's own page left the old title on show for the full edge TTL.
+        await purgeService.PurgeAllTunesAsync();
         // Sets carry a copy of the title, key and ABC being edited here, not a reference to them.
         await SetCachePurge.PurgeSetsContainingTuneAsync(db, purgeService, tuneId);
 

@@ -12,7 +12,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Repertoire.Items.ByUserTuneId.Practiced;
 
-public class Post(AppDbContext db, GamificationService gamification)
+public class Post(AppDbContext db, GamificationService gamification, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/repertoire/items/{userTuneId}/practiced — log a practice event for a tune.</summary>
     [Function("MarkPracticed")]
@@ -92,6 +92,10 @@ public class Post(AppDbContext db, GamificationService gamification)
                     await GroupFeedSupport.RecordUserMilestoneAsync(db, callerUserId.Value, GroupFeedEventType.BadgeEarned, new BadgeEarnedPayload(badgeKey, GamificationService.BadgeLabel(badgeKey)));
                 }
             }
+
+            // Points move on every log, not just when a badge is won, so this is unconditional. It
+            // purges the one gamification URL and nothing else — this is the app's busiest write.
+            await purgeService.PurgeGamificationAsync(callerUserId.Value);
 
             return new OkObjectResult(new MarkPracticedResponseDto(userTune.UserTuneId, userTune.LastPracticed, newBadges.ToList()));
         }

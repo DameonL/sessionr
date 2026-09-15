@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -128,7 +129,12 @@ public class Get(AppDbContext db)
             ))
             .ToList();
 
-        var feed = await BuildGroupFeedAsync(db, groupId);
+        // Deliberately empty on the anonymous path. The feed is the one part of this payload that
+        // moves on ordinary member activity — a practice log writes milestones into it — and this
+        // response is held at the edge for 30 days, so carrying it would mean purging every group a
+        // user belongs to on the app's most frequent write. Signed-in members read the private copy
+        // of this endpoint, which still builds it.
+        var feed = new List<GroupFeedEventDto>();
 
         var updates = updateEntities
             .Select(gu => new GroupUpdateDto(

@@ -1,38 +1,44 @@
 "use client";
 
 import { useState } from 'react'
-
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
-import { useSearchParams } from '@/utils/routerCompat'
+import { usePathname, useParams, useSearchParams } from '@/utils/routerCompat'
 import {
   acceptFriendRequest,
   cancelFriendRequest,
   declineFriendRequest,
-  formatTuneType,
   getFriendshipStatus,
   getModeratorUserDetails,
-  getPublicActiveTunes,
   getPublicGamificationSummary,
   getPublicUserProfile,
-  getPublicUserSets,
   removeFriend,
   sanitizeUserProfile,
   sendFriendRequest,
   type UserBadge,
-} from '../services/api'
-import { getBadgeInfo } from '../services/badges'
-import { currentUserProfile, useSignal, showToast } from '../state/appState'
-import { BadgeModal } from '../components/BadgeModal'
-import { QRCodeModal } from '../components/QRCodeModal'
-import { Spinner } from '../components/Spinner'
+} from '../../../services/api'
+import { currentUserProfile, useSignal, showToast } from '../../../state/appState'
+import { BadgeModal } from '../../../components/BadgeModal'
+import { QRCodeModal } from '../../../components/QRCodeModal'
+import { Spinner } from '../../../components/Spinner'
+import { TabNav, type Tab } from '../../../components/TabNav'
+import { PublicProfileProvider } from '../../../views/profile/publicProfileContext'
 
-/** Bookmarkable public profile page: /profile/{username} */
-export function PublicProfile({ username }: { username?: string }) {
+/**
+ * Bookmarkable public profile: /profile/{username}, with the musician's tunes and sets on their own
+ * sub-routes. The identity header and the friend/moderator actions stay put across the tabs.
+ *
+ * The lists themselves are fetched by their own panels, not here. Prefetching both to label the
+ * tabs cost up to ~15 KB gzipped on a view most people never click past; the profile payload
+ * carries the two counts instead.
+ */
+export default function PublicProfileLayout({ children }: { children: React.ReactNode }) {
+  const { username } = useParams<{ username: string }>()
   const slug = username ?? ''
   const viewerProfile = useSignal(currentUserProfile)
   const isViewerModerator = !!viewerProfile?.isModerator
   const queryClient = useQueryClient()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const isAddFriendAction = searchParams.get('action') === 'add-friend'
 
@@ -122,22 +128,6 @@ export function PublicProfile({ username }: { username?: string }) {
     enabled: !!resolvedUserId,
   })
 
-  const activeTunes = useQuery({
-    queryKey: ['public-active-tunes', resolvedUserId],
-    queryFn: () => getPublicActiveTunes(resolvedUserId!),
-    retry: false,
-    enabled: !!resolvedUserId,
-  })
-
-  // Keyed on the slug rather than the resolved id: the username is what makes a profile public, and
-  // so is what gates the sets behind it.
-  const sets = useQuery({
-    queryKey: ['public-user-sets', slug],
-    queryFn: () => getPublicUserSets(slug),
-    retry: false,
-    enabled: !!slug,
-  })
-
   const sanitizeMutation = useMutation({
     mutationFn: () =>
       sanitizeUserProfile(resolvedUserId!, {
@@ -167,12 +157,11 @@ export function PublicProfile({ username }: { username?: string }) {
     )
   }
 
-  const { displayName, bio, location, instruments } = profile.data
-  const isEmpty = !bio && !location && !instruments
+  const { displayName, location, instruments } = profile.data
 
   const handleOpenSanitize = () => {
     setSanName(displayName)
-    setSanBio(bio ?? '')
+    setSanBio(profile.data.bio ?? '')
     setSanLoc(location ?? '')
     setSanInst(instruments ?? '')
     setShowSanitizeModal(true)
@@ -180,6 +169,13 @@ export function PublicProfile({ username }: { username?: string }) {
 
   const friendshipStatus = friendshipStatusQuery.data?.status
   const friendshipId = friendshipStatusQuery.data?.friendshipId
+
+  const base = `/profile/${slug}`
+  const tabs: Tab[] = [
+    { href: base, label: 'Overview', icon: '👤' },
+    { href: `${base}/tunes`, label: 'Tunes', icon: '🎵', badge: profile.data.activeTuneCount },
+    { href: `${base}/sets`, label: 'Sets', icon: '🎼', badge: profile.data.setCount },
+  ]
 
   return (
     <section>
@@ -215,7 +211,7 @@ export function PublicProfile({ username }: { username?: string }) {
         </div>
       )}
 
-      <div className="card" style={{ padding: '1.5rem' }}>
+      <div className="card" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h1 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -296,100 +292,28 @@ export function PublicProfile({ username }: { username?: string }) {
             )}
           </div>
         </div>
-
-        {isViewerModerator && moderatorDetails.data && (
-          <div
-            className="card"
-            style={{
-              padding: '1rem',
-              marginTop: '1rem',
-              background: 'var(--surface-2)',
-              border: '1px solid var(--accent)',
-              borderRadius: '8px',
-              fontSize: '0.85rem',
-            }}
-          >
-            <strong style={{ color: 'var(--accent)' }}>🛡️ Moderator Inspection Details:</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <div>📧 <strong>Email:</strong> {moderatorDetails.data.email}</div>
-              <div>🔑 <strong>User ID:</strong> {moderatorDetails.data.userId}</div>
-              <div>👥 <strong>Group Memberships:</strong> {moderatorDetails.data.groupCount}</div>
-              <div>🎵 <strong>Repertoire Tunes:</strong> {moderatorDetails.data.tuneCount}</div>
-            </div>
-          </div>
-        )}
-
-        {bio && <p style={{ whiteSpace: 'pre-wrap', marginTop: '1rem' }}>{bio}</p>}
-        {isEmpty && <p className="tune-meta" style={{ marginTop: '1rem' }}>This musician hasn't added anything to their profile yet.</p>}
-
-
-        {gamification.data && (
-          <div style={{ marginTop: '1rem' }}>
-            <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>
-              🏆 {gamification.data.totalPoints} points
-            </div>
-            {gamification.data.badges.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                {gamification.data.badges.map((b) => {
-                  const info = getBadgeInfo(b.badgeKey)
-                  return (
-                    <span
-                      key={b.badgeKey}
-                      className="card badge-pill"
-                      onClick={() => setSelectedBadge(b)}
-                      title="Click to view explanation"
-                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer' }}
-                    >
-                      {info.emoji} {info.label}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </div>
+
+      <TabNav tabs={tabs} activeHref={pathname} fallbackHref={base} label="Profile" />
+
+      <PublicProfileProvider
+        value={{
+          slug,
+          profile: profile.data,
+          userId: profile.data.userId,
+          isViewerModerator,
+          isOwnProfile: viewerProfile?.userId === profile.data.userId,
+          gamification: gamification.data,
+          moderatorDetails: moderatorDetails.data,
+          onSelectBadge: setSelectedBadge,
+        }}
+      >
+        {children}
+      </PublicProfileProvider>
 
       <BadgeModal badge={selectedBadge} onClose={() => setSelectedBadge(null)} />
 
-      {activeTunes.data && activeTunes.data.length > 0 && (
-        <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
-          <h2 style={{ marginTop: 0 }}>Active Tunes</h2>
-          <ul className="tune-list">
-            {activeTunes.data.map((t) => (
-              <li key={t.tuneId} className="card tune-row">
-                <Link className="tune-title quiet-link" href={`/tunes/${t.tuneId}`} prefetch={false}>
-                  {t.title}
-                </Link>
-                <span className="tune-meta">{formatTuneType(t.tuneType)} · {t.key}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {sets.data && sets.data.length > 0 && (
-        <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
-          <h2 style={{ marginTop: 0 }}>Sets</h2>
-          <ul className="tune-list">
-            {sets.data.map((s) => (
-              <li key={s.setId} className="card tune-row">
-                <Link className="tune-title quiet-link" href={`/set/${s.setId}`} prefetch={false}>
-                  {s.title}
-                </Link>
-                <span className="tune-meta">
-                  {s.items.map((i) => i.title).join(' / ')}
-                  {s.items.length > 0 && ' · '}
-                  {s.analysis.totalPlaytime} min
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {showSanitizeModal && (
-
         <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="modal-card" style={{ maxWidth: '550px', width: '100%', padding: '1.75rem' }}>
             <h2 style={{ marginTop: 0 }}>🛡️ Edit User Profile: {displayName}</h2>
@@ -448,4 +372,3 @@ export function PublicProfile({ username }: { username?: string }) {
     </section>
   )
 }
-

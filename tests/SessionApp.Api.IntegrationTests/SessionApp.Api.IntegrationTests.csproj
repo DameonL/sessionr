@@ -27,8 +27,13 @@
   <ItemGroup>
     <ProjectReference Include="../../api/Shared/SessionApp.Api.Shared.csproj" />
     <ProjectReference Include="../SessionApp.Api.TestSupport/SessionApp.Api.TestSupport.csproj" />
-    <ProjectReference Include="../../api/Private/SessionApp.Api.Private.csproj" />
-    <ProjectReference Include="../../api/Public/SessionApp.Api.Public.csproj" />
+    <!--
+      The two apps mirror each other's namespaces, so a few Function classes (notably
+      Groups.ByGroupId.Get) have identical fully-qualified names in both. "global" keeps them
+      reachable unqualified as before; the extra alias lets a test name one specifically.
+    -->
+    <ProjectReference Include="../../api/Private/SessionApp.Api.Private.csproj" Aliases="global,privateapi" />
+    <ProjectReference Include="../../api/Public/SessionApp.Api.Public.csproj" Aliases="global,publicapi" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,7 +10,7 @@ using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Functions.Import.TheSession;
 
-public class Post(TheSessionImportService importService, ILogger<Post> logger)
+public class Post(TheSessionImportService importService, ILogger<Post> logger, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>
     /// POST /api/import/thesession — import a tune's first setting into the
@@ -44,6 +44,10 @@ public class Post(TheSessionImportService importService, ILogger<Post> logger)
         }
 
         logger.LogInformation("Imported thesession.org tune {Id} as '{Title}'", body.TheSessionId, tune.Title);
+
+        // A newly imported tune is missing from the cached library list until it is purged, and the
+        // upsert may also have rewritten an existing one.
+        await purgeService.PurgeAllTunesAsync();
 
         return new OkObjectResult(new TuneDto(tune.TuneId, tune.Title, tune.TuneType.ToString(), tune.Key, tune.RepertoireCount, tune.Difficulty));
     }

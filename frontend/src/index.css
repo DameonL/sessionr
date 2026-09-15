@@ -2065,12 +2065,12 @@ a.stat:hover {
   50% { transform: scale(1.2); opacity: 0.9; }
 }
 
-/* Group Detail Navigation */
+/* Sub-route tab navigation (group detail, public profile) */
 .mobile-tab-select {
   display: block;
 }
 
-.group-tabs-pills {
+.tab-nav-pills {
   display: flex;
 }
 

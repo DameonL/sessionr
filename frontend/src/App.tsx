@@ -14,7 +14,6 @@ import { Landing } from './views/Landing'
 import { ModeratorView } from './views/ModeratorView'
 import { NotFound } from './views/NotFound'
 import { Profile } from './views/Profile'
-import { PublicProfile } from './views/PublicProfile'
 import { Repertoire } from './views/Repertoire'
 import { SetBuilder } from './views/SetBuilder'
 import { SetDetail } from './views/SetDetail'
@@ -31,6 +30,12 @@ import IdentifyPage from './app/identify/page'
 
 // Group Panels & Layout
 import GroupDetailLayout from './app/group/[groupId]/layout'
+
+// Public Profile Panels & Layout
+import PublicProfileLayout from './app/profile/[username]/layout'
+import { ProfileOverviewPanel } from './views/profile/ProfileOverviewPanel'
+import { ProfileSetsPanel } from './views/profile/ProfileSetsPanel'
+import { ProfileTunesPanel } from './views/profile/ProfileTunesPanel'
 import { GroupOverviewPanel } from './views/group/GroupOverviewPanel'
 import { GroupTunesPanel } from './views/group/GroupTunesPanel'
 import { GroupSetsPanel } from './views/group/GroupSetsPanel'
@@ -84,11 +89,6 @@ function GroupSetDetailRoute() {
       <GroupSetDetail groupSetId={groupSetId} />
     </RequireAuth>
   )
-}
-
-function PublicProfileRoute() {
-  const { username } = useParams<{ username: string }>()
-  return <PublicProfile username={username} />
 }
 
 export function App() {
@@ -179,7 +179,16 @@ export function App() {
                 </RequireAuth>
               }
             />
-            <Route path="/profile/:username" element={<PublicProfileRoute />} />
+            <Route path="/profile/:username/*" element={
+              <PublicProfileLayout>
+                <Routes>
+                  <Route path="" element={<ProfileOverviewPanel />} />
+                  <Route path="tunes" element={<ProfileTunesPanel />} />
+                  <Route path="sets" element={<ProfileSetsPanel />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </PublicProfileLayout>
+            } />
             <Route
               path="/moderator"
               element={

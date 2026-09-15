@@ -103,6 +103,12 @@ public class Patch(AppDbContext db, ILogger<Patch> logger, GamificationService g
             await SetCachePurge.PurgeSetsForUserTunesAsync(db, purgeService, new[] { userTuneId });
         }
 
+        // The profile carries ActiveTuneCount, so crossing the Active boundary either way stales it.
+        if (previousStatus != userTune.Status && (previousStatus == TuneStatus.Active || userTune.Status == TuneStatus.Active))
+        {
+            await UserCachePurge.PurgeProfileAsync(db, purgeService, callerUserId.Value);
+        }
+
         if (previousStatus != TuneStatus.Active && userTune.Status == TuneStatus.Active)
         {
             await RecordTuneLearnedFeedEventsAsync(callerUserId.Value, userTune.TuneId);

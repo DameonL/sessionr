@@ -300,6 +300,112 @@ public class SetCachePurgeTests
     }
 
     /// <summary>An owner, their group, one tune on its master list, and a set list holding that tune.</summary>
+    // --- Audit follow-ups: writes that used to change a cached public document without purging it ---
+
+    [Fact]
+    public async Task PromoteMember_PurgesTheGroupAndTheGroupList()
+    {
+        // members[] sits on the group detail and memberCount on the list, so a membership change
+        // needs the broad purge, not the detail-only one.
+        using var db = SetCacheTestDb.Create();
+        var (ownerId, groupId, _, _) = await SeedGroupSetAsync(db);
+        var memberId = Guid.NewGuid();
+        AddUser(db, memberId);
+        db.GroupMemberships.Add(new GroupMembership
+        {
+            GroupId = groupId,
+            UserId = memberId,
+            Role = GroupRole.Member,
+            Status = GroupMembershipStatus.Active,
+        });
+        await db.SaveChangesAsync();
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Groups.ByGroupId.Members.ByTargetUserId.Promote.Post(db, purgeService);
+
+        var result = await handler.PromoteMember(TestRequest.For(ownerId), groupId, memberId);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Contains("/api/groups", recorder.PurgedPaths);
+        Assert.Contains($"/api/groups/{groupId}", recorder.PurgedPaths);
+    }
+
+    [Fact]
+    public async Task CreateSession_PurgesTheGroupDetailButNotTheWholeGroupList()
+    {
+        // The sessions read lives under the group's own prefix; the list row is untouched, and
+        // purging "/api/groups" would invalidate every group in the zone.
+        using var db = SetCacheTestDb.Create();
+        var (ownerId, groupId, _, _) = await SeedGroupSetAsync(db);
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Groups.ByGroupId.Sessions.Post(db, purgeService);
+        var req = TestRequest.For(ownerId, body: new
+        {
+            Title = "Tuesday session",
+            Location = "The Cobblestone",
+            StartsAt = DateTime.UtcNow.AddDays(7),
+            Notes = (string?)null,
+            RepeatWeeks = 1,
+        });
+
+        var result = await handler.CreateGroupSession(req, groupId);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Contains($"/api/groups/{groupId}", recorder.PurgedPaths);
+        Assert.DoesNotContain("/api/groups", recorder.PurgedPaths);
+    }
+
+    [Fact]
+    public async Task ModeratorTuneEdit_PurgesTheLibraryListAsWellAsTheTunesOwnPage()
+    {
+        // The list and every search result carry the title too; purging only /api/tunes/{id} left
+        // the old title on show for the full edge TTL.
+        using var db = SetCacheTestDb.Create();
+        var userId = Guid.NewGuid();
+        AddUser(db, userId);
+        var tune = AddTune(db);
+        await db.SaveChangesAsync();
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Moderator.Tunes.ByTuneId.Put(db, new TuneHeuristics(), purgeService);
+        var req = TestRequest.For(userId, moderator: true, body: new
+        {
+            Title = "The Kesh (renamed)",
+            TuneType = "Jig",
+            Key = "Gmaj",
+            MasterAbcText = "X:1\nK:G\nGAB|",
+        });
+
+        var result = await handler.ModeratorUpdateTune(req, tune.TuneId);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Contains($"/api/tunes/{tune.TuneId}", recorder.PurgedPaths);
+        Assert.Contains("/api/tunes", recorder.PurgedPaths);
+    }
+
+    [Fact]
+    public async Task MarkPracticed_PurgesTheGamificationSummaryAndNothingElse()
+    {
+        // Points move on every log, and the summary is public. This is the app's busiest write, so
+        // it must not purge the profile or the active-tune list alongside.
+        using var db = SetCacheTestDb.Create();
+        var userId = Guid.NewGuid();
+        AddUser(db, userId);
+        var tune = AddTune(db);
+        var userTune = AddUserTune(db, userId, tune);
+        await db.SaveChangesAsync();
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Repertoire.Items.ByUserTuneId.Practiced.Post(
+            db, new GamificationService(db), purgeService);
+
+        var result = await handler.MarkPracticed(TestRequest.For(userId), userTune.UserTuneId);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(new[] { $"/api/users/{userId}/gamification" }, recorder.PurgedPaths);
+    }
+
     private static async Task<(Guid UserId, Guid GroupId, GroupTune GroupTune, GroupSet GroupSet)> SeedGroupSetAsync(AppDb db)
     {
         var userId = Guid.NewGuid();

@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Repertoire;
@@ -61,11 +62,7 @@ public class Get(AppDbContext db)
             filtered = filtered.Where(ut => ut.Tune.TuneType == tuneType);
         }
 
-        var ordered = filtered
-            .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
-                : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
-                : ut.Tune.Title, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var ordered = filtered.ByTitle(ut => ut.Tune.Title).ToList();
 
         var totalCount = ordered.Count;
         var hasMore = (page * pageSize) < totalCount;

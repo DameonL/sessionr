@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
 using SessionApp.Api.Models;
+using SessionApp.Api.Services;
 
 namespace SessionApp.Api.Functions.Users.ByUserId.ActiveTunes;
 
@@ -33,9 +34,7 @@ public class Get(AppDbContext db)
         await SetSupport.PopulateTuneAndSettingAsync(db, userTunes);
 
         var tunes = userTunes
-            .OrderBy(ut => ut.Tune.Title.StartsWith("The ") ? ut.Tune.Title.Substring(4)
-                : ut.Tune.Title.StartsWith("A ") ? ut.Tune.Title.Substring(2)
-                : ut.Tune.Title, StringComparer.OrdinalIgnoreCase)
+            .ByTitle(ut => ut.Tune.Title)
             .Select(ut => new PublicActiveTuneDto(
                 ut.TuneId,
                 ut.Tune.Title,

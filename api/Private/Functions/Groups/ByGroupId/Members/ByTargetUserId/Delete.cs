@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Members.ByTargetUserId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/groups/{groupId}/members/{targetUserId} — remove a member from the group.</summary>
     [Function("RemoveMember")]
@@ -39,6 +40,7 @@ public class Delete(AppDbContext db)
 
         db.GroupMemberships.Remove(targetMembership);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupAsync(groupId);
         return new NoContentResult();
     }
 }

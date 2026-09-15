@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Schedules.ByScheduleId.Exceptions.ByExceptionId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/groups/{groupId}/schedules/{scheduleId}/exceptions/{exceptionId} — remove a date exception from a schedule.</summary>
     [Function("DeleteGroupScheduleException")]
@@ -35,6 +36,7 @@ public class Delete(AppDbContext db)
 
         db.GroupScheduleExceptions.Remove(exception);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
         return new NoContentResult();
     }
 }

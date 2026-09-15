@@ -6,12 +6,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Sessions;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>
     /// POST /api/groups/{groupId}/sessions — schedule a session. Admin/owner only.
@@ -55,6 +56,7 @@ public class Post(AppDbContext db)
 
         db.GroupSessions.AddRange(sessions);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         var groupTimeZone = await db.Groups.Where(g => g.GroupId == groupId).Select(g => g.TimeZone).FirstOrDefaultAsync();
         await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.SessionScheduled,

@@ -32,12 +32,13 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
         var rawSets = await db.Sets
             .AsNoTracking()
             .Where(s => s.UserId == user.UserId)
-            .OrderBy(s => s.Title)
             .ToListAsync();
 
         await SetSupport.PopulateItemsAsync(db, rawSets.ToArray());
 
+        // Sorted here rather than in the query: Cosmos cannot translate the article-stripping key.
         var sets = rawSets
+            .ByTitle(s => s.Title)
             .Select(s => SetSupport.ToSummaryDto(
                 s.SetId,
                 s.Title,

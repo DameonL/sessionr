@@ -19,12 +19,14 @@ public interface ICloudflareCachePurgeService
     Task<CloudflarePurgeResult> PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeGroupDetailAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupSetsAsync(IEnumerable<Guid> groupSetIds, Guid? groupId = null, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeSetAsync(Guid setId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeSetsAsync(IEnumerable<Guid> setIds, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeUserSetsAsync(IEnumerable<string> usernames, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeGamificationAsync(Guid userId, CancellationToken cancellationToken = default);
 }
 
 public class CloudflareCachePurgeService : ICloudflareCachePurgeService
@@ -132,6 +134,17 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// One group's own documents, without the group list. Purges are by prefix, so this already
+    /// reaches /sets and /sessions beneath it — while "/api/groups" (what PurgeGroupAsync adds) is a
+    /// prefix of every group URL there is, and so invalidates every group in the zone. Use this for
+    /// edits that change a group's contents but not its row in the list.
+    /// </summary>
+    public Task<CloudflarePurgeResult> PurgeGroupDetailAsync(Guid groupId, CancellationToken cancellationToken = default)
+    {
+        return PurgeUrlsAsync(new[] { $"/api/groups/{groupId}" }, cancellationToken);
+    }
+
     public Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default)
     {
         // The route is /api/groupsets/{id} — this asked for /api/groups/sets/{id}, a path the API has
@@ -176,7 +189,9 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         var urls = new List<string>();
         if (!string.IsNullOrWhiteSpace(username))
         {
-            urls.Add($"/api/users/{username}/profile");
+            // Must match the route exactly — this purged /api/users/{username}/profile, which no
+            // route serves, so the profile document was never actually invalidated.
+            urls.Add($"/api/users/by-username/{username}/profile");
             urls.Add($"/api/users/username-available/{username}");
         }
         if (userId.HasValue)
@@ -198,6 +213,16 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             .Distinct()
             .Select(u => $"/api/users/by-username/{u}/sets");
         return PurgeUrlsAsync(urls, cancellationToken);
+    }
+
+    /// <summary>
+    /// A user's public points and badges, and nothing else. Deliberately narrower than
+    /// PurgeUserProfileAsync: the caller is the practice log, the most frequent write in the app,
+    /// and it dirties no other document.
+    /// </summary>
+    public Task<CloudflarePurgeResult> PurgeGamificationAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        return PurgeUrlsAsync(new[] { $"/api/users/{userId}/gamification" }, cancellationToken);
     }
 
     private IEnumerable<string> BuildAbsoluteUrls(string url)

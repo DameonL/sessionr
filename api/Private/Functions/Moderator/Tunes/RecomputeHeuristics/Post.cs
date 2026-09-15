@@ -12,7 +12,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 namespace SessionApp.Api.Functions.Moderator.Tunes.RecomputeHeuristics;
 
 [RequireModerator]
-public class Post(AppDbContext db, TuneHeuristics heuristics)
+public class Post(AppDbContext db, TuneHeuristics heuristics, ICloudflareCachePurgeService purgeService)
 {
     public record RecomputeResult(int TunesUpdated, int SettingsUpdated);
 
@@ -104,6 +104,12 @@ public class Post(AppDbContext db, TuneHeuristics heuristics)
         }
 
         await LibraryStatsSupport.MarkTunesChangedAsync(db);
+
+        // Difficulty is carried by the library list and by each tune's detail page.
+        if (tunesUpdated > 0 || settingsUpdated > 0)
+        {
+            await purgeService.PurgeAllTunesAsync();
+        }
 
         return new OkObjectResult(new RecomputeResult(tunesUpdated, settingsUpdated));
     }

@@ -31,7 +31,20 @@ public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? Cust
 
 public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments, string? Username);
 
-public record PublicUserProfileDto(Guid UserId, string DisplayName, string? Username, string? Bio, string? Location, string? Instruments);
+/// <summary>
+/// A user's public profile. Carries the tune and set counts so the profile page can label its tabs
+/// without fetching either list — the lists are an order of magnitude larger than the two integers
+/// the landing view actually needs.
+/// </summary>
+public record PublicUserProfileDto(
+    Guid UserId,
+    string DisplayName,
+    string? Username,
+    string? Bio,
+    string? Location,
+    string? Instruments,
+    int ActiveTuneCount,
+    int SetCount);
 
 public record UsernameAvailabilityDto(string Username, bool Available, string? Reason);
 

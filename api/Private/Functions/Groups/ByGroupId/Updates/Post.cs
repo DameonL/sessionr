@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.GroupFeedSupport;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Updates;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/updates — post an announcement/update to the group.</summary>
     [Function("PostGroupUpdate")]
@@ -48,6 +49,7 @@ public class Post(AppDbContext db)
             new GroupFeedTitlePayload(update.Title));
 
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         return new OkObjectResult(new GroupUpdateDto(
             update.GroupUpdateId,

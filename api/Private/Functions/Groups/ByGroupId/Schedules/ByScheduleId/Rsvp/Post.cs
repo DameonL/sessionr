@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Schedules.ByScheduleId.Rsvp;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/schedules/{scheduleId}/rsvp — RSVP to a specific date of a recurring schedule, instantiating a GroupSession if needed.</summary>
     [Function("RsvpToGroupScheduleDate")]
@@ -79,6 +80,7 @@ public class Post(AppDbContext db)
         rsvp.RespondedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));

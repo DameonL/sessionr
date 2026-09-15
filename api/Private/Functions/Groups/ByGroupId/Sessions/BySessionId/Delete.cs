@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.AzureDirectoryAuthorization;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Sessions.BySessionId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/groups/{groupId}/sessions/{sessionId} — admin/owner only.</summary>
     [Function("DeleteGroupSession")]
@@ -38,6 +39,7 @@ public class Delete(AppDbContext db)
 
         db.GroupSessions.Remove(session);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
         return new NoContentResult();
     }
 }

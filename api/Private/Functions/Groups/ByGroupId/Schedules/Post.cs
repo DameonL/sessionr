@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Schedules;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/schedules — add a new recurring meeting schedule to the group.</summary>
     [Function("CreateGroupMeetingSchedule")]
@@ -51,6 +52,7 @@ public class Post(AppDbContext db)
 
         db.GroupMeetingSchedules.Add(schedule);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         return new OkObjectResult(new GroupMeetingScheduleDto(
             schedule.GroupMeetingScheduleId,

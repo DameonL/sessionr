@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Repertoire.Items.ByUserTuneId;
 
-public class Delete(AppDbContext db)
+public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>DELETE /api/repertoire/items/{userTuneId} — remove a tune from the user's repertoire.</summary>
     [Function("RemoveRepertoireItem")]
@@ -38,6 +39,7 @@ public class Delete(AppDbContext db)
         }
 
         var tune = await db.Tunes.SingleOrDefaultAsync(t => t.TuneId == userTune.TuneId);
+        // See Repertoire/Post.cs: the count is knowingly left stale on the cached tune list.
         if (tune != null && tune.RepertoireCount > 0)
         {
             tune.RepertoireCount--;
@@ -45,6 +47,8 @@ public class Delete(AppDbContext db)
 
         db.UserTunes.Remove(userTune);
         await db.SaveChangesAsync();
+
+        await UserCachePurge.PurgeProfileAsync(db, purgeService, callerUserId.Value);
 
         return new NoContentResult();
     }

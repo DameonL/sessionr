@@ -206,6 +206,22 @@ public class SetRoundTripTests(CosmosEmulatorFixture fixture) : CosmosTestBase(f
     }
 
     [Fact]
+    public async Task Get_SortsSetNamesTheWayTuneNamesSort()
+    {
+        // The set editor lists these; articles are ignored so they file under B, C and F.
+        var f = await SeedThreeTunesAsync();
+        await SeedAsync(db => db.SeedSetAsync(f.User, "The Bucks of Oranmore", f.First));
+        await SeedAsync(db => db.SeedSetAsync(f.User, "Cooley's Set", f.Second));
+        await SeedAsync(db => db.SeedSetAsync(f.User, "A Fig for a Kiss", f.Third));
+
+        var result = await InvokeAsync<SetsGet, IActionResult>(fn => fn.GetSets(TestRequest.For(f.User.UserId)));
+
+        Assert.Equal(
+            ["The Bucks of Oranmore", "Cooley's Set", "A Fig for a Kiss"],
+            Ok<List<SetSummaryDto>>(result).Select(s => s.Title));
+    }
+
+    [Fact]
     public async Task Get_DoesNotLeakAnotherUsersSets()
     {
         var f = await SeedThreeTunesAsync();

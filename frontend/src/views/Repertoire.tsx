@@ -20,14 +20,10 @@ import { RepertoireBackup } from '../components/RepertoireBackup'
 import { TuneSettingsModal } from '../components/TuneSettingsModal'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { Spinner } from '../components/Spinner'
+import { titleSortKey } from '../services/titleSort'
 
 function getSortKey(item: RepertoireListItem, field: 'title' | 'tuneType' | 'key'): string {
-  const val = (item[field] || '').toLowerCase()
-  if (field === 'title') {
-    if (val.startsWith('the ')) return val.slice(4)
-    if (val.startsWith('a ')) return val.slice(2)
-  }
-  return val
+  return field === 'title' ? titleSortKey(item.title) : (item[field] || '').toLowerCase()
 }
 
 export function Repertoire() {

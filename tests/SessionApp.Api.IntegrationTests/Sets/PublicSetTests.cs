@@ -21,7 +21,10 @@ public class PublicSetTests(CosmosEmulatorFixture fixture) : CosmosTestBase(fixt
     {
         var user = await SeedAsync(db => db.SeedUserAsync(username: username));
         var cooleys = await SeedAsync(db => db.SeedTuneAsync("Cooley's", TuneType.Reel, "Edor", TestData.CooleysAbc));
-        var maggie = await SeedAsync(db => db.SeedTuneAsync("Drowsy Maggie", TuneType.Reel, "Edor", TestData.DrowsyMaggieAbc));
+        // Deliberately not DrowsyMaggieAbc: every tune seeded with it gets the same fingerprint and
+        // ties at full confidence, and CosmosTranslationTests matches on that ABC against a top-5
+        // cut. These tests only need a second title, so they must not crowd that window.
+        var maggie = await SeedAsync(db => db.SeedTuneAsync("Drowsy Maggie", TuneType.Reel, "Edor"));
 
         return new Fixtures(
             user,
@@ -86,6 +89,23 @@ public class PublicSetTests(CosmosEmulatorFixture fixture) : CosmosTestBase(fixt
         Assert.Equal(["First Set", "Second Set"], sets.Select(s => s.Title)); // ordered by title
         Assert.Equal(["Cooley's"], sets[0].Items.Select(i => i.Title));
         Assert.Equal(["Drowsy Maggie"], sets[1].Items.Select(i => i.Title));
+    }
+
+    [Fact]
+    public async Task GetUserSets_SortsSetNamesTheWayTuneNamesSort()
+    {
+        // Articles are ignored, so "The Bucks" files under B, between Apples and Cooley's.
+        var f = await SeedUserWithTunesAsync("sorted");
+        await SeedAsync(db => db.SeedSetAsync(f.User, "The Bucks of Oranmore", f.First));
+        await SeedAsync(db => db.SeedSetAsync(f.User, "Cooley's Set", f.Second));
+        await SeedAsync(db => db.SeedSetAsync(f.User, "A Fig for a Kiss", f.First));
+
+        var result = await InvokeAsync<PublicUserSetsGet, IActionResult>(fn =>
+            fn.GetPublicUserSetsByUsername(TestRequest.Anonymous(), "sorted"));
+
+        Assert.Equal(
+            ["The Bucks of Oranmore", "Cooley's Set", "A Fig for a Kiss"],
+            Ok<List<SetSummaryDto>>(result).Select(s => s.Title));
     }
 
     [Fact]

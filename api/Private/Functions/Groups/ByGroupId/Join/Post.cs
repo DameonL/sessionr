@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Join;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/join — join a public group or request to join a private group.</summary>
     [Function("JoinGroup")]
@@ -84,6 +85,7 @@ public class Post(AppDbContext db)
             }
 
             await db.SaveChangesAsync();
+            await purgeService.PurgeGroupAsync(groupId);
 
             return initialStatus == GroupMembershipStatus.Active
                 ? new OkObjectResult(new { Status = "Active", Message = "Joined group successfully via invite code." })
@@ -117,6 +119,7 @@ public class Post(AppDbContext db)
             });
 
             await db.SaveChangesAsync();
+            await purgeService.PurgeGroupAsync(groupId);
             return new OkObjectResult(new { Status = "Active", Message = "Joined group successfully." });
         }
     }

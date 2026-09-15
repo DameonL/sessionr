@@ -6,12 +6,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Sessions.BySessionId.Rsvp;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/sessions/{sessionId}/rsvp — set or change the caller's RSVP.</summary>
     [Function("RsvpToGroupSession")]
@@ -60,6 +61,7 @@ public class Post(AppDbContext db)
         rsvp.RespondedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));

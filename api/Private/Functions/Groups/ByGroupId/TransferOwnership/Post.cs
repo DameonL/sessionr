@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.TransferOwnership;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/transfer-ownership — transfer ownership of the group to another active member.</summary>
     [Function("TransferGroupOwnership")]
@@ -50,6 +51,7 @@ public class Post(AppDbContext db)
         targetMembership.Role = GroupRole.Owner;
 
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupAsync(groupId);
         return new OkObjectResult(new { Message = "Ownership transferred successfully." });
     }
 }

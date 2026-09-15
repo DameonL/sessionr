@@ -36,6 +36,8 @@ public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
         await LibraryStatsSupport.DecrementTuneCountAsync(db);
 
         var purgeResult = await purgeService.PurgeTuneAsync(tuneId);
+        // Without this the deleted tune keeps appearing in the library list and in search results.
+        await purgeService.PurgeAllTunesAsync();
         // The repertoire and group rows outlive the tune here, so the sets are still findable.
         await SetCachePurge.PurgeSetsContainingTuneAsync(db, purgeService, tuneId);
 

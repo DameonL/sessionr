@@ -76,6 +76,9 @@ public static class SetCachePurge
         {
             await purgeService.PurgeUserSetsAsync(usernames);
         }
+
+        // The profile carries SetCount, so a set appearing or disappearing stales it too.
+        await UserCachePurge.PurgeProfilesAsync(db, purgeService, ids);
     }
 
     /// <summary>Purges the group's set lists that hold this group tune, along with the group's index of them.</summary>

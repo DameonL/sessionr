@@ -12,7 +12,7 @@ using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Users.Me;
 
-public class Patch(AppDbContext db)
+public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PATCH /api/users/me — updates the caller's own profile fields. Null = leave unchanged.</summary>
     [Function("UpdateCurrentUser")]
@@ -73,6 +73,8 @@ public class Patch(AppDbContext db)
             user.Instruments = trimmed.Length == 0 ? null : trimmed;
         }
 
+        var previousUsername = user.Username;
+
         if (body.Username is not null)
         {
             var trimmed = body.Username.Trim().ToLowerInvariant();
@@ -102,6 +104,14 @@ public class Patch(AppDbContext db)
         }
 
         CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments));
+
+        // Every field here is on the public profile document, which the edge holds for 30 days.
+        await UserCachePurge.PurgeProfileAsync(db, purgeService, user.UserId);
+        if (previousUsername is not null && previousUsername != user.Username)
+        {
+            // The old slug now 404s, and that 404 would be cached just as long as the profile was.
+            await purgeService.PurgeUserProfileAsync(previousUsername);
+        }
 
         var isModerator = req.IsCallerModerator();
         return new OkObjectResult(new Get.UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));

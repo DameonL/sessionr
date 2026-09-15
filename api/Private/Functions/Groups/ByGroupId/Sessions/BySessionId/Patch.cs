@@ -6,12 +6,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Sessions.BySessionId;
 
-public class Patch(AppDbContext db)
+public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>PATCH /api/groups/{groupId}/sessions/{sessionId} — edit or cancel a session. Admin/owner only.</summary>
     [Function("UpdateGroupSession")]
@@ -79,6 +80,8 @@ public class Patch(AppDbContext db)
             await GroupFeedSupport.RecordGroupEventAsync(db, groupId, callerUserId.Value, GroupFeedEventType.SessionCancelled,
                 new GroupSessionFeedPayload(session.Title, FormatInGroupTimeZone(session.StartsAt, groupTimeZone)));
         }
+
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         await GroupSessionSupport.PopulateAsync(db, session);
         return new OkObjectResult(GroupSessionSupport.ToDto(session, callerUserId.Value));

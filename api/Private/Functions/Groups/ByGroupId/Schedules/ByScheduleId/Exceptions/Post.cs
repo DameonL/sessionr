@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
 using SessionApp.Api.Data;
+using SessionApp.Api.Services;
 using SessionApp.Api.Models;
 using static SessionApp.Api.Functions.SessionGroupAuthorization;
 
 namespace SessionApp.Api.Functions.Groups.ByGroupId.Schedules.ByScheduleId.Exceptions;
 
-public class Post(AppDbContext db)
+public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
 {
     /// <summary>POST /api/groups/{groupId}/schedules/{scheduleId}/exceptions — add a date exception to a meeting schedule.</summary>
     [Function("AddGroupScheduleException")]
@@ -47,6 +48,7 @@ public class Post(AppDbContext db)
 
         db.GroupScheduleExceptions.Add(exception);
         await db.SaveChangesAsync();
+        await purgeService.PurgeGroupDetailAsync(groupId);
 
         return new OkObjectResult(new GroupScheduleExceptionDto(
             exception.GroupScheduleExceptionId,

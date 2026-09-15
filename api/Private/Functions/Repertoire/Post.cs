@@ -88,13 +88,17 @@ public class Post(AppDbContext db, ICloudflareCachePurgeService purgeService)
                 TargetBpm = Tune.GetDefaultTargetBpm(tune.TuneType),
             };
             db.UserTunes.Add(userTune);
+            // Deliberately not purged: RepertoireCount rides on the cached /api/tunes list,
+            // and purging that prefix wipes every tune page and search result on an action
+            // users take constantly. It is a popularity counter driving a sort, so a stale
+            // value is cosmetic and worth the cache hit rate.
             tune.RepertoireCount++;
             await db.SaveChangesAsync();
 
             userTune.Tune = tune;
             userTune.TuneSetting = selectedSetting;
 
-            await purgeService.PurgeUserProfileAsync(userId: callerUserId.Value);
+            await UserCachePurge.PurgeProfileAsync(db, purgeService, callerUserId.Value);
 
             return new OkObjectResult(RepertoireSupport.ToItemDto(userTune));
         }
