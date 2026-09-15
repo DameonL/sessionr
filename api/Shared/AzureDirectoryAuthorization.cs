@@ -28,7 +28,7 @@ public static class AzureDirectoryAuthorization
     public record CallerIdentity(Guid? UserId, string? Email, string? DisplayName);
 
     /// <summary>Cached copy of a user's profile fields, so warm GET /users/me requests can skip the DB entirely.</summary>
-    public record CachedUserProfile(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments);
+    public record CachedUserProfile(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments, bool IsProfilePrivate);
 
     /// <summary>Ensures a user record exists in db.Users for the given authenticated identity.</summary>
     public static async Task<Guid> EnsureUserExistsAsync(AppDbContext db, Guid userId, string? email = null, string? displayName = null)

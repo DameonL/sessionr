@@ -1371,11 +1371,12 @@ export interface UserProfile {
   location: string | null
   instruments: string | null
   isModerator: boolean
+  isProfilePrivate: boolean
 }
 
 export const getCurrentUser = () => apiFetch<UserProfile>('/users/me')
 
-export const updateCurrentUser = (patch: { displayName?: string; bio?: string; location?: string; instruments?: string; username?: string }) =>
+export const updateCurrentUser = (patch: { displayName?: string; bio?: string; location?: string; instruments?: string; username?: string; isProfilePrivate?: boolean }) =>
   apiFetch<UserProfile>('/users/me', { method: 'PATCH', body: JSON.stringify(patch) }, { skipOfflineQueue: true })
 
 export interface UsernameAvailability {

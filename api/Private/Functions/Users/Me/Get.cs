@@ -13,7 +13,7 @@ namespace SessionApp.Api.Functions.Users.Me;
 
 public class Get(AppDbContext db)
 {
-    public record UserLoginResponse(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator);
+    public record UserLoginResponse(Guid UserId, string DisplayName, string? Username, string Email, string? Bio, string? Location, string? Instruments, bool IsModerator, bool IsProfilePrivate);
 
     /// <summary>GET /api/users/me — resolves (and lazily provisions) the caller's own user record.</summary>
     [Function("GetCurrentUser")]
@@ -30,11 +30,11 @@ public class Get(AppDbContext db)
 
         if (TryGetCachedProfile(callerUserId.Value, out var cached) && cached is not null)
         {
-            return new OkObjectResult(new UserLoginResponse(cached.UserId, cached.DisplayName, cached.Username, cached.Email, cached.Bio, cached.Location, cached.Instruments, isModerator));
+            return new OkObjectResult(new UserLoginResponse(cached.UserId, cached.DisplayName, cached.Username, cached.Email, cached.Bio, cached.Location, cached.Instruments, isModerator, cached.IsProfilePrivate));
         }
 
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.UserId == callerUserId.Value);
-        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments));
-        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
+        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, user.IsProfilePrivate));
+        return new OkObjectResult(new UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator, user.IsProfilePrivate));
     }
 }

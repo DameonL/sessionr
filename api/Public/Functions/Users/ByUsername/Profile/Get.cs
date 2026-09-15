@@ -18,7 +18,9 @@ public class Get(AppDbContext db)
         string username)
     {
         var normalized = username.Trim().ToLowerInvariant();
-        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Username == normalized);
+        // A private profile answers exactly as an untaken slug does, so going private does not
+        // confirm the slug exists.
+        var user = await ProfileVisibility.FindPublicBySlugAsync(db, normalized);
         if (user is null)
         {
             return new NotFoundResult();

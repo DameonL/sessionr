@@ -73,6 +73,12 @@ public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
             user.Instruments = trimmed.Length == 0 ? null : trimmed;
         }
 
+        var privacyChanged = body.IsProfilePrivate.HasValue && body.IsProfilePrivate.Value != user.IsProfilePrivate;
+        if (body.IsProfilePrivate.HasValue)
+        {
+            user.IsProfilePrivate = body.IsProfilePrivate.Value;
+        }
+
         var previousUsername = user.Username;
 
         if (body.Username is not null)
@@ -103,7 +109,7 @@ public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
             return new ConflictObjectResult("That username was just taken — please choose another.");
         }
 
-        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments));
+        CacheProfile(new CachedUserProfile(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, user.IsProfilePrivate));
 
         // Every field here is on the public profile document, which the edge holds for 30 days.
         await UserCachePurge.PurgeProfileAsync(db, purgeService, user.UserId);
@@ -113,7 +119,26 @@ public class Patch(AppDbContext db, ICloudflareCachePurgeService purgeService)
             await purgeService.PurgeUserProfileAsync(previousUsername);
         }
 
+        if (privacyChanged)
+        {
+            // Flipping privacy stales far more than the profile document, and it stales it in both
+            // directions: going private leaves cached 200s serving the very data being hidden, and
+            // going public leaves cached 404s hiding a profile that is live again. PurgeProfileAsync
+            // above misses the set list and the individual sets, which are keyed on their own URLs.
+            await SetCachePurge.PurgeUserSetListsAsync(db, purgeService, new[] { user.UserId });
+
+            var setIds = await db.Sets
+                .AsNoTracking()
+                .Where(s => s.UserId == user.UserId)
+                .Select(s => s.SetId)
+                .ToListAsync();
+            if (setIds.Count > 0)
+            {
+                await purgeService.PurgeSetsAsync(setIds);
+            }
+        }
+
         var isModerator = req.IsCallerModerator();
-        return new OkObjectResult(new Get.UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator));
+        return new OkObjectResult(new Get.UserLoginResponse(user.UserId, user.DisplayName, user.Username, user.Email, user.Bio, user.Location, user.Instruments, isModerator, user.IsProfilePrivate));
     }
 }

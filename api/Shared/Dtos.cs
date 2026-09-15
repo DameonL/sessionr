@@ -29,7 +29,7 @@ public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 /// </summary>
 public record UpdateUserTuneRequest(string? Status, int? TargetBpm, string? CustomAbcText, Guid? TuneSettingId = null, bool ClearTuneSetting = false);
 
-public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments, string? Username);
+public record UpdateUserProfileRequest(string? DisplayName, string? Bio, string? Location, string? Instruments, string? Username, bool? IsProfilePrivate = null);
 
 /// <summary>
 /// A user's public profile. Carries the tune and set counts so the profile page can label its tabs

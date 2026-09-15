@@ -22,7 +22,9 @@ import { authSource, authStatus, currentUserId, currentUserProfile } from '../st
 const SNAPSHOT_KEY = 'sessionapp_auth_snapshot'
 // v2 added `cfg`. A v1 snapshot has no fingerprint to check, so it is discarded
 // rather than read as `cfg: undefined`.
-const SNAPSHOT_VERSION = 2
+// v3 added `profile.isProfilePrivate`. readSnapshot only validates `profile.userId`,
+// so a v2 snapshot would hydrate a profile whose privacy toggle reads `undefined`.
+const SNAPSHOT_VERSION = 3
 
 /**
  * Max age of a usable snapshot.

@@ -16,8 +16,8 @@ public class Get(AppDbContext db)
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId:guid}/gamification")] HttpRequest req,
         Guid userId)
     {
-        var exists = await db.Users.AsNoTracking().Where(u => u.UserId == userId).CosmosAnyAsync();
-        if (!exists)
+        // Keyed on the user id rather than the slug, so this needs its own privacy check.
+        if (!await ProfileVisibility.IsPubliclyVisibleAsync(db, userId))
         {
             return new NotFoundResult();
         }

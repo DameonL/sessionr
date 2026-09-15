@@ -14,8 +14,8 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
     /// <summary>
     /// GET /api/users/by-username/{username}/sets — a user's sets, for their public profile.
     ///
-    /// Sets follow profile privacy: the username slug is the whole gate, so a user with no public
-    /// profile to resolve has no public set list either.
+    /// Sets follow profile privacy: a user with no slug to resolve, or one who has turned their
+    /// profile private, has no public set list either.
     /// </summary>
     [Function("GetPublicUserSetsByUsername")]
     public async Task<IActionResult> GetPublicUserSetsByUsername(
@@ -23,7 +23,7 @@ public class Get(AppDbContext db, SetAnalyzer analyzer)
         string username)
     {
         var normalized = username.Trim().ToLowerInvariant();
-        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Username == normalized);
+        var user = await ProfileVisibility.FindPublicBySlugAsync(db, normalized);
         if (user is null)
         {
             return new NotFoundResult();

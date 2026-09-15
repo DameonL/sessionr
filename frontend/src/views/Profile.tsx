@@ -17,6 +17,7 @@ import {
   type FriendDto,
   type FriendRequestDto,
   type UserBadge,
+  type UserProfile,
 } from '../services/api'
 import { currentUserId, currentUserProfile, showToast, useSignal } from '../state/appState'
 import { getBadgeInfo } from '../services/badges'
@@ -113,6 +114,63 @@ function OfflinePreloadCard() {
   )
 }
 
+/**
+ * Profile visibility, saved on its own rather than through the Edit Profile form.
+ *
+ * That form is gated behind `isEditing` and refuses to submit while the username is missing or
+ * taken, so folding privacy into it would put an unrelated validation check between a user and
+ * turning their profile off. This saves the moment the toggle moves.
+ */
+function ProfileVisibilityCard({ profile }: { profile: UserProfile }) {
+  const queryClient = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const isPrivate = profile.isProfilePrivate
+
+  const handleToggle = async (nextPrivate: boolean) => {
+    setSaving(true)
+    try {
+      const updated = await updateCurrentUser({ isProfilePrivate: nextPrivate })
+      currentUserProfile.value = updated
+      queryClient.setQueryData(['current-user'], updated)
+      showToast(
+        nextPrivate ? 'Your profile is now private.' : 'Your profile is now public.',
+        'success',
+      )
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update profile visibility.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: '2rem', padding: '1.5rem' }}>
+      <h2 style={{ marginTop: 0 }}>🔒 Profile Visibility</h2>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: saving ? 'wait' : 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={!isPrivate}
+          disabled={saving}
+          onChange={(e) => handleToggle(!e.target.checked)}
+          style={{ marginTop: '0.25rem' }}
+        />
+        <span>
+          <strong>Make my profile public</strong>
+          <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
+            {isPrivate
+              ? 'Your profile is private. Nobody can view your profile page, tunes, sets, or badges.'
+              : 'Anyone with the link can see your profile page, your active tunes, your sets, and your badges.'}
+          </span>
+          <span className="tune-meta" style={{ display: 'block', marginTop: '0.25rem' }}>
+            This does not affect the groups you are in — your bandmates still see your name and what
+            you contribute there.
+          </span>
+        </span>
+      </label>
+    </div>
+  )
+}
+
 const USERNAME_FORMAT = /^[a-z0-9-]{3,30}$/
 
 /** Edit-your-own-profile page: /profile */
@@ -169,6 +227,8 @@ export function Profile() {
   const usernameCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const mustSetUsername = !!profileQuery.data && !profileQuery.data.username
+  // Both of these hand out a link to the public profile, which 404s while the profile is private.
+  const isPublished = !!profileQuery.data?.username && !profileQuery.data.isProfilePrivate
 
   useEffect(() => {
     if (profileQuery.data && (!seeded.current || !isEditing)) {
@@ -252,7 +312,7 @@ export function Profile() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h1 style={{ margin: 0 }}>Your Profile</h1>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          {profileQuery.data?.username && (
+          {isPublished && (
             <button
               type="button"
               className="secondary btn-sm"
@@ -261,8 +321,8 @@ export function Profile() {
               📱 My Friend QR Code
             </button>
           )}
-          {profileQuery.data?.username && (
-            <Link href={`/profile/${profileQuery.data.username}`} prefetch={false} className="quiet-link">
+          {isPublished && (
+            <Link href={`/profile/${profileQuery.data!.username}`} prefetch={false} className="quiet-link">
               View public profile ↗
             </Link>
           )}
@@ -310,6 +370,8 @@ export function Profile() {
       <BadgeModal badge={selectedBadge} onClose={() => setSelectedBadge(null)} />
 
       <AppearanceCard />
+
+      {profileQuery.data && <ProfileVisibilityCard profile={profileQuery.data} />}
 
       {!isEditing ? (
         <div className="card" style={{ padding: '1.5rem' }}>

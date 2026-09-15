@@ -31,7 +31,8 @@ public static class TestData
         string displayName = "Test Musician",
         string? username = null,
         int currentStreak = 0,
-        DateTime? streakAnchorDate = null)
+        DateTime? streakAnchorDate = null,
+        bool isProfilePrivate = false)
     {
         var user = new User
         {
@@ -41,6 +42,7 @@ public static class TestData
             Email = NewEmail(),
             CurrentStreak = currentStreak,
             StreakAnchorDate = streakAnchorDate,
+            IsProfilePrivate = isProfilePrivate,
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
