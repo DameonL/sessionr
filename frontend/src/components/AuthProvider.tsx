@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from '@/utils/routerCompat'
 import { BrowserAuthError, BrowserAuthErrorCodes, InteractionRequiredAuthError, InteractionStatus, Logger, PublicClientApplication, stubbedPublicClientApplication, type IPublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
@@ -18,6 +18,7 @@ import {
 import { clearOfflineHttpCache } from '../services/offlineDb'
 import { queryClient } from '../services/queryClient'
 import { claimReauthAttempt, clearReauthAttempts } from '../services/reauthGuard'
+import { consumeReturnUrl, rememberReturnUrl } from '../services/returnUrl'
 import { abandonTokenAcquisition, authSource, authStatus, currentUserId, currentUserProfile, getBearerToken, sessionExpired, setTokenAcquisitionHelper, showToast } from '../state/appState'
 
 interface AuthProviderProps {
@@ -88,6 +89,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [pcaInstance, setPcaInstance] = useState<PublicClientApplication | null>(null)
   const [syncingUser, setSyncingUser] = useState<string | null>(null)
   const [freshInteractiveSignIn, setFreshInteractiveSignIn] = useState(false)
+  // The bootstrap effect below runs exactly once ([] deps) and needs to navigate
+  // from inside an async callback, long after the render that created it. A ref
+  // keeps the latest router reachable without making it a dependency and
+  // re-running the whole single-shot MSAL bootstrap.
+  const router = useRouter()
+  const routerRef = useRef(router)
+  routerRef.current = router
 
   useEffect(() => {
     let cancelled = false;
@@ -227,6 +235,10 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           // fall back to the explicit signed-out UI rather than looping.
           if (!isInIframe && claimReauthAttempt()) {
             redirectInProgress = true;
+            // Same rule as claimReauthAttempt above: record before navigating.
+            // This is the path that fires unannounced mid-browse, so losing the
+            // current page here is the most jarring version of the problem.
+            rememberReturnUrl();
             try {
               await pca.acquireTokenRedirect({
                 ...loginRequest,
@@ -296,6 +308,15 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         if (redirectResult?.account) {
           pca.setActiveAccount(redirectResult.account);
           cameFromRedirect = true;
+          // MSAL always lands the return leg on redirectUri ("/"), so restore the
+          // page the user actually left from — recorded by rememberReturnUrl() at
+          // each redirect call site. Done here, before setPcaInstance mounts the
+          // sync modal, so the Dashboard never flashes underneath the overlay.
+          // replace(), not push(): the sign-in bounce shouldn't sit in history.
+          const returnUrl = consumeReturnUrl();
+          if (returnUrl && returnUrl !== window.location.pathname + window.location.search + window.location.hash) {
+            routerRef.current.replace(returnUrl);
+          }
         } else if (!pca.getActiveAccount()) {
           const existing = pca.getAllAccounts()[0];
           if (existing) pca.setActiveAccount(existing);

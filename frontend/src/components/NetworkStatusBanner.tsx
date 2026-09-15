@@ -3,6 +3,7 @@
 import { useMsal } from '@azure/msal-react'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { loginRequest } from '../services/authConfig'
+import { rememberReturnUrl } from '../services/returnUrl'
 import { showToast } from '../state/appState'
 
 export function NetworkStatusBanner() {
@@ -30,12 +31,11 @@ export function NetworkStatusBanner() {
             disabled={!isOnline}
             onClick={() => {
               // loginRedirect, not loginPopup — popups get blocked too
-              // unreliably in practice. No redirectStartPage is passed, so
-              // MSAL defaults it to the current page and (with
-              // navigateToLoginRequestUrl defaulting true, unset here) will
-              // bring the user back to wherever they clicked this from once
-              // the round trip completes, same as MsalLoginPanel's own
-              // loginRedirect call.
+              // unreliably in practice. MSAL brings the return leg back to
+              // redirectUri ("/") regardless of where it started, so the page
+              // the user is on has to be recorded here; AuthProvider restores
+              // it once handleRedirectPromise resolves.
+              rememberReturnUrl()
               instance.loginRedirect(loginRequest).catch((err) => {
                 console.error('Sign-in failed:', err)
                 showToast('Sign-in failed. Please try again.', 'error')

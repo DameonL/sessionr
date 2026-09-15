@@ -44,6 +44,9 @@ export function MsalLoginPanel() {
         Learn, organize, and practice your musical repertoire.
       </p>
 
+      {/* No rememberReturnUrl() here on purpose: the page worth returning to was
+          already recorded by whatever sent the user to /login (NavBar, RequireAuth),
+          and recording again from /login would only overwrite it with nothing. */}
       <button
         onClick={() => instance.loginRedirect(loginRequest).catch((err) => console.error('MSAL Login Failed:', err))}
         style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}

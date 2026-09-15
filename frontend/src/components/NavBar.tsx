@@ -7,6 +7,7 @@ import { useMsal } from '@azure/msal-react'
 import { clearAuthSession } from '../services/authSnapshot'
 import { clearOfflineHttpCache } from '../services/offlineDb'
 import { queryClient } from '../services/queryClient'
+import { rememberReturnUrl } from '../services/returnUrl'
 import { authStatus, currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
 import { NetworkStatusBanner } from './NetworkStatusBanner'
 
@@ -146,7 +147,14 @@ function MsalAuthWidget() {
   }
 
   if (!userId) {
-    return <Link href="/login" className="nav-pill" prefetch={false}>Sign In</Link>
+    // Record the page before leaving it: /login is a normal route, so this
+    // navigation loses the user's place well before MSAL is involved.
+    // AuthProvider replays it once the redirect round trip comes back.
+    return (
+      <Link href="/login" className="nav-pill" prefetch={false} onClick={() => rememberReturnUrl()}>
+        Sign In
+      </Link>
+    )
   }
 
   const initial = profile?.displayName ? profile.displayName.charAt(0).toUpperCase() : 'U'

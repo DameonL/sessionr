@@ -16,6 +16,7 @@ import {
   type DashboardActivityItemData,
 } from '../services/api'
 import { loginRequest } from '../services/authConfig'
+import { rememberReturnUrl } from '../services/returnUrl'
 import { currentUserId, showToast, useSignal } from '../state/appState'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { Spinner } from '../components/Spinner'
@@ -146,8 +147,9 @@ export function Dashboard() {
               className="secondary btn-sm"
               onClick={() => {
                 // Same call as NetworkStatusBanner's "Sign In to Sync": redirect,
-                // not popup, and no redirectStartPage so MSAL returns the user
-                // to this page once the round trip completes.
+                // not popup, and the current page recorded first so AuthProvider
+                // can put the user back on it after the round trip.
+                rememberReturnUrl()
                 instance.loginRedirect(loginRequest).catch((err) => {
                   console.error('Sign-in failed:', err)
                   showToast('Sign-in failed. Please try again.', 'error')
