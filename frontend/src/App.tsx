@@ -74,11 +74,7 @@ function TuneLibraryDetailRoute() {
 
 function SetDetailRoute() {
   const { setId } = useParams<{ setId: string }>()
-  return (
-    <RequireAuth message="Sign in to view your custom sets.">
-      <SetDetail setId={setId} />
-    </RequireAuth>
-  )
+  return <SetDetail setId={setId} />
 }
 
 function GroupSetDetailRoute() {

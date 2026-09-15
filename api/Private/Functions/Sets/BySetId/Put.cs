@@ -47,6 +47,7 @@ public class Put(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeSer
         await db.SaveChangesAsync();
 
         await purgeService.PurgeSetAsync(setId);
+        await SetCachePurge.PurgeUserSetListsAsync(db, purgeService, new[] { callerUserId.Value });
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, setId);
     }

@@ -21,9 +21,9 @@ public class SetCachePurgeTests
 {
     private static readonly SetAnalyzer Analyzer = new();
 
-    private static User AddUser(AppDb db, Guid userId)
+    private static User AddUser(AppDb db, Guid userId, string? username = null)
     {
-        var user = new User { UserId = userId, DisplayName = "Test", Email = $"{userId}@example.com" };
+        var user = new User { UserId = userId, DisplayName = "Test", Username = username, Email = $"{userId}@example.com" };
         db.Users.Add(user);
         return user;
     }
@@ -98,6 +98,58 @@ public class SetCachePurgeTests
         Assert.Contains($"/api/sets/{set.SetId}", recorder.PurgedPaths);
         // Cosmos has no cascade, so the items were being orphaned rather than deleted.
         Assert.Empty(await db.SetItems.Where(si => si.SetId == set.SetId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task UpdateSet_PurgesTheOwnersPublicProfileSetList()
+    {
+        // The profile list repeats the set's title and tune titles, and is cached just as long.
+        using var db = SetCacheTestDb.Create();
+        var userId = Guid.NewGuid();
+        AddUser(db, userId, "nora-reel");
+        var tune = AddTune(db);
+        var userTune = AddUserTune(db, userId, tune);
+        var set = new Set { SetId = Guid.NewGuid(), UserId = userId, Title = "Monday" };
+        db.Sets.Add(set);
+        db.SetItems.Add(new SetItem { SetId = set.SetId, UserTuneId = userTune.UserTuneId, SequenceNumber = 1 });
+        await db.SaveChangesAsync();
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Sets.BySetId.Put(db, Analyzer, purgeService);
+        var req = TestRequest.For(userId, body: new
+        {
+            Title = "Tuesday",
+            Items = new[] { new { UserTuneId = userTune.UserTuneId, Repetitions = 3 } },
+        });
+
+        var result = await handler.UpdateSet(req, set.SetId);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Contains("/api/users/by-username/nora-reel/sets", recorder.PurgedPaths);
+    }
+
+    [Fact]
+    public async Task DeleteSet_PurgesNoProfileListForAUserWithoutAUsername()
+    {
+        // No slug means no public profile and so no list URL — purging one would be a nonsense URL.
+        using var db = SetCacheTestDb.Create();
+        var userId = Guid.NewGuid();
+        AddUser(db, userId, username: null);
+        var tune = AddTune(db);
+        var userTune = AddUserTune(db, userId, tune);
+        var set = new Set { SetId = Guid.NewGuid(), UserId = userId, Title = "Monday" };
+        db.Sets.Add(set);
+        db.SetItems.Add(new SetItem { SetId = set.SetId, UserTuneId = userTune.UserTuneId, SequenceNumber = 1 });
+        await db.SaveChangesAsync();
+
+        var recorder = PurgeRecorder.Create(out var purgeService);
+        var handler = new SessionApp.Api.Functions.Sets.BySetId.Delete(db, purgeService);
+
+        var result = await handler.DeleteSet(TestRequest.For(userId), set.SetId);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Contains($"/api/sets/{set.SetId}", recorder.PurgedPaths);
+        Assert.DoesNotContain(recorder.PurgedPaths, p => p.Contains("/by-username/"));
     }
 
     [Fact]

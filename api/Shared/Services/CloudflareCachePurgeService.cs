@@ -24,6 +24,7 @@ public interface ICloudflareCachePurgeService
     Task<CloudflarePurgeResult> PurgeSetAsync(Guid setId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeSetsAsync(IEnumerable<Guid> setIds, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeUserProfileAsync(string? username = null, Guid? userId = null, CancellationToken cancellationToken = default);
+    Task<CloudflarePurgeResult> PurgeUserSetsAsync(IEnumerable<string> usernames, CancellationToken cancellationToken = default);
 }
 
 public class CloudflareCachePurgeService : ICloudflareCachePurgeService
@@ -183,6 +184,19 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
             urls.Add($"/api/users/{userId.Value}/active-tunes");
             urls.Add($"/api/users/{userId.Value}/gamification");
         }
+        return PurgeUrlsAsync(urls, cancellationToken);
+    }
+
+    /// <summary>
+    /// The public per-user set lists shown on a profile. A set being created, renamed, re-ordered or
+    /// deleted changes the list as well as the set, and the list is cached just as long.
+    /// </summary>
+    public Task<CloudflarePurgeResult> PurgeUserSetsAsync(IEnumerable<string> usernames, CancellationToken cancellationToken = default)
+    {
+        var urls = usernames
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct()
+            .Select(u => $"/api/users/by-username/{u}/sets");
         return PurgeUrlsAsync(urls, cancellationToken);
     }
 

@@ -15,6 +15,7 @@ import {
   getPublicActiveTunes,
   getPublicGamificationSummary,
   getPublicUserProfile,
+  getPublicUserSets,
   removeFriend,
   sanitizeUserProfile,
   sendFriendRequest,
@@ -126,6 +127,15 @@ export function PublicProfile({ username }: { username?: string }) {
     queryFn: () => getPublicActiveTunes(resolvedUserId!),
     retry: false,
     enabled: !!resolvedUserId,
+  })
+
+  // Keyed on the slug rather than the resolved id: the username is what makes a profile public, and
+  // so is what gates the sets behind it.
+  const sets = useQuery({
+    queryKey: ['public-user-sets', slug],
+    queryFn: () => getPublicUserSets(slug),
+    retry: false,
+    enabled: !!slug,
   })
 
   const sanitizeMutation = useMutation({
@@ -352,6 +362,26 @@ export function PublicProfile({ username }: { username?: string }) {
                   {t.title}
                 </Link>
                 <span className="tune-meta">{formatTuneType(t.tuneType)} · {t.key}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {sets.data && sets.data.length > 0 && (
+        <div className="card" style={{ padding: '1.5rem', marginTop: '1rem' }}>
+          <h2 style={{ marginTop: 0 }}>Sets</h2>
+          <ul className="tune-list">
+            {sets.data.map((s) => (
+              <li key={s.setId} className="card tune-row">
+                <Link className="tune-title quiet-link" href={`/set/${s.setId}`} prefetch={false}>
+                  {s.title}
+                </Link>
+                <span className="tune-meta">
+                  {s.items.map((i) => i.title).join(' / ')}
+                  {s.items.length > 0 && ' · '}
+                  {s.analysis.totalPlaytime} min
+                </span>
               </li>
             ))}
           </ul>

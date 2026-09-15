@@ -39,6 +39,42 @@ public static class SetCachePurge
         if (setIds.Count > 0)
         {
             await purgeService.PurgeSetsAsync(setIds);
+
+            // The public per-user list repeats each set's tune titles and keys, so an edit that
+            // stales the sets stales their owners' profile lists with them.
+            var ownerIds = await db.Sets
+                .AsNoTracking()
+                .Where(s => setIds.Contains(s.SetId))
+                .Select(s => s.UserId)
+                .ToListAsync();
+            await PurgeUserSetListsAsync(db, purgeService, ownerIds);
+        }
+    }
+
+    /// <summary>
+    /// Purges the public profile set lists of these users, resolving the username slug each list is
+    /// keyed on. Users without a slug have no public list, so they drop out silently.
+    /// </summary>
+    public static async Task PurgeUserSetListsAsync(
+        AppDbContext db,
+        ICloudflareCachePurgeService purgeService,
+        IEnumerable<Guid> userIds)
+    {
+        var ids = userIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var usernames = await db.Users
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.UserId) && u.Username != null)
+            .Select(u => u.Username!)
+            .ToListAsync();
+
+        if (usernames.Count > 0)
+        {
+            await purgeService.PurgeUserSetsAsync(usernames);
         }
     }
 

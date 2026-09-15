@@ -39,6 +39,8 @@ import {
 
 export interface SetPlayerItem {
   userTuneId: string;
+  /** The shared library tune behind this repertoire entry, for callers linking somewhere public. */
+  tuneId?: string;
   title: string;
   abc: string;
   repetitions: number;

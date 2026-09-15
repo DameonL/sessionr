@@ -41,6 +41,7 @@ public class Post(AppDbContext db, SetAnalyzer analyzer, ICloudflareCachePurgeSe
         // The set reads from the public API, whose 404 for an id that did not exist yet is cached
         // for as long as the set would have been.
         await purgeService.PurgeSetAsync(set.SetId);
+        await SetCachePurge.PurgeUserSetListsAsync(db, purgeService, new[] { callerUserId.Value });
 
         return await SetSupport.LoadedSetResultAsync(db, analyzer, set.SetId);
     }

@@ -506,6 +506,7 @@ export interface SetAnalysis {
 
 export interface SetItem {
   userTuneId: string
+  tuneId: string
   sequenceNumber: number
   repetitions: number
   title: string
@@ -1407,6 +1408,11 @@ export interface PublicActiveTune {
 
 export const getPublicActiveTunes = (userId: string) =>
   apiFetchPublic<PublicActiveTune[]>(`/users/${userId}/active-tunes`)
+
+/** A user's sets, as shown on their public profile. Sets follow profile privacy, so this is keyed
+ *  on the username slug and 404s for anyone without a public profile. */
+export const getPublicUserSets = (username: string) =>
+  apiFetchPublic<TuneSetSummary[]>(`/users/by-username/${encodeURIComponent(username)}/sets`)
 
 // Moderator Interfaces and API Methods
 export interface ModeratorTuneData {

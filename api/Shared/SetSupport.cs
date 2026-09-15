@@ -47,6 +47,7 @@ public static class SetSupport
             set.Title,
             Items = ordered.Select(i => new SetItemDto(
                 i.UserTuneId,
+                i.UserTune.TuneId,
                 i.SequenceNumber,
                 i.Repetitions,
                 i.UserTune.Tune.Title,

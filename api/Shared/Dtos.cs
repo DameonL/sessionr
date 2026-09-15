@@ -176,6 +176,7 @@ public record EarTrainingProgressDto(
 
 public record SetItemDto(
     Guid UserTuneId,
+    Guid TuneId,
     int SequenceNumber,
     int Repetitions,
     string Title,

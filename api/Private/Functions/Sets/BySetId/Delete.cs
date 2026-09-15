@@ -38,6 +38,7 @@ public class Delete(AppDbContext db, ICloudflareCachePurgeService purgeService)
         await db.SaveChangesAsync();
 
         await purgeService.PurgeSetAsync(setId);
+        await SetCachePurge.PurgeUserSetListsAsync(db, purgeService, new[] { callerUserId.Value });
         return new NoContentResult();
     }
 }
