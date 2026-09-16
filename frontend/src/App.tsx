@@ -50,6 +50,7 @@ import DailyQueuePage from './app/practice/queue/page'
 import SessionPage from './app/practice/session/page'
 import SetsPage from './app/practice/sets/page'
 import EarPage from './app/practice/ear/page'
+import IntervalsPage from './app/practice/intervals/page'
 
 // Components
 import { MsalLoginPanel } from './components/MsalLoginPanel'
@@ -140,6 +141,7 @@ export function App() {
                   <Route path="session" element={<SessionPage />} />
                   <Route path="sets" element={<SetsPage />} />
                   <Route path="ear" element={<EarPage />} />
+                  <Route path="intervals" element={<IntervalsPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </PracticeLayout>

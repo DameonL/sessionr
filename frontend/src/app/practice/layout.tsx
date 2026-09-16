@@ -36,7 +36,7 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
     <section>
       <h1>Practice Room</h1>
 
-      <RequireAuth message="Sign in to use the Practice Room — your daily queue, medley sets, and ear training are tied to your personal repertoire. (Want to just play a tune? Try the Tune Library.)">
+      <RequireAuth message="Sign in to use the Practice Room — your daily queue, medley sets, and ear training are tied to your personal repertoire (interval drills work without one). (Want to just play a tune? Try the Tune Library.)">
         <div className="detail-controls" style={{ marginBottom: '1.5rem', justifyContent: 'center' }}>
           <Link href="/practice/queue" className={pathname === '/practice/queue' ? 'toggled' : ''} prefetch={false}>
             📋 Daily Queue
@@ -46,6 +46,9 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
           </Link>
           <Link href="/practice/ear" className={pathname === '/practice/ear' ? 'toggled' : ''} prefetch={false}>
             👂 Ear Training
+          </Link>
+          <Link href="/practice/intervals" className={pathname === '/practice/intervals' ? 'toggled' : ''} prefetch={false}>
+            📐 Intervals
           </Link>
           <Link href="/practice/session" className={pathname === '/practice/session' ? 'toggled' : ''} prefetch={false}>
             🎻 Virtual Session
