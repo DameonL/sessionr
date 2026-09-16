@@ -7,14 +7,24 @@ import {
   formatTuneType,
   getFullRepertoire,
 } from '../../../services/api'
-import { currentUserId, useSignal } from '../../../state/appState'
+import { currentUserId, useAuthStatus, useSignal } from '../../../state/appState'
 import { Spinner } from '../../../components/Spinner'
+import { PublicEarTunePicker } from './PublicEarTunePicker'
 
 // Dynamically import EarTrainer to prevent abcjs SSR errors
 const EarTrainer = lazy(() => import('../../../components/EarTrainer').then((m) => ({ default: m.EarTrainer })))
 
+/** Signed in, pick from your repertoire; signed out, from the public library. */
 export default function EarTrainingPage() {
   const userId = useSignal(currentUserId)
+  const status = useAuthStatus()
+
+  if (status === 'pending') return <div className="spinner-row"><Spinner /></div>
+  if (!userId) return <PublicEarTunePicker />
+  return <RepertoireEarTunePicker userId={userId} />
+}
+
+function RepertoireEarTunePicker({ userId }: { userId: string }) {
   const [earTuneId, setEarTuneId] = useState<string | null>(null)
 
   const repertoire = useQuery({

@@ -46,6 +46,7 @@ import { GroupActivityPanel } from './views/group/GroupActivityPanel'
 
 // Practice Room & Pages
 import PracticeLayout from './app/practice/layout'
+import PracticeIndexRedirect from './app/practice/page'
 import DailyQueuePage from './app/practice/queue/page'
 import SessionPage from './app/practice/session/page'
 import SetsPage from './app/practice/sets/page'
@@ -133,13 +134,27 @@ export function App() {
             <Route path="/set/:setId" element={<SetDetailRoute />} />
 
             {/* Practice Room */}
-            <Route path="/practice" element={<Navigate to="/practice/queue" replace />} />
+            <Route path="/practice" element={<PracticeIndexRedirect />} />
             <Route path="/practice/*" element={
               <PracticeLayout>
                 <Routes>
-                  <Route path="queue" element={<DailyQueuePage />} />
-                  <Route path="session" element={<SessionPage />} />
-                  <Route path="sets" element={<SetsPage />} />
+                  {/* Ear training and intervals are open to everyone; these three
+                      are built on the player's own repertoire. */}
+                  <Route path="queue" element={
+                    <RequireAuth message="Sign in to get a daily practice queue built from your repertoire.">
+                      <DailyQueuePage />
+                    </RequireAuth>
+                  } />
+                  <Route path="session" element={
+                    <RequireAuth message="Sign in to play a virtual session from your repertoire.">
+                      <SessionPage />
+                    </RequireAuth>
+                  } />
+                  <Route path="sets" element={
+                    <RequireAuth message="Sign in to practice medley sets from your repertoire.">
+                      <SetsPage />
+                    </RequireAuth>
+                  } />
                   <Route path="ear" element={<EarPage />} />
                   <Route path="intervals" element={<IntervalsPage />} />
                   <Route path="*" element={<NotFound />} />

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import abcjs from 'abcjs'
+import Link from '@/utils/routerCompat'
 import {
   getEarTrainingProgress,
   logPractice,
   saveEarTrainingProgress,
-  type RepertoireItem,
 } from '../services/api'
+import { rememberReturnUrl } from '../services/returnUrl'
 import { anchorTimerToAudio } from '../services/audioClock'
 import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining'
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
@@ -16,8 +17,19 @@ import { showBadgeToasts } from '../services/badges'
 
 const EAR_INSTRUMENT_KEY = 'sessionapp.ear-instrument'
 
+/**
+ * What the trainer reads from a tune. A RepertoireItem fits; so does a public
+ * tune with no userTuneId, which trains without saving progress.
+ */
+export interface EarTrainingTune {
+  title: string
+  abc?: string
+  abcText?: string
+  userTuneId?: string
+}
+
 interface EarTrainerProps {
-  item: RepertoireItem
+  item: EarTrainingTune
 }
 
 interface ExtendedTuneObject extends abcjs.TuneObject {
@@ -93,21 +105,31 @@ export function EarTrainer({ item }: EarTrainerProps) {
     return stored !== null ? Number(stored) : 110 // default: Fiddle
   })
 
+  // Progress and practice logs belong to a repertoire entry. Without one — a
+  // signed-out player on a public tune — training still works, it just starts
+  // from the top each time and never calls the private API.
+  const userTuneId = userId ? item.userTuneId : undefined
+  const canSave = !!userTuneId
+  // Read from the pitch callback's closure, like the rest of the drill state.
+  const canSaveRef = useRef(canSave)
+  canSaveRef.current = canSave
+
   const progressQuery = useQuery({
-    queryKey: ['ear-training', item.userTuneId],
-    queryFn: () => getEarTrainingProgress(item.userTuneId),
+    queryKey: ['ear-training', userTuneId],
+    queryFn: () => getEarTrainingProgress(userTuneId!),
+    enabled: canSave,
   })
 
   const saveMutation = useMutation({
     mutationFn: (body: { phraseIndex: number; notesRevealed: number; completed: boolean }) =>
-      saveEarTrainingProgress(item.userTuneId, body),
+      saveEarTrainingProgress(userTuneId!, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ear-training', item.userTuneId] })
+      queryClient.invalidateQueries({ queryKey: ['ear-training', userTuneId] })
     },
   })
 
   const practiceMutation = useMutation({
-    mutationFn: () => logPractice(item.userTuneId),
+    mutationFn: () => logPractice(userTuneId!),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
@@ -361,11 +383,13 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
     const next = phraseIndexRef.current + 1
     const done = next >= tune.phrases.length
-    saveMutation.mutate({
-      phraseIndex: next,
-      notesRevealed: revealedCountRef.current,
-      completed: done,
-    })
+    if (canSaveRef.current) {
+      saveMutation.mutate({
+        phraseIndex: next,
+        notesRevealed: revealedCountRef.current,
+        completed: done,
+      })
+    }
     if (done) {
       setPhaseBoth('complete')
       setFeedback(null)
@@ -470,7 +494,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
     if (!tune) return
     if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
     revealedCountRef.current = 0
-    saveMutation.mutate({ phraseIndex: 0, notesRevealed: 0, completed: false })
+    if (canSaveRef.current) saveMutation.mutate({ phraseIndex: 0, notesRevealed: 0, completed: false })
     setPhraseIndexBoth(0)
     setNoteIndexBoth(0)
     setFeedback(null)
@@ -552,9 +576,15 @@ export function EarTrainer({ item }: EarTrainerProps) {
         <div>
           <p className="badge badge-queue">🎉 You've learned "{item.title}" by ear!</p>
           <div className="detail-controls">
-            <button disabled={practiceMutation.isPending} onClick={() => practiceMutation.mutate()}>
-              ✓ Log practice
-            </button>
+            {canSave ? (
+              <button disabled={practiceMutation.isPending} onClick={() => practiceMutation.mutate()}>
+                ✓ Log practice
+              </button>
+            ) : (
+              <Link href="/login" prefetch={false} onClick={() => rememberReturnUrl()}>
+                <button>Sign in to save your progress</button>
+              </Link>
+            )}
             <button onClick={startOver}>↻ Start over</button>
           </div>
           {practiceMutation.isSuccess && <p className="tune-meta">Practice logged.</p>}

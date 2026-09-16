@@ -3,10 +3,25 @@
 import Link from '@/utils/routerCompat';
 import { usePathname } from '@/utils/routerCompat';
 import { useEffect } from 'react';
-import { RequireAuth } from '../../components/RequireAuth';
+import { rememberReturnUrl } from '../../services/returnUrl';
+import { currentUserId, useAuthStatus, useSignal } from '../../state/appState';
 
+/**
+ * Ear training and interval drills are open to everyone; the tabs built on a
+ * personal repertoire are hidden when signed out and gate themselves (see the
+ * RequireAuth wrappers on their routes in App.tsx) if reached by URL.
+ */
 export default function PracticeLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const userId = useSignal(currentUserId);
+  const status = useAuthStatus();
+  const signedIn = !!userId;
+
+  const tab = (href: string, label: string) => (
+    <Link href={href} className={pathname === href ? 'toggled' : ''} prefetch={false}>
+      {label}
+    </Link>
+  );
 
   // Screen wake lock active for the practice pages
   useEffect(() => {
@@ -36,27 +51,31 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
     <section>
       <h1>Practice Room</h1>
 
-      <RequireAuth message="Sign in to use the Practice Room — your daily queue, medley sets, and ear training are tied to your personal repertoire (interval drills work without one). (Want to just play a tune? Try the Tune Library.)">
-        <div className="detail-controls" style={{ marginBottom: '1.5rem', justifyContent: 'center' }}>
-          <Link href="/practice/queue" className={pathname === '/practice/queue' ? 'toggled' : ''} prefetch={false}>
-            📋 Daily Queue
-          </Link>
-          <Link href="/practice/sets" className={pathname === '/practice/sets' ? 'toggled' : ''} prefetch={false}>
-            🎛 Medley Sets
-          </Link>
-          <Link href="/practice/ear" className={pathname === '/practice/ear' ? 'toggled' : ''} prefetch={false}>
-            👂 Ear Training
-          </Link>
-          <Link href="/practice/intervals" className={pathname === '/practice/intervals' ? 'toggled' : ''} prefetch={false}>
-            📐 Intervals
-          </Link>
-          <Link href="/practice/session" className={pathname === '/practice/session' ? 'toggled' : ''} prefetch={false}>
-            🎻 Virtual Session
-          </Link>
-        </div>
+      {status === 'pending' ? (
+        // Same blank card RequireAuth shows, so the tabs don't flash between sets.
+        <div className="card" style={{ padding: '1.5rem', minHeight: '120px' }} />
+      ) : (
+        <>
+          <div className="detail-controls" style={{ marginBottom: signedIn ? '1.5rem' : '0.5rem', justifyContent: 'center' }}>
+            {signedIn && tab('/practice/queue', 'Daily Queue')}
+            {signedIn && tab('/practice/sets', 'Medley Sets')}
+            {tab('/practice/ear', 'Ear Training')}
+            {tab('/practice/intervals', 'Intervals')}
+            {signedIn && tab('/practice/session', 'Virtual Session')}
+          </div>
 
-        {children}
-      </RequireAuth>
+          {!signedIn && (
+            <p className="tune-meta" style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+              <Link href="/login" prefetch={false} onClick={() => rememberReturnUrl()}>
+                Sign in
+              </Link>{' '}
+              for your daily queue, medley sets and virtual session.
+            </p>
+          )}
+
+          {children}
+        </>
+      )}
     </section>
   );
 }
