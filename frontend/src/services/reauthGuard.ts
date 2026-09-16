@@ -18,6 +18,22 @@
 const STORAGE_KEY = 'sessionr.reauth'
 const MAX_ATTEMPTS = 1
 
+/**
+ * How long an attempt must stand before a success is allowed to forgive it.
+ *
+ * Without this the budget cannot bind across round trips at all. Its clear sites
+ * are "a token was acquired" and "/users/me answered" — both of which fire on the
+ * return leg of the very redirect being capped, seconds after it was spent. A
+ * success that soon proves only that the redirect happened, not that the session
+ * is stable, so the allowance was handed straight back and the next failure could
+ * redirect again, forever.
+ *
+ * A loop iteration is one IdP round trip, a second or two. Requiring a full
+ * minute of unbroken health before the budget refills is therefore many cycles
+ * wide, while still being far shorter than any session worth re-authenticating.
+ */
+const CLEAR_COOLDOWN_MS = 60_000
+
 interface ReauthState {
   attempts: number
   firstAttemptAt: number
@@ -69,9 +85,17 @@ export function claimReauthAttempt(): boolean {
  * Clears the budget. Call whenever a token is successfully acquired or a
  * /users/me verifies — the session is healthy, so a future expiry deserves its
  * own full allowance.
+ *
+ * "Healthy" means healthy for a while: a success within CLEAR_COOLDOWN_MS of the
+ * last attempt is ignored, because that is the redirect's own return leg
+ * reporting its own arrival. Clearing there is what let a failing page redirect,
+ * come back, refill the budget, fail again and redirect forever.
  */
 export function clearReauthAttempts(): void {
   try {
+    const existing = read()
+    if (!existing) return
+    if (Date.now() - existing.firstAttemptAt < CLEAR_COOLDOWN_MS) return
     sessionStorage.removeItem(STORAGE_KEY)
   } catch {
     // Best effort.

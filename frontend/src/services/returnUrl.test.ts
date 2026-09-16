@@ -70,6 +70,47 @@ describe('returnUrl', () => {
     expect(consumeReturnUrl()).toBeNull()
   })
 
+  it('refuses to restore the same page twice in a row', () => {
+    // The restored page bounced the user straight back out to sign in again.
+    // Going round a second time is a loop, not intent.
+    at('/repertoire')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBeNull()
+  })
+
+  it('allows the same page again once the loop window has passed', () => {
+    at('/repertoire')
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000 + 61_000)
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+  })
+
+  it('does not suppress a different page restored right after', () => {
+    at('/repertoire')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+    at('/practice/queue')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/practice/queue')
+  })
+
+  it('lets a third attempt through after one was refused', () => {
+    // The refusal clears the ledger, so a later deliberate sign-in to the same
+    // page is not punished for the loop that preceded it.
+    at('/repertoire')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBeNull()
+    rememberReturnUrl()
+    expect(consumeReturnUrl()).toBe('/repertoire')
+  })
+
   it.each(['/', '/login'])('does not remember %s, where sign-in starts', (path) => {
     at(path)
     rememberReturnUrl()

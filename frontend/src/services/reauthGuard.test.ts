@@ -23,11 +23,31 @@ describe('reauthGuard', () => {
   })
 
   it('restores the full budget once cleared after a healthy sign-in', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     expect(claimReauthAttempt()).toBe(true)
     expect(claimReauthAttempt()).toBe(false)
+    // Well past the cooldown: the session has demonstrably held up.
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000 + 61_000)
     clearReauthAttempts()
     expect(canAttemptReauth()).toBe(true)
     expect(claimReauthAttempt()).toBe(true)
+  })
+
+  it('ignores a success that arrives on the redirect it is meant to cap', () => {
+    // The clear sites fire on the return leg, seconds after the attempt. Honouring
+    // them there hands the allowance straight back, so a page that fails again
+    // immediately can redirect forever — the sign-in loop this cooldown exists for.
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    expect(claimReauthAttempt()).toBe(true)
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000 + 2_000)
+    clearReauthAttempts()
+    expect(canAttemptReauth()).toBe(false)
+    expect(claimReauthAttempt()).toBe(false)
+  })
+
+  it('is a no-op when there is nothing to clear', () => {
+    clearReauthAttempts()
+    expect(canAttemptReauth()).toBe(true)
   })
 
   it('persists the attempt so a post-redirect page load sees it', () => {

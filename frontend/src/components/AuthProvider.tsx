@@ -308,15 +308,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         if (redirectResult?.account) {
           pca.setActiveAccount(redirectResult.account);
           cameFromRedirect = true;
-          // MSAL always lands the return leg on redirectUri ("/"), so restore the
-          // page the user actually left from — recorded by rememberReturnUrl() at
-          // each redirect call site. Done here, before setPcaInstance mounts the
-          // sync modal, so the Dashboard never flashes underneath the overlay.
-          // replace(), not push(): the sign-in bounce shouldn't sit in history.
-          const returnUrl = consumeReturnUrl();
-          if (returnUrl && returnUrl !== window.location.pathname + window.location.search + window.location.hash) {
-            routerRef.current.replace(returnUrl);
-          }
         } else if (!pca.getActiveAccount()) {
           const existing = pca.getAllAccounts()[0];
           if (existing) pca.setActiveAccount(existing);
@@ -334,10 +325,28 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       registerTokenHelper(pca);
       helperRegistered = true;
-      // Latch, never unset: StrictMode runs this effect twice in dev, and
-      // handleRedirectPromise is single-consumption, so the second pass sees
-      // null and would otherwise silently flip the modal decision back off.
-      if (cameFromRedirect) setFreshInteractiveSignIn(true);
+      // MSAL always lands the return leg on redirectUri ("/"), so restore the page
+      // the user actually left from — recorded by rememberReturnUrl() at each
+      // redirect call site.
+      //
+      // Deliberately here rather than beside handleRedirectPromise above: the
+      // restored route mounts and starts fetching immediately, so the token helper
+      // has to exist first or its queries race the gate in getBearerToken. It also
+      // has to stay past the `cancelled` check, so StrictMode's discarded first
+      // pass doesn't navigate on its way out, and ahead of setPcaInstance, so the
+      // Dashboard never flashes underneath the sync modal.
+      //
+      // replace(), not push(): the sign-in bounce shouldn't sit in history.
+      if (cameFromRedirect) {
+        const returnUrl = consumeReturnUrl();
+        if (returnUrl && returnUrl !== window.location.pathname + window.location.search + window.location.hash) {
+          routerRef.current.replace(returnUrl);
+        }
+        // Latch, never unset: StrictMode runs this effect twice in dev, and
+        // handleRedirectPromise is single-consumption, so the second pass sees
+        // null and would otherwise silently flip the modal decision back off.
+        setFreshInteractiveSignIn(true);
+      }
       setPcaInstance(pca);
     };
 
