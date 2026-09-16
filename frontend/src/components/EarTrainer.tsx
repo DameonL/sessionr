@@ -9,13 +9,53 @@ import {
 } from '../services/api'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { anchorTimerToAudio } from '../services/audioClock'
-import { buildEarTrainingTune, playTargetNote, midiToHz } from '../services/earTraining'
+import {
+  buildCallResponseChunks,
+  buildEarTrainingTune,
+  matchCallResponse,
+  midiToHz,
+  playTargetNote,
+  type CallResponseChunk,
+  type CallResponseTarget,
+} from '../services/earTraining'
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
 import { INSTRUMENTS, loadInstruments, synthInstrumentOptions } from './instruments'
 import { currentUserId, useSignal } from '../state/appState'
 import { showBadgeToasts } from '../services/badges'
 
 const EAR_INSTRUMENT_KEY = 'sessionapp.ear-instrument'
+const EAR_MODE_KEY = 'sessionapp.ear-mode'
+
+/** Note by note: one pitch per prompt. Bar by bar: a bar (or two) per prompt. */
+type TrainingMode = 'note' | 'bar'
+type BarsPerChunk = 1 | 2
+
+interface ModeSettings {
+  mode: TrainingMode
+  barsPerChunk: BarsPerChunk
+}
+
+const DEFAULT_MODE_SETTINGS: ModeSettings = { mode: 'note', barsPerChunk: 1 }
+
+function loadModeSettings(): ModeSettings {
+  try {
+    const raw = localStorage.getItem(EAR_MODE_KEY)
+    if (!raw) return DEFAULT_MODE_SETTINGS
+    return { ...DEFAULT_MODE_SETTINGS, ...(JSON.parse(raw) as Partial<ModeSettings>) }
+  } catch {
+    return DEFAULT_MODE_SETTINGS
+  }
+}
+
+function saveModeSettings(settings: ModeSettings) {
+  try {
+    localStorage.setItem(EAR_MODE_KEY, JSON.stringify(settings))
+  } catch {
+    // A full or blocked localStorage shouldn't stop training.
+  }
+}
+
+const pitchClassOf = (midi: number) => ((midi % 12) + 12) % 12
 
 /**
  * What the trainer reads from a tune. A RepertoireItem fits; so does a public
@@ -62,11 +102,15 @@ const DETECTION_HOLD_MS = 1200
 const MISSED_COLOR = '#d97706'
 
 /**
- * Note-by-note call-and-response ear training. The app sounds a target
- * pitch, listens on the microphone, and reveals the phrase's notation one
- * note at a time as the player finds each pitch on their instrument.
- * Matching is octave-agnostic (pitch class), so any octave — or humming —
- * counts. Progress is saved per phrase and resumable.
+ * Call-and-response ear training. The app sounds a prompt, listens on the
+ * microphone, and reveals the phrase's notation as the player finds the
+ * pitches on their instrument. Matching is octave-agnostic (pitch class), so
+ * any octave — or humming — counts. Progress is saved per phrase and
+ * resumable, in either mode.
+ *
+ * Note by note, the prompt is a single pitch. Bar by bar, it's a whole bar
+ * (or two) played back in order: rhythm is ignored, repeated notes count
+ * once, and a wrong note replays the bar and starts it again.
  *
  * Mutable exercise state lives in refs because the pitch callback is a
  * long-lived closure created once when the mic starts.
@@ -93,10 +137,20 @@ export function EarTrainer({ item }: EarTrainerProps) {
   const noteIndexRef = useRef(0)
   const revealedCountRef = useRef(0)
   const initializedRef = useRef(false)
+  // Bar mode: the current phrase's chunks, which one is sounding, and how
+  // many of its targets the player has found.
+  const chunksRef = useRef<CallResponseChunk[]>([])
+  const chunkIndexRef = useRef(0)
+  const targetPosRef = useRef(0)
 
   const [phase, setPhase] = useState<Phase>('idle')
   const [phraseIndex, setPhraseIndex] = useState(0)
   const [noteIndex, setNoteIndex] = useState(0)
+  const [chunkIndex, setChunkIndex] = useState(0)
+  const [targetPos, setTargetPos] = useState(0)
+  const [modeSettings, setModeSettings] = useState<ModeSettings>(loadModeSettings)
+  const modeRef = useRef(modeSettings)
+  modeRef.current = modeSettings
   const [feedback, setFeedback] = useState<string | null>(null)
   const [micError, setMicError] = useState<string | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
@@ -150,6 +204,23 @@ export function EarTrainer({ item }: EarTrainerProps) {
   function setPhraseIndexBoth(next: number) {
     phraseIndexRef.current = next
     setPhraseIndex(next)
+  }
+
+  function setChunkIndexBoth(next: number) {
+    chunkIndexRef.current = next
+    setChunkIndex(next)
+  }
+
+  function setTargetPosBoth(next: number) {
+    targetPosRef.current = next
+    setTargetPos(next)
+  }
+
+  function updateModeSettings(patch: Partial<ModeSettings>) {
+    const next = { ...modeRef.current, ...patch }
+    modeRef.current = next
+    setModeSettings(next)
+    saveModeSettings(next)
   }
 
   // Resume from saved progress once, when both the parsed tune and the
@@ -222,7 +293,10 @@ export function EarTrainer({ item }: EarTrainerProps) {
     const win = window as WindowWithEarDebug
     win.__earDebug = {
       simulate: (midi: number, cents = 0) => handleDetectedNote(midi, midiToHz(midi), cents),
-      current: () => currentNote()?.midi ?? null,
+      current: () =>
+        modeRef.current.mode === 'bar'
+          ? currentChunk()?.targets[targetPosRef.current]?.midi ?? null
+          : currentNote()?.midi ?? null,
       phase: () => phaseRef.current,
     }
     return () => {
@@ -236,6 +310,10 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   function currentNote() {
     return currentPhrase()?.notes[noteIndexRef.current]
+  }
+
+  function currentChunk() {
+    return chunksRef.current[chunkIndexRef.current]
   }
 
   function revealNote(idx: number, missed: boolean) {
@@ -277,9 +355,13 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   function handleDetectedNote(midi: number, _hz: number, cents: number) {
     if (phaseRef.current !== 'listening') return
+    if (modeRef.current.mode === 'bar') {
+      handleBarNote(midi)
+      return
+    }
     const note = currentNote()
     if (!note) return
-    const played = ((midi % 12) + 12) % 12
+    const played = pitchClassOf(midi)
 
     const playedName = midiToNoteName(midi)
     let tuningInfo = ''
@@ -338,6 +420,112 @@ export function EarTrainer({ item }: EarTrainerProps) {
     }, MIC_RESUME_DELAY_MS)
   }
 
+  // --- Bar mode ---
+
+  function revealTarget(target: CallResponseTarget, missed: boolean) {
+    for (const idx of target.noteIndices) revealNote(idx, missed)
+  }
+
+  /**
+   * Scores one detection against the bar being played back. Hits keep the
+   * mic open — the player plays straight through — and only a finished bar
+   * or a wrong note takes the DETECTION_HOLD_MS pause.
+   */
+  function handleBarNote(midi: number) {
+    const chunk = currentChunk()
+    if (!chunk) return
+    const position = targetPosRef.current
+    const result = matchCallResponse(chunk.targets, position, pitchClassOf(midi))
+    const playedName = midiToNoteName(midi)
+
+    switch (result.kind) {
+      case 'ignore':
+        return
+      case 'hit':
+        revealTarget(chunk.targets[position], false)
+        setTargetPosBoth(result.position)
+        setFeedback(`✓ ${playedName} — ${result.position} of ${chunk.targets.length}`)
+        return
+      case 'done':
+        revealTarget(chunk.targets[position], false)
+        setTargetPosBoth(chunk.targets.length)
+        setFeedback(`✓ ${chunk.barCount === 1 ? 'Bar' : 'Bars'} complete!`)
+        holdThen(nextChunk)
+        return
+      case 'miss':
+        setFeedback(`✗ Played ${playedName}, expected note ${position + 1} — listen again`)
+        holdThen(playCurrentChunk)
+        return
+    }
+  }
+
+  /** Plays the current chunk, then listens for it from its first note. */
+  async function playCurrentChunk() {
+    const phrase = currentPhrase()
+    const chunk = currentChunk()
+    if (!phrase || !chunk) return
+    setPhaseBoth('target')
+    listenerRef.current?.pause()
+    setTargetPosBoth(0)
+
+    // A chunk narrower than its phrase plays from its own bar's excerpt,
+    // parsed without rendering; otherwise the rendered phrase is the chunk.
+    const visualObj =
+      chunk.barCount < phrase.barExcerpts.length
+        ? (abcjs.renderAbc('*', phrase.barExcerpts[chunk.firstBar])[0] as ExtendedTuneObject)
+        : visualObjRef.current
+    await playAudio(visualObj)
+
+    if (phaseRef.current !== 'target') return
+    listenerRef.current?.resume()
+    setPhaseBoth('listening')
+  }
+
+  function startChunk() {
+    const chunk = currentChunk()
+    if (!chunk) return
+    // A tie carried in from the previous bar is never asked for, so show it
+    // up front rather than leave a gap until the phrase ends.
+    const asked = new Set(chunk.targets.flatMap((t) => t.noteIndices))
+    for (const idx of chunk.noteIndices) {
+      if (!asked.has(idx)) revealNote(idx, false)
+    }
+    if (chunk.targets.length === 0) {
+      nextChunk()
+      return
+    }
+    playCurrentChunk()
+  }
+
+  function nextChunk() {
+    const next = chunkIndexRef.current + 1
+    if (next >= chunksRef.current.length) {
+      completePhrase()
+      return
+    }
+    setChunkIndexBoth(next)
+    setFeedback(null)
+    startChunk()
+  }
+
+  /** "Reveal bar": shows the rest of the chunk as missed and moves on. */
+  function revealChunkRest() {
+    const chunk = currentChunk()
+    if (!chunk) return
+    // Cut off a prompt still sounding, so it can't resume listening under
+    // the next one. A stopped timer never reports its end.
+    synthRef.current?.stop()
+    timerRef.current?.stop()
+    const remaining = chunk.targets.slice(targetPosRef.current)
+    for (const target of remaining) revealTarget(target, true)
+    revealedCountRef.current += remaining.length
+    nextChunk()
+    // nextChunk clears feedback; a finished phrase sets its own.
+    if (phaseRef.current === 'target') setFeedback('Revealed — on to the next bar')
+  }
+
+  // --- Note mode ---
+
   function advance() {
     const phrase = currentPhrase()
     if (!phrase) return
@@ -357,6 +545,13 @@ export function EarTrainer({ item }: EarTrainerProps) {
   function startCurrentPhrase() {
     const phrase = currentPhrase()
     if (!phrase) return
+    if (modeRef.current.mode === 'bar') {
+      chunksRef.current = buildCallResponseChunks(phrase, modeRef.current.barsPerChunk)
+      setChunkIndexBoth(0)
+      setTargetPosBoth(0)
+      startChunk()
+      return
+    }
     let idx = 0
     while (idx < phrase.notes.length && phrase.notes[idx].isTieContinuation) {
       revealNote(idx, false)
@@ -405,8 +600,15 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   /** Plays the current phrase excerpt; resolves when it ends (or fails). */
   function playPhraseAudio(): Promise<void> {
+    return playAudio(visualObjRef.current)
+  }
+
+  /**
+   * Plays a parsed tune at PHRASE_TEMPO_PERCENT; resolves MIC_RESUME_DELAY_MS
+   * after it ends, or at once if it can't play.
+   */
+  function playAudio(visualObj: ExtendedTuneObject | null): Promise<void> {
     return new Promise((resolve) => {
-      const visualObj = visualObjRef.current
       if (!visualObj) {
         resolve()
         return
@@ -467,6 +669,10 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   function revealCurrent() {
     if (phaseRef.current !== 'listening' && phaseRef.current !== 'target') return
+    if (modeRef.current.mode === 'bar') {
+      revealChunkRest()
+      return
+    }
     revealNote(noteIndexRef.current, true)
     revealedCountRef.current++
     setFeedback('Revealed — on to the next note')
@@ -484,6 +690,8 @@ export function EarTrainer({ item }: EarTrainerProps) {
       if (wasIdle) {
         setPhaseBoth('idle')
       } else {
+        // The phrase interrupted the bar, so it's played back from the top.
+        if (modeRef.current.mode === 'bar') setTargetPosBoth(0)
         listenerRef.current?.resume()
         setPhaseBoth('listening')
       }
@@ -497,6 +705,8 @@ export function EarTrainer({ item }: EarTrainerProps) {
     if (canSaveRef.current) saveMutation.mutate({ phraseIndex: 0, notesRevealed: 0, completed: false })
     setPhraseIndexBoth(0)
     setNoteIndexBoth(0)
+    setChunkIndexBoth(0)
+    setTargetPosBoth(0)
     setFeedback(null)
     setPhaseBoth('idle')
   }
@@ -512,10 +722,26 @@ export function EarTrainer({ item }: EarTrainerProps) {
   }
 
   const phrase = tune.phrases[phraseIndex]
+  const barMode = modeSettings.mode === 'bar'
   const targetsInPhrase = phrase?.notes.filter((n) => !n.isTieContinuation).length ?? 0
   const noteNumber = phrase
     ? phrase.notes.slice(0, noteIndex + 1).filter((n) => !n.isTieContinuation).length
     : 0
+
+  let progressDetail = ''
+  if (phase !== 'idle') {
+    const chunk = chunksRef.current[chunkIndex]
+    if (barMode && chunk && phrase) {
+      const bars =
+        chunk.barCount === 1
+          ? `bar ${chunk.firstBar + 1} of ${phrase.barExcerpts.length}`
+          : `bars ${chunk.firstBar + 1}–${chunk.firstBar + chunk.barCount}`
+      const total = chunk.targets.length
+      progressDetail = ` · ${bars} · note ${Math.min(targetPos + 1, total)} of ${total}`
+    } else if (!barMode) {
+      progressDetail = ` · note ${noteNumber} of ${targetsInPhrase}`
+    }
+  }
 
   return (
     <div className="card">
@@ -525,16 +751,53 @@ export function EarTrainer({ item }: EarTrainerProps) {
           {phase === 'complete'
             ? `${tune.phrases.length} phrases learned`
             : `Phrase ${Math.min(phraseIndex + 1, tune.phrases.length)} of ${tune.phrases.length}` +
-              (phase === 'idle' ? '' : ` · note ${noteNumber} of ${targetsInPhrase}`)}
+              progressDetail}
         </span>
       </div>
 
       {phase !== 'complete' && <div className="sheet-music" ref={sheetRef} />}
 
       {feedback && <p className="badge badge-queue">{feedback}</p>}
-      {phase === 'listening' && <p className="tune-meta">🎤 Listening — play the note on your instrument…</p>}
+      {phase === 'listening' && (
+        <p className="tune-meta">
+          🎤 Listening — play the {barMode ? 'notes back in order' : 'note'} on your instrument…
+        </p>
+      )}
       {phase === 'target' && <p className="tune-meta">🔊 Listen…</p>}
       {phase === 'phrase-playback' && <p className="tune-meta">🎵 Playing the phrase…</p>}
+
+      {phase === 'idle' && (
+        <div className="detail-controls" style={{ marginBottom: '0.75rem' }}>
+          <button
+            className={barMode ? '' : 'toggled'}
+            onClick={() => updateModeSettings({ mode: 'note' })}
+          >
+            Note by note
+          </button>
+          <button
+            className={barMode ? 'toggled' : ''}
+            onClick={() => updateModeSettings({ mode: 'bar' })}
+          >
+            Bar by bar
+          </button>
+          {barMode && (
+            <>
+              <button
+                className={modeSettings.barsPerChunk === 1 ? 'toggled' : ''}
+                onClick={() => updateModeSettings({ barsPerChunk: 1 })}
+              >
+                1 bar
+              </button>
+              <button
+                className={modeSettings.barsPerChunk === 2 ? 'toggled' : ''}
+                onClick={() => updateModeSettings({ barsPerChunk: 2 })}
+              >
+                2 bars
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {phase === 'idle' && (
         <div className="detail-controls">
@@ -560,14 +823,14 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
       {(phase === 'listening' || phase === 'target' || phase === 'hold') && (
         <div className="detail-controls">
-          <button onClick={playCurrentTarget} disabled={phase !== 'listening'}>
-            🔊 Hear note again
+          <button onClick={barMode ? playCurrentChunk : playCurrentTarget} disabled={phase !== 'listening'}>
+            🔊 Hear {barMode ? 'bar' : 'note'} again
           </button>
           <button onClick={hearPhrase} disabled={phase !== 'listening'}>
             🎵 Hear phrase
           </button>
           <button className="danger" onClick={revealCurrent} disabled={phase === 'hold'}>
-            Reveal note
+            Reveal {barMode ? 'bar' : 'note'}
           </button>
         </div>
       )}

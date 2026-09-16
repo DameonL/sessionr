@@ -24,11 +24,15 @@ export interface NoteEvent {
   abcToken: string
   /** Second half of a tie on the same pitch — revealed for free, never a target. */
   isTieContinuation: boolean
+  /** Which bar of its phrase the note sits in, from 0. */
+  barIndex: number
 }
 
 export interface Phrase {
   notes: NoteEvent[]
   excerptAbc: string
+  /** A standalone ABC tune per bar of the phrase, for playing one bar alone. */
+  barExcerpts: string[]
 }
 
 export interface EarTrainingTune {
@@ -212,6 +216,8 @@ export function buildEarTrainingTune(abc: string, barsPerPhrase = 2): EarTrainin
         pitchClass: ((midi % 12) + 12) % 12,
         abcToken: token + duration,
         isTieContinuation: pendingTieMidi === midi,
+        // Assigned per phrase below; a bar can land in more than one phrase.
+        barIndex: 0,
       })
       pendingTieMidi = tiesForward ? midi : null
 
@@ -275,8 +281,11 @@ export function buildEarTrainingTune(abc: string, barsPerPhrase = 2): EarTrainin
   for (let b = 0; b < unrolled.length; b += barsPerPhrase) {
     const chunk = unrolled.slice(b, b + barsPerPhrase)
     phrases.push({
-      notes: chunk.flatMap((bar) => bar.notes),
+      // Copied, not shared: unrolling pushes the same Bar object once per
+      // repeat, and each copy needs the bar index of its own phrase.
+      notes: chunk.flatMap((bar, barIndex) => bar.notes.map((n) => ({ ...n, barIndex }))),
       excerptAbc: `${excerptHeader}\n${chunk.map((bar) => bar.text).join(' | ')} |]`,
+      barExcerpts: chunk.map((bar) => `${excerptHeader}\n${bar.text} |]`),
     })
   }
 
@@ -287,6 +296,96 @@ export function buildEarTrainingTune(abc: string, barsPerPhrase = 2): EarTrainin
   if (totalTargets === 0) return null
 
   return { phrases, totalTargets }
+}
+
+// --- Bar-by-bar call and response ---
+
+/** One pitch the player owes, standing for one or more written notes. */
+export interface CallResponseTarget {
+  midi: number
+  pitchClass: number
+  /** Phrase note indices revealed when this target is found — repeats and ties included. */
+  noteIndices: number[]
+}
+
+/** A bar (or two) the app plays and the player answers in one go. */
+export interface CallResponseChunk {
+  firstBar: number
+  barCount: number
+  /** Every phrase note index in the chunk, for revealing it whole. */
+  noteIndices: number[]
+  /** In order. Consecutive targets never share a pitch class. */
+  targets: CallResponseTarget[]
+}
+
+/**
+ * Splits a phrase into chunks of `barsPerChunk` bars, each an ordered list of
+ * pitches to play back. Rhythm is ignored.
+ *
+ * Consecutive notes of the same pitch class merge into one target. The pitch
+ * listener only re-fires a MIDI note after a silence, so a re-bowed AAA is a
+ * single detection — asking for three would make the bar unfinishable. Tie
+ * continuations are never targets; they're revealed with the note they extend.
+ */
+export function buildCallResponseChunks(phrase: Phrase, barsPerChunk: 1 | 2): CallResponseChunk[] {
+  const barCount = phrase.notes.reduce((max, n) => Math.max(max, n.barIndex + 1), 0)
+  const chunks: CallResponseChunk[] = []
+
+  for (let firstBar = 0; firstBar < barCount; firstBar += barsPerChunk) {
+    const lastBar = Math.min(firstBar + barsPerChunk, barCount) - 1
+    const chunk: CallResponseChunk = {
+      firstBar,
+      barCount: lastBar - firstBar + 1,
+      noteIndices: [],
+      targets: [],
+    }
+
+    phrase.notes.forEach((note, idx) => {
+      if (note.barIndex < firstBar || note.barIndex > lastBar) return
+      chunk.noteIndices.push(idx)
+      const last = chunk.targets[chunk.targets.length - 1]
+      if (last && (note.isTieContinuation || note.pitchClass === last.pitchClass)) {
+        last.noteIndices.push(idx)
+        return
+      }
+      // A tie continuation opening the chunk has nothing to attach to; it's
+      // still revealed with the chunk, just never asked for.
+      if (note.isTieContinuation) return
+      chunk.targets.push({ midi: note.midi, pitchClass: note.pitchClass, noteIndices: [idx] })
+    })
+
+    chunks.push(chunk)
+  }
+  return chunks
+}
+
+export type CallResponseMatch =
+  | { kind: 'hit'; position: number }
+  | { kind: 'done' }
+  | { kind: 'miss'; expected: CallResponseTarget }
+  | { kind: 'ignore' }
+
+/**
+ * Scores one detected pitch class against the target at `position`.
+ *
+ * A detection matching the target just found is ignored rather than missed:
+ * it's the note still sounding (an octave flip, a harmonic) re-reported, and
+ * can't be a genuine next note because consecutive targets always differ.
+ */
+export function matchCallResponse(
+  targets: CallResponseTarget[],
+  position: number,
+  playedPitchClass: number,
+): CallResponseMatch {
+  const expected = targets[position]
+  if (!expected) return { kind: 'ignore' }
+  if (playedPitchClass === expected.pitchClass) {
+    return position + 1 >= targets.length ? { kind: 'done' } : { kind: 'hit', position: position + 1 }
+  }
+  if (position > 0 && playedPitchClass === targets[position - 1].pitchClass) {
+    return { kind: 'ignore' }
+  }
+  return { kind: 'miss', expected }
 }
 
 export function midiToHz(midi: number): number {
