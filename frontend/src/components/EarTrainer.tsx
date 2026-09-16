@@ -34,12 +34,18 @@ interface WindowWithEarDebug extends Window {
   __earDebug?: EarDebug;
 }
 
-type Phase = 'idle' | 'target' | 'listening' | 'phrase-playback' | 'complete'
+type Phase = 'idle' | 'target' | 'listening' | 'hold' | 'phrase-playback' | 'complete'
 
 /** Phrase reward playback runs slow so the just-learned notes are followable. */
 const PHRASE_TEMPO_PERCENT = 70
 /** Pause between app audio ending and the mic listening again. */
 const MIC_RESUME_DELAY_MS = 150
+/**
+ * Mic-off pause after a note is detected, so the player can register the
+ * result and stop playing before the next target sounds. Without it, a
+ * sustained note gets scored against the note that follows it.
+ */
+const DETECTION_HOLD_MS = 1200
 
 const MISSED_COLOR = '#d97706'
 
@@ -70,6 +76,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
   const synthRef = useRef<abcjs.MidiBuffer | null>(null)
   const timerRef = useRef<abcjs.TimingCallbacks | null>(null)
   const phaseRef = useRef<Phase>('idle')
+  const holdTimerRef = useRef<number | null>(null)
   const phraseIndexRef = useRef(0)
   const noteIndexRef = useRef(0)
   const revealedCountRef = useRef(0)
@@ -182,6 +189,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
       listenerRef.current?.stop()
       synthRef.current?.stop()
       timerRef.current?.stop()
+      if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
     }
   }, [])
 
@@ -229,6 +237,22 @@ export function EarTrainer({ item }: EarTrainerProps) {
     }
   }
 
+  /**
+   * Stops listening and waits out DETECTION_HOLD_MS before `fn`. The phase
+   * guard drops a firing that Reveal note / Start over / unmount has since
+   * moved past.
+   */
+  function holdThen(fn: () => void) {
+    listenerRef.current?.pause()
+    setPhaseBoth('hold')
+    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null
+      if (phaseRef.current !== 'hold') return
+      fn()
+    }, DETECTION_HOLD_MS)
+  }
+
   function handleDetectedNote(midi: number, _hz: number, cents: number) {
     if (phaseRef.current !== 'listening') return
     const note = currentNote()
@@ -248,11 +272,11 @@ export function EarTrainer({ item }: EarTrainerProps) {
     if (played === note.pitchClass) {
       revealNote(noteIndexRef.current, false)
       setFeedback(`✓ Played ${playedName} (${tuningInfo}) — Got it!`)
-      advance()
+      holdThen(advance)
     } else {
       const diff = ((played - note.pitchClass + 18) % 12) - 6
       setFeedback(`✗ Played ${playedName} (${tuningInfo}) — try a bit ${diff < 0 ? 'higher' : 'lower'}`)
-      playCurrentTarget()
+      holdThen(playCurrentTarget)
     }
   }
 
@@ -305,7 +329,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
       return
     }
     setNoteIndexBoth(idx)
-    window.setTimeout(() => playCurrentTarget(), 700)
+    playCurrentTarget()
   }
 
   function startCurrentPhrase() {
@@ -444,6 +468,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
 
   function startOver() {
     if (!tune) return
+    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
     revealedCountRef.current = 0
     saveMutation.mutate({ phraseIndex: 0, notesRevealed: 0, completed: false })
     setPhraseIndexBoth(0)
@@ -509,15 +534,15 @@ export function EarTrainer({ item }: EarTrainerProps) {
         </div>
       )}
 
-      {(phase === 'listening' || phase === 'target') && (
+      {(phase === 'listening' || phase === 'target' || phase === 'hold') && (
         <div className="detail-controls">
-          <button onClick={playCurrentTarget} disabled={phase === 'target'}>
+          <button onClick={playCurrentTarget} disabled={phase !== 'listening'}>
             🔊 Hear note again
           </button>
-          <button onClick={hearPhrase} disabled={phase === 'target'}>
+          <button onClick={hearPhrase} disabled={phase !== 'listening'}>
             🎵 Hear phrase
           </button>
-          <button className="danger" onClick={revealCurrent}>
+          <button className="danger" onClick={revealCurrent} disabled={phase === 'hold'}>
             Reveal note
           </button>
         </div>
