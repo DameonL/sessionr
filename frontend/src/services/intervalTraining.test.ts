@@ -65,14 +65,17 @@ describe('availableSizes', () => {
 })
 
 describe('generateQuestion', () => {
-  it('produces an ascending pair of the chosen size, both in the scale', () => {
+  it('produces a rising pair when the direction draw is low', () => {
     const scale = scaleMidis('D', 'dor', 62, 86) ?? []
-    // First draw picks the size, second the root index.
-    const q = generateQuestion(scale, seeded([0, 0]))
-    expect(q).not.toBeNull()
-    expect(q?.size).toBe(2)
-    expect(q?.rootMidi).toBe(62)
-    expect(q?.targetMidi).toBe(64)
+    // Draws: size, then position, then direction.
+    const q = generateQuestion(scale, seeded([0, 0, 0]))
+    expect(q).toEqual({ rootMidi: 62, targetMidi: 64, direction: 'up', size: 2 })
+  })
+
+  it('produces a falling pair over the same notes when the direction draw is high', () => {
+    const scale = scaleMidis('D', 'dor', 62, 86) ?? []
+    const q = generateQuestion(scale, seeded([0, 0, 0.9]))
+    expect(q).toEqual({ rootMidi: 64, targetMidi: 62, direction: 'down', size: 2 })
   })
 
   it('never picks the excluded size when others are available', () => {
@@ -103,9 +106,19 @@ describe('generateRound', () => {
     for (const q of round) {
       expect(scale).toContain(q.rootMidi)
       expect(scale).toContain(q.targetMidi)
-      expect(q.targetMidi).toBeGreaterThan(q.rootMidi)
-      expect(q.targetMidi).toBeLessThanOrEqual(config.maxMidi)
+      const [low, high] = [Math.min(q.rootMidi, q.targetMidi), Math.max(q.rootMidi, q.targetMidi)]
+      expect(q.direction === 'up' ? q.targetMidi > q.rootMidi : q.targetMidi < q.rootMidi).toBe(true)
+      // The two notes sit exactly size - 1 scale steps apart, inside the range.
+      expect(scale.indexOf(high) - scale.indexOf(low)).toBe(q.size - 1)
+      expect(low).toBeGreaterThanOrEqual(config.minMidi)
+      expect(high).toBeLessThanOrEqual(config.maxMidi)
     }
+  })
+
+  it('goes both up and down over a round', () => {
+    const round = generateRound({ ...config, questionCount: 40 }, Math.random)
+    const directions = new Set(round.map((q) => q.direction))
+    expect(directions).toEqual(new Set(['up', 'down']))
   })
 
   it('never repeats a size back to back', () => {

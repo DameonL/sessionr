@@ -51,7 +51,7 @@ interface Settings {
 
 interface IntervalDebug {
   simulate(midi: number): void
-  current(): { root: number; target: number; size: number } | null
+  current(): { root: number; target: number; size: number; direction: string } | null
   phase(): string
 }
 
@@ -110,7 +110,7 @@ function saveSettings(settings: Settings) {
 
 /**
  * Interval ear training. The app sounds two notes of a chosen key and mode,
- * ascending, and the player either plays them back on their instrument (mic,
+ * rising or falling at random, and the player either plays them back on their instrument (mic,
  * octave-agnostic) or names the interval's diatonic size. The key fixes each
  * size's quality, so answers are "3rd", not "m3".
  *
@@ -180,7 +180,7 @@ export function IntervalTrainer() {
       simulate: (midi: number) => handleDetectedNote(midi, midiToHz(midi), 0),
       current: () => {
         const q = currentQuestion()
-        return q ? { root: q.rootMidi, target: q.targetMidi, size: q.size } : null
+        return q ? { root: q.rootMidi, target: q.targetMidi, size: q.size, direction: q.direction } : null
       },
       phase: () => phaseRef.current,
     }
@@ -188,6 +188,17 @@ export function IntervalTrainer() {
       delete win.__intervalDebug
     }
   }, [])
+
+  /** "3rd up", "octave down". */
+  function describe(q: IntervalQuestion) {
+    return `${intervalSizeLabel(q.size)} ${q.direction}`
+  }
+
+  /** "D → F", with the second note's direction marked. */
+  function spellPair(q: IntervalQuestion) {
+    const arrow = q.direction === 'up' ? '↗' : '↘'
+    return `${spellMidiNote(q.rootMidi, useFlats)} ${arrow} ${spellMidiNote(q.targetMidi, useFlats)}`
+  }
 
   function currentQuestion(): IntervalQuestion | undefined {
     return questionsRef.current[questionIndexRef.current]
@@ -269,7 +280,7 @@ export function IntervalTrainer() {
       return
     }
 
-    setFeedback(`✓ ${playedName} — that's the ${intervalSizeLabel(q.size)}!`)
+    setFeedback(`✓ ${playedName} — that's a ${describe(q)}!`)
     score(true)
   }
 
@@ -280,8 +291,8 @@ export function IntervalTrainer() {
     const correct = size === q.size
     setFeedback(
       correct
-        ? `✓ ${intervalSizeLabel(q.size)} — correct!`
-        : `✗ That was a ${intervalSizeLabel(q.size)} (${spellMidiNote(q.rootMidi, useFlats)} → ${spellMidiNote(q.targetMidi, useFlats)})`,
+        ? `✓ ${describe(q)} — correct!`
+        : `✗ That was a ${describe(q)} (${spellPair(q)})`,
     )
     score(correct)
   }
@@ -318,7 +329,7 @@ export function IntervalTrainer() {
     const q = currentQuestion()
     if (!q) return
     setFeedback(
-      `The answer: ${intervalSizeLabel(q.size)} — ${spellMidiNote(q.rootMidi, useFlats)} → ${spellMidiNote(q.targetMidi, useFlats)}`,
+      `The answer: ${describe(q)} — ${spellPair(q)}`,
     )
     score(false)
   }
@@ -397,8 +408,8 @@ export function IntervalTrainer() {
       {phase === 'setup' && (
         <div>
           <p className="tune-meta" style={{ marginBottom: '1rem' }}>
-            You'll hear two notes of the scale, low then high. Play them back on your
-            instrument, or name how far apart they are.
+            You'll hear two notes of the scale — the second may be higher or lower. Play
+            them back on your instrument, or name how far apart they are.
           </p>
 
           <div className="detail-controls" style={{ marginBottom: '1rem' }}>

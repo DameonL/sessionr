@@ -7,15 +7,21 @@ import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignatur
  * always minor — which is why questions carry a diatonic size (2..8) and never
  * a m3/M3 style label.
  *
- * Intervals are melodic and ascending: the root sounds first, the target above it.
+ * Intervals are melodic and go either way: the root sounds first, and the
+ * target is above or below it at random.
  *
  * Randomness is injected (`randomFn`) so rounds are deterministic in tests,
  * matching pickBandVoices in ./band.ts.
  */
 
+export type IntervalDirection = 'up' | 'down'
+
 export interface IntervalQuestion {
+  /** The note sounded first. Above the target when the interval descends. */
   rootMidi: number
+  /** The note sounded second. */
   targetMidi: number
+  direction: IntervalDirection
   /** Diatonic size: 2 = 2nd, 3 = 3rd, ... 8 = octave. */
   size: number
 }
@@ -105,7 +111,11 @@ export function availableSizes(scale: number[]): number[] {
   return sizes
 }
 
-/** One ascending question, or null if the scale is too short for any interval. */
+/**
+ * One question, rising or falling at random, or null if the scale is too
+ * short for any interval. Draws from randomFn in a fixed order — size, then
+ * position, then direction — so seeded tests stay readable.
+ */
 export function generateQuestion(
   scale: number[],
   randomFn: () => number = Math.random,
@@ -117,14 +127,15 @@ export function generateQuestion(
 
   const size = pool[Math.floor(randomFn() * pool.length)]
   const steps = size - 1
-  const maxRootIndex = scale.length - 1 - steps
-  const rootIndex = Math.floor(randomFn() * (maxRootIndex + 1))
+  const maxLowIndex = scale.length - 1 - steps
+  const lowIndex = Math.floor(randomFn() * (maxLowIndex + 1))
+  const low = scale[lowIndex]
+  const high = scale[lowIndex + steps]
+  const direction: IntervalDirection = randomFn() < 0.5 ? 'up' : 'down'
 
-  return {
-    rootMidi: scale[rootIndex],
-    targetMidi: scale[rootIndex + steps],
-    size,
-  }
+  return direction === 'up'
+    ? { rootMidi: low, targetMidi: high, direction, size }
+    : { rootMidi: high, targetMidi: low, direction, size }
 }
 
 /** A round's worth of questions, never repeating a size back to back. */
