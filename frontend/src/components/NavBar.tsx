@@ -6,6 +6,7 @@ import { usePathname } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
 import { clearAuthSession } from '../services/authSnapshot'
 import { clearOfflineHttpCache } from '../services/offlineDb'
+import { recoverFromInterruptedLogout } from '../services/msalRecovery'
 import { queryClient } from '../services/queryClient'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { authStatus, currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../state/appState'
@@ -179,6 +180,12 @@ function MsalAuthWidget() {
           authStatus.value = 'anonymous'
           queryClient.clear()
           void clearOfflineHttpCache()
+          // Backing out of the IdP's sign-out page strands MSAL mid-interaction:
+          // it registers a bfcache listener for its sign-in redirect but not for
+          // logout, so the SIGNOUT mark and msal-react's inProgress both stick and
+          // every later sign-in is refused. Arm the equivalent recovery first —
+          // it has to be registered on this page to survive into the restore.
+          recoverFromInterruptedLogout()
           instance.logoutRedirect().catch((err) => console.error('MSAL Logout Failed:', err))
         }}
       >

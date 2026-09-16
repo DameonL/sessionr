@@ -5,6 +5,7 @@ import { useRouter } from '@/utils/routerCompat'
 import { useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { loginRequest } from '../services/authConfig'
+import { recoverFromStaleInteraction } from '../services/msalRecovery'
 import { useAuthStatus } from '../state/appState'
 
 export function MsalLoginPanel() {
@@ -22,7 +23,15 @@ export function MsalLoginPanel() {
   // token), showing the sign-in button would let the user click it again before
   // the in-flight sign-in resolves — the "have to click twice" symptom. Show a
   // finishing-up spinner instead.
-  if (inProgress !== InteractionStatus.None) {
+  //
+  // Logout is deliberately not one of those states. It means a sign-out was
+  // started and never finished — backing out of the IdP's sign-out page leaves it
+  // here permanently, since LOGOUT_END never fires — and a user who has navigated
+  // to /login is asking to sign in, not waiting on that. Blocking on it strands
+  // them behind a spinner that claims to be finishing a sign-in that was never
+  // started. Let the button render; the click handler recovers the stale
+  // interaction mark that a half-finished sign-out leaves behind.
+  if (inProgress !== InteractionStatus.None && inProgress !== InteractionStatus.Logout) {
     return (
       <div style={{ minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div className="signin-loader-ring" />
@@ -48,7 +57,16 @@ export function MsalLoginPanel() {
           already recorded by whatever sent the user to /login (NavBar, RequireAuth),
           and recording again from /login would only overwrite it with nothing. */}
       <button
-        onClick={() => instance.loginRedirect(loginRequest).catch((err) => console.error('MSAL Login Failed:', err))}
+        onClick={() =>
+          instance.loginRedirect(loginRequest).catch((err) => {
+            // A stale interaction mark from an abandoned sign-out blocks this
+            // outright. Reloading is the only supported way to clear it — the
+            // bootstrap's handleRedirectPromise does it — so recover rather than
+            // leaving the user with a button that silently does nothing.
+            if (recoverFromStaleInteraction(err)) return
+            console.error('MSAL Login Failed:', err)
+          })
+        }
         style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
       >
         <svg style={{ width: '20px', height: '20px' }} viewBox="0 0 23 23">

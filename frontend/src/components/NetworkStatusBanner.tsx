@@ -3,6 +3,7 @@
 import { useMsal } from '@azure/msal-react'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { loginRequest } from '../services/authConfig'
+import { recoverFromStaleInteraction } from '../services/msalRecovery'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { showToast } from '../state/appState'
 
@@ -37,6 +38,9 @@ export function NetworkStatusBanner() {
               // it once handleRedirectPromise resolves.
               rememberReturnUrl()
               instance.loginRedirect(loginRequest).catch((err) => {
+                // An abandoned sign-out leaves MSAL refusing new interactions;
+                // a reload is what clears it. See services/msalRecovery.
+                if (recoverFromStaleInteraction(err)) return
                 console.error('Sign-in failed:', err)
                 showToast('Sign-in failed. Please try again.', 'error')
               })

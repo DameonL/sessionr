@@ -16,6 +16,7 @@ import {
   type DashboardActivityItemData,
 } from '../services/api'
 import { loginRequest } from '../services/authConfig'
+import { recoverFromStaleInteraction } from '../services/msalRecovery'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { currentUserId, showToast, useSignal } from '../state/appState'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
@@ -151,6 +152,9 @@ export function Dashboard() {
                 // can put the user back on it after the round trip.
                 rememberReturnUrl()
                 instance.loginRedirect(loginRequest).catch((err) => {
+                  // As in NetworkStatusBanner: recover a stale interaction mark
+                  // rather than reporting a failure the user can't act on.
+                  if (recoverFromStaleInteraction(err)) return
                   console.error('Sign-in failed:', err)
                   showToast('Sign-in failed. Please try again.', 'error')
                 })
