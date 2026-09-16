@@ -23,9 +23,16 @@ const MIC_RESUME_DELAY_MS = 150
  * sustained note gets scored against the note that follows it.
  */
 const DETECTION_HOLD_MS = 1200
-/** How long each prompt note sounds, and the gap between the two. */
-const PROMPT_NOTE_MS = 700
-const PROMPT_GAP_MS = 120
+/**
+ * How long each prompt note sounds, and the silence between the first note
+ * ending and the second starting. The pair has to read as two separate
+ * pitches with room to compare them, not as a flourish — so the gap is real
+ * silence rather than the notes running together.
+ */
+const PROMPT_NOTE_MS = 900
+const PROMPT_GAP_MS = 400
+/** Breath after the second note before answering opens. */
+const PROMPT_TAIL_MS = 350
 /** How long an answer stays on screen before the next question. */
 const REVEAL_MS = 1600
 
@@ -201,16 +208,25 @@ export function IntervalTrainer() {
     }, delayMs)
   }
 
+  const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
+
   async function playPrompt() {
     const q = currentQuestion()
     if (!q) return
     setPhaseBoth('prompt')
     listenerRef.current?.pause()
 
+    // playTargetNote resolves when the note starts, so each note's length is
+    // waited out here. Awaiting it still matters: it covers soundfont load and
+    // prime, which is what keeps the gap after the first note from absorbing a
+    // cold start.
     await playTargetNote(q.rootMidi, PROMPT_NOTE_MS, settings.instrument)
-    await new Promise((r) => window.setTimeout(r, PROMPT_GAP_MS))
+    await sleep(PROMPT_NOTE_MS + PROMPT_GAP_MS)
     if (phaseRef.current !== 'prompt') return
+
     await playTargetNote(q.targetMidi, PROMPT_NOTE_MS, settings.instrument)
+    await sleep(PROMPT_NOTE_MS + PROMPT_TAIL_MS)
+    if (phaseRef.current !== 'prompt') return
 
     window.setTimeout(() => {
       if (phaseRef.current !== 'prompt') return

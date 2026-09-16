@@ -293,14 +293,35 @@ export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
 }
 
-/** Sound a single target pitch using the abcjs synth; resolves when it ends. */
+/**
+ * Sound a single target pitch using the abcjs synth.
+ *
+ * Resolves when the note *starts*, not when it ends: playEvent's promise
+ * settles right after buffer.start(), once the soundfont is loaded and primed.
+ * A caller that needs to wait out the note has to time that itself.
+ *
+ * playEvent measures a note's duration in measures, so the milliseconds asked
+ * for here are handed over as a fraction of a one-second measure. Passing
+ * durationMs/1000 against the default 500ms measure used to sound every note
+ * for half its requested length.
+ */
 export function playTargetNote(midi: number, durationMs = 600, instrument = 110): Promise<void> {
+  const MS_PER_MEASURE = 1000
   return new Promise((resolve) => {
     abcjs.synth
       .playEvent(
-        [{ pitch: midi, volume: 85, start: 0, duration: durationMs / 1000, instrument, gap: 0 }],
+        [
+          {
+            pitch: midi,
+            volume: 85,
+            start: 0,
+            duration: durationMs / MS_PER_MEASURE,
+            instrument,
+            gap: 0,
+          },
+        ],
         [],
-        500,
+        MS_PER_MEASURE,
       )
       .then(() => resolve())
       .catch(() => resolve())
