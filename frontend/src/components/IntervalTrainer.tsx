@@ -5,6 +5,7 @@ import {
   generateRound,
   intervalSizeLabel,
   scaleMidis,
+  type DirectionMode,
   type IntervalQuestion,
   type RoundConfig,
 } from '../services/intervalTraining'
@@ -45,6 +46,7 @@ interface Settings {
   minMidi: number
   maxMidi: number
   questionCount: number
+  directionMode: DirectionMode
   answerMode: AnswerMode
   instrument: number
 }
@@ -65,6 +67,7 @@ const DEFAULT_SETTINGS: Settings = {
   minMidi: 62, // D4
   maxMidi: 86, // D6
   questionCount: 10,
+  directionMode: 'mixed',
   answerMode: 'name',
   instrument: 110, // Fiddle
 }
@@ -89,6 +92,12 @@ const RANGES: { label: string; min: number; max: number }[] = [
 ]
 
 const ROUND_LENGTHS = [5, 10, 20]
+
+const DIRECTIONS: { value: DirectionMode; label: string; blurb: string }[] = [
+  { value: 'mixed', label: 'Both ways', blurb: 'the second may be higher or lower' },
+  { value: 'up', label: 'Ascending only', blurb: 'the second is always higher' },
+  { value: 'down', label: 'Descending only', blurb: 'the second is always lower' },
+]
 
 function loadSettings(): Settings {
   try {
@@ -347,6 +356,7 @@ export function IntervalTrainer() {
       minMidi: settings.minMidi,
       maxMidi: settings.maxMidi,
       questionCount: settings.questionCount,
+      directionMode: settings.directionMode,
     }
     const round = generateRound(config)
     if (round.length === 0) return
@@ -408,8 +418,10 @@ export function IntervalTrainer() {
       {phase === 'setup' && (
         <div>
           <p className="tune-meta" style={{ marginBottom: '1rem' }}>
-            You'll hear two notes of the scale — the second may be higher or lower. Play
-            them back on your instrument, or name how far apart they are.
+            You'll hear two notes of the scale —{' '}
+            {DIRECTIONS.find((d) => d.value === settings.directionMode)?.blurb ??
+              'the second may be higher or lower'}
+            . Play them back on your instrument, or name how far apart they are.
           </p>
 
           <div className="detail-controls" style={{ marginBottom: '1rem' }}>
@@ -455,6 +467,17 @@ export function IntervalTrainer() {
               >
                 {RANGES.map((r) => (
                   <option key={r.label} value={`${r.min}-${r.max}`}>{r.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Direction
+              <select
+                value={settings.directionMode}
+                onChange={(e) => updateSettings({ directionMode: e.target.value as DirectionMode })}
+              >
+                {DIRECTIONS.map((d) => (
+                  <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
             </label>

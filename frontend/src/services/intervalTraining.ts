@@ -7,14 +7,18 @@ import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignatur
  * always minor — which is why questions carry a diatonic size (2..8) and never
  * a m3/M3 style label.
  *
- * Intervals are melodic and go either way: the root sounds first, and the
- * target is above or below it at random.
+ * Intervals are melodic: the root sounds first, and the target follows above
+ * or below it. Which way is a round setting — ascending, descending, or drawn
+ * at random per question.
  *
  * Randomness is injected (`randomFn`) so rounds are deterministic in tests,
  * matching pickBandVoices in ./band.ts.
  */
 
 export type IntervalDirection = 'up' | 'down'
+
+/** Which way a round's intervals run. 'mixed' draws per question. */
+export type DirectionMode = IntervalDirection | 'mixed'
 
 export interface IntervalQuestion {
   /** The note sounded first. Above the target when the interval descends. */
@@ -34,6 +38,7 @@ export interface RoundConfig {
   minMidi: number
   maxMidi: number
   questionCount: number
+  directionMode?: DirectionMode
 }
 
 /** The smallest and largest diatonic sizes a question can use. */
@@ -112,14 +117,16 @@ export function availableSizes(scale: number[]): number[] {
 }
 
 /**
- * One question, rising or falling at random, or null if the scale is too
- * short for any interval. Draws from randomFn in a fixed order — size, then
- * position, then direction — so seeded tests stay readable.
+ * One question, or null if the scale is too short for any interval. Draws from
+ * randomFn in a fixed order — size, then position, then direction — so seeded
+ * tests stay readable. A fixed directionMode skips the direction draw entirely,
+ * which leaves those seeded draws meaning what they did before this setting.
  */
 export function generateQuestion(
   scale: number[],
   randomFn: () => number = Math.random,
   excludeSize?: number,
+  directionMode: DirectionMode = 'mixed',
 ): IntervalQuestion | null {
   const sizes = availableSizes(scale).filter((s) => s !== excludeSize)
   const pool = sizes.length > 0 ? sizes : availableSizes(scale)
@@ -131,7 +138,8 @@ export function generateQuestion(
   const lowIndex = Math.floor(randomFn() * (maxLowIndex + 1))
   const low = scale[lowIndex]
   const high = scale[lowIndex + steps]
-  const direction: IntervalDirection = randomFn() < 0.5 ? 'up' : 'down'
+  const direction: IntervalDirection =
+    directionMode === 'mixed' ? (randomFn() < 0.5 ? 'up' : 'down') : directionMode
 
   return direction === 'up'
     ? { rootMidi: low, targetMidi: high, direction, size }
@@ -149,7 +157,7 @@ export function generateRound(
   const questions: IntervalQuestion[] = []
   let lastSize: number | undefined
   for (let i = 0; i < config.questionCount; i++) {
-    const q = generateQuestion(scale, randomFn, lastSize)
+    const q = generateQuestion(scale, randomFn, lastSize, config.directionMode ?? 'mixed')
     if (!q) break
     questions.push(q)
     lastSize = q.size

@@ -89,6 +89,19 @@ describe('generateQuestion', () => {
   it('returns null for a scale too short for any interval', () => {
     expect(generateQuestion([62], seeded([0, 0]))).toBeNull()
   })
+
+  it('takes a fixed direction without spending a draw on it', () => {
+    const scale = scaleMidis('D', 'dor', 62, 86) ?? []
+    let draws = 0
+    const counting = () => {
+      draws++
+      return 0
+    }
+    const q = generateQuestion(scale, counting, undefined, 'down')
+    expect(q).toEqual({ rootMidi: 64, targetMidi: 62, direction: 'down', size: 2 })
+    // Size and position only — the direction is settled by the caller.
+    expect(draws).toBe(2)
+  })
 })
 
 describe('generateRound', () => {
@@ -119,6 +132,18 @@ describe('generateRound', () => {
     const round = generateRound({ ...config, questionCount: 40 }, Math.random)
     const directions = new Set(round.map((q) => q.direction))
     expect(directions).toEqual(new Set(['up', 'down']))
+  })
+
+  it.each([
+    ['up' as const, (q: { rootMidi: number; targetMidi: number }) => q.targetMidi > q.rootMidi],
+    ['down' as const, (q: { rootMidi: number; targetMidi: number }) => q.targetMidi < q.rootMidi],
+  ])('keeps every question going %s when the round is fixed that way', (directionMode, rises) => {
+    const round = generateRound({ ...config, questionCount: 40, directionMode }, Math.random)
+    expect(round).toHaveLength(40)
+    for (const q of round) {
+      expect(q.direction).toBe(directionMode)
+      expect(rises(q)).toBe(true)
+    }
   })
 
   it('never repeats a size back to back', () => {
