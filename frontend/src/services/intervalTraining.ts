@@ -39,6 +39,10 @@ export interface RoundConfig {
   maxMidi: number
   questionCount: number
   directionMode?: DirectionMode
+  /** Limit the round to these sizes; omitted or empty means every size the scale allows. */
+  sizes?: number[]
+  /** Relative draw weight per size, as weightsFromHistory builds them. */
+  weights?: Record<number, number>
 }
 
 /** The smallest and largest diatonic sizes a question can use. */
@@ -105,6 +109,32 @@ export function scaleMidis(key: string, mode: string, minMidi: number, maxMidi: 
 }
 
 /**
+ * The mode's home pitch class, or null for a key root the parser doesn't
+ * recognise.
+ */
+function tonicPitchClass(key: string, mode: string): number | null {
+  const details = parseKeyDetails(key + mode)
+  const sig = parseKeySignature(key + mode)
+  if (!details || !sig) return null
+  const letter = details.root[0].toLowerCase()
+  if (LETTER_PITCHES[letter] === undefined) return null
+  const pc = LETTER_PITCHES[letter] + getDefaultAlteration(letter, sig.sharps)
+  return ((pc % 12) + 12) % 12
+}
+
+/**
+ * The tonic as a playable note: the lowest scale member with the mode's home
+ * pitch class, so a reference note stays put between questions. Not scale[0] —
+ * scaleMidis keeps only what falls inside the range, so a low bound (G3 in key
+ * D) makes the first entry a note other than the tonic.
+ */
+export function tonicMidiInScale(key: string, mode: string, scale: number[]): number | null {
+  const pc = tonicPitchClass(key, mode)
+  if (pc === null) return null
+  return scale.find((midi) => midi % 12 === pc) ?? null
+}
+
+/**
  * The sizes this scale can actually produce, so the Name-it buttons never
  * offer an answer the range can't generate.
  */
@@ -116,6 +146,28 @@ export function availableSizes(scale: number[]): number[] {
   return sizes
 }
 
+export interface QuestionOptions {
+  /** Size to avoid, so a round doesn't ask the same one twice running. */
+  excludeSize?: number
+  directionMode?: DirectionMode
+  /** Sizes the round is limited to; intersected with what the scale allows. */
+  sizes?: number[]
+  /** Relative draw weight per size. Missing entries count as 1. */
+  weights?: Record<number, number>
+}
+
+/** Picks from pool with the given relative weights; uniform when none apply. */
+function pickWeighted(pool: number[], weights: Record<number, number> | undefined, draw: number): number {
+  if (!weights) return pool[Math.floor(draw * pool.length)]
+  const total = pool.reduce((sum, size) => sum + (weights[size] ?? 1), 0)
+  let remaining = draw * total
+  for (const size of pool) {
+    remaining -= weights[size] ?? 1
+    if (remaining < 0) return size
+  }
+  return pool[pool.length - 1]
+}
+
 /**
  * One question, or null if the scale is too short for any interval. Draws from
  * randomFn in a fixed order — size, then position, then direction — so seeded
@@ -125,25 +177,57 @@ export function availableSizes(scale: number[]): number[] {
 export function generateQuestion(
   scale: number[],
   randomFn: () => number = Math.random,
-  excludeSize?: number,
-  directionMode: DirectionMode = 'mixed',
+  opts: QuestionOptions = {},
 ): IntervalQuestion | null {
-  const sizes = availableSizes(scale).filter((s) => s !== excludeSize)
-  const pool = sizes.length > 0 ? sizes : availableSizes(scale)
+  const allowed = availableSizes(scale).filter((s) => !opts.sizes?.length || opts.sizes.includes(s))
+  const withoutLast = allowed.filter((s) => s !== opts.excludeSize)
+  // Falling back to `allowed` and never to every size matters: a round limited
+  // to one size empties withoutLast on every question after the first.
+  const pool = withoutLast.length > 0 ? withoutLast : allowed
   if (pool.length === 0) return null
 
-  const size = pool[Math.floor(randomFn() * pool.length)]
+  const size = pickWeighted(pool, opts.weights, randomFn())
   const steps = size - 1
   const maxLowIndex = scale.length - 1 - steps
   const lowIndex = Math.floor(randomFn() * (maxLowIndex + 1))
   const low = scale[lowIndex]
   const high = scale[lowIndex + steps]
+  const directionMode = opts.directionMode ?? 'mixed'
   const direction: IntervalDirection =
     directionMode === 'mixed' ? (randomFn() < 0.5 ? 'up' : 'down') : directionMode
 
   return direction === 'up'
     ? { rootMidi: low, targetMidi: high, direction, size }
     : { rootMidi: high, targetMidi: low, direction, size }
+}
+
+export interface SizeStat {
+  asked: number
+  correct: number
+}
+
+/** Lifetime record per diatonic size, kept across rounds. */
+export type IntervalHistory = Record<number, SizeStat>
+
+/** How much harder a size you always miss is drawn than one you always get. */
+const WEAK_BIAS = 2
+/** Answers before a size's record is trusted rather than treated as unproven. */
+const MIN_SAMPLES = 4
+
+/**
+ * Relative draw weights from a player's record: 1 for a size they always get,
+ * up to 1 + WEAK_BIAS for one they always miss. A size with too few answers to
+ * judge sits in the middle, so it comes up a little more often than a mastered
+ * one without crowding out the sizes actually known to be weak.
+ */
+export function weightsFromHistory(history: IntervalHistory, sizes: number[]): Record<number, number> {
+  const weights: Record<number, number> = {}
+  for (const size of sizes) {
+    const stat = history[size]
+    const accuracy = !stat || stat.asked < MIN_SAMPLES ? 0.5 : stat.correct / stat.asked
+    weights[size] = 1 + WEAK_BIAS * (1 - accuracy)
+  }
+  return weights
 }
 
 /** A round's worth of questions, never repeating a size back to back. */
@@ -157,7 +241,12 @@ export function generateRound(
   const questions: IntervalQuestion[] = []
   let lastSize: number | undefined
   for (let i = 0; i < config.questionCount; i++) {
-    const q = generateQuestion(scale, randomFn, lastSize, config.directionMode ?? 'mixed')
+    const q = generateQuestion(scale, randomFn, {
+      excludeSize: lastSize,
+      directionMode: config.directionMode,
+      sizes: config.sizes,
+      weights: config.weights,
+    })
     if (!q) break
     questions.push(q)
     lastSize = q.size

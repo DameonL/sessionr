@@ -5,8 +5,11 @@ import {
   generateRound,
   intervalSizeLabel,
   scaleMidis,
+  tonicMidiInScale,
+  weightsFromHistory,
   type DirectionMode,
   type IntervalQuestion,
+  type IntervalHistory,
   type RoundConfig,
 } from '../services/intervalTraining'
 import { parseKeySignature } from '../services/abcTools'
@@ -15,6 +18,11 @@ import { createPitchListener, midiToNoteName, type PitchListener } from '../serv
 import { INSTRUMENTS } from './instruments'
 
 const SETTINGS_KEY = 'sessionapp.interval-training'
+/**
+ * Lifetime accuracy per size, kept apart from the settings so clearing the
+ * record doesn't disturb a player's setup, or the other way round.
+ */
+const HISTORY_KEY = 'sessionapp.interval-history'
 
 /** Pause between app audio ending and the mic listening again. */
 const MIC_RESUME_DELAY_MS = 150
@@ -47,6 +55,12 @@ interface Settings {
   maxMidi: number
   questionCount: number
   directionMode: DirectionMode
+  /** Sizes to drill; null means every size the scale allows. */
+  sizes: number[] | null
+  /** Bias the draw toward the sizes this player misses. */
+  focusWeak: boolean
+  /** Sound the tonic before each pair, so the interval is heard in its mode. */
+  tonicReference: boolean
   answerMode: AnswerMode
   instrument: number
 }
@@ -68,6 +82,9 @@ const DEFAULT_SETTINGS: Settings = {
   maxMidi: 86, // D6
   questionCount: 10,
   directionMode: 'mixed',
+  sizes: null,
+  focusWeak: true,
+  tonicReference: false,
   answerMode: 'name',
   instrument: 110, // Fiddle
 }
@@ -117,6 +134,23 @@ function saveSettings(settings: Settings) {
   }
 }
 
+function loadHistory(): IntervalHistory {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    return raw ? (JSON.parse(raw) as IntervalHistory) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveHistory(history: IntervalHistory) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    // A full or blocked localStorage shouldn't stop a drill.
+  }
+}
+
 /**
  * Interval ear training. The app sounds two notes of a chosen key and mode,
  * rising or falling at random, and the player either plays them back on their instrument (mic,
@@ -135,6 +169,7 @@ export function IntervalTrainer() {
   const [noteIndex, setNoteIndex] = useState(0)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [micError, setMicError] = useState<string | null>(null)
+  const [history, setHistory] = useState<IntervalHistory>(loadHistory)
 
   const phaseRef = useRef<Phase>('setup')
   const questionsRef = useRef<IntervalQuestion[]>([])
@@ -146,8 +181,13 @@ export function IntervalTrainer() {
   const answerModeRef = useRef<AnswerMode>(settings.answerMode)
 
   const scale = scaleMidis(settings.key, settings.mode, settings.minMidi, settings.maxMidi)
-  const sizes = scale ? availableSizes(scale) : []
+  const allSizes = scale ? availableSizes(scale) : []
+  /** The sizes a round will actually ask for — what the answer buttons offer. */
+  const sizes = settings.sizes ? allSizes.filter((s) => settings.sizes!.includes(s)) : allSizes
   const useFlats = (parseKeySignature(settings.key + settings.mode)?.sharps ?? 0) < 0
+
+  /** The mode's home note, taken low in the range so it stays put between questions. */
+  const tonicMidi = scale ? tonicMidiInScale(settings.key, settings.mode, scale) : null
 
   function setPhaseBoth(next: Phase) {
     phaseRef.current = next
@@ -157,6 +197,32 @@ export function IntervalTrainer() {
   function setQuestionIndexBoth(next: number) {
     questionIndexRef.current = next
     setQuestionIndex(next)
+  }
+
+  /** Adds one answer to the lifetime record for its size. */
+  function recordResult(size: number, correct: boolean) {
+    setHistory((prev) => {
+      const stat = prev[size] ?? { asked: 0, correct: 0 }
+      const next = {
+        ...prev,
+        [size]: { asked: stat.asked + 1, correct: stat.correct + (correct ? 1 : 0) },
+      }
+      saveHistory(next)
+      return next
+    })
+  }
+
+  function resetHistory() {
+    saveHistory({})
+    setHistory({})
+  }
+
+  /** Toggles a size in the drill selection; the last one left can't be removed. */
+  function toggleSize(size: number) {
+    const current = settings.sizes ?? allSizes
+    const next = current.includes(size) ? current.filter((s) => s !== size) : [...current, size]
+    if (next.length === 0) return
+    updateSettings({ sizes: next.length === allSizes.length ? null : next.sort((a, b) => a - b) })
   }
 
   function setNoteIndexBoth(next: number) {
@@ -236,6 +302,12 @@ export function IntervalTrainer() {
     setPhaseBoth('prompt')
     listenerRef.current?.pause()
 
+    if (settings.tonicReference && tonicMidi !== null) {
+      await playTargetNote(tonicMidi, PROMPT_NOTE_MS, settings.instrument)
+      await sleep(PROMPT_NOTE_MS + PROMPT_GAP_MS)
+      if (phaseRef.current !== 'prompt') return
+    }
+
     // playTargetNote resolves when the note starts, so each note's length is
     // waited out here. Awaiting it still matters: it covers soundfont load and
     // prime, which is what keeps the gap after the first note from absorbing a
@@ -310,6 +382,7 @@ export function IntervalTrainer() {
     const q = currentQuestion()
     if (!q) return
     setResults((prev) => [...prev, { size: q.size, correct }])
+    recordResult(q.size, correct)
     setPhaseBoth('reveal')
     listenerRef.current?.pause()
     if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
@@ -357,6 +430,8 @@ export function IntervalTrainer() {
       maxMidi: settings.maxMidi,
       questionCount: settings.questionCount,
       directionMode: settings.directionMode,
+      sizes: settings.sizes ?? undefined,
+      weights: settings.focusWeak ? weightsFromHistory(history, sizes) : undefined,
     }
     const round = generateRound(config)
     if (round.length === 0) return
@@ -400,6 +475,7 @@ export function IntervalTrainer() {
     )
   }
 
+  const hasHistory = Object.keys(history).length > 0
   const question = questions[questionIndex]
   const correctCount = results.filter((r) => r.correct).length
   const inDrill = phase !== 'setup' && phase !== 'summary'
@@ -422,6 +498,8 @@ export function IntervalTrainer() {
             {DIRECTIONS.find((d) => d.value === settings.directionMode)?.blurb ??
               'the second may be higher or lower'}
             . Play them back on your instrument, or name how far apart they are.
+            {settings.tonicReference && tonicMidi !== null &&
+              ` Each pair is introduced by the tonic, ${spellMidiNote(tonicMidi, useFlats)}.`}
           </p>
 
           <div className="detail-controls" style={{ marginBottom: '1rem' }}>
@@ -505,9 +583,42 @@ export function IntervalTrainer() {
             </label>
           </div>
 
-          <p className="tune-meta" style={{ marginBottom: '1rem' }}>
-            Intervals in this key: {sizes.map(intervalSizeLabel).join(', ')}.
+          <p className="tune-meta" style={{ marginBottom: '0.5rem' }}>
+            Intervals to drill:
           </p>
+          <div className="detail-controls" style={{ marginBottom: '1rem' }}>
+            {allSizes.map((size) => (
+              <button
+                key={size}
+                className={sizes.includes(size) ? 'toggled' : ''}
+                onClick={() => toggleSize(size)}
+              >
+                {intervalSizeLabel(size)}
+                {history[size]?.asked ? ` (${history[size].correct}/${history[size].asked})` : ''}
+              </button>
+            ))}
+            {settings.sizes && <button onClick={() => updateSettings({ sizes: null })}>All</button>}
+            {hasHistory && (
+              <button className="danger" onClick={resetHistory}>
+                Reset record
+              </button>
+            )}
+          </div>
+
+          <div className="detail-controls" style={{ marginBottom: '1rem' }}>
+            <button
+              className={settings.focusWeak ? 'toggled' : ''}
+              onClick={() => updateSettings({ focusWeak: !settings.focusWeak })}
+            >
+              Focus on weak intervals
+            </button>
+            <button
+              className={settings.tonicReference ? 'toggled' : ''}
+              onClick={() => updateSettings({ tonicReference: !settings.tonicReference })}
+            >
+              Tonic reference note
+            </button>
+          </div>
 
           <div className="detail-controls">
             <button onClick={startRound}>▶ Start round</button>
@@ -553,13 +664,15 @@ export function IntervalTrainer() {
             🎉 Round complete — {correctCount} of {results.length} right
           </p>
           <ul className="tune-list" style={{ marginBottom: '1rem' }}>
-            {sizes
+            {allSizes
               .map((size) => ({ size, asked: results.filter((r) => r.size === size) }))
               .filter((row) => row.asked.length > 0)
               .map((row) => (
                 <li key={row.size} className="tune-meta">
                   {intervalSizeLabel(row.size)}: {row.asked.filter((r) => r.correct).length} of{' '}
                   {row.asked.length}
+                  {history[row.size] &&
+                    ` · ${history[row.size].correct} of ${history[row.size].asked} all told`}
                 </li>
               ))}
           </ul>
