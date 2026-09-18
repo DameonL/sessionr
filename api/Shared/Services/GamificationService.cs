@@ -105,8 +105,8 @@ public class GamificationService(AppDbContext db)
     /// Records one finished interval-training round: 5 points for each of the day's first
     /// IntervalRoundsScoredPerDay rounds, 0 after that, plus any interval badges it earns.
     ///
-    /// Every round gets a ledger row, scored or not, so "rounds completed" can be counted from
-    /// the ledger without an interval table of its own. SourceId is "interval:{localDate}:{roundId}":
+    /// Every round gets a ledger row, scored or not, and bumps User.IntervalRoundsCompleted, which
+    /// the round-count badges read. SourceId is "interval:{localDate}:{roundId}":
     /// the date groups a day's rounds for the cap, and the round id makes a retry a no-op — matched
     /// on the id alone, so a retry that lands after local midnight is still recognised.
     ///
@@ -116,20 +116,27 @@ public class GamificationService(AppDbContext db)
     public async Task<IntervalRoundResult> RecordIntervalRoundAsync(
         Guid userId, Guid roundId, int questionCount, int correctCount, bool answeredByPlaying, DateTime localToday)
     {
+        // Projected FirstOrDefault rather than AnyAsync, which Cosmos can't translate.
         var roundSuffix = $":{roundId}";
-        var priorRounds = await db.PointsTransactions
+        var alreadyRecorded = await db.PointsTransactions
             .AsNoTracking()
-            .Where(t => t.UserId == userId && t.Reason == PointsReason.IntervalRound)
+            .Where(t => t.UserId == userId && t.Reason == PointsReason.IntervalRound && t.SourceId!.EndsWith(roundSuffix))
             .Select(t => t.SourceId)
-            .ToListAsync();
-
-        if (priorRounds.Any(id => id != null && id.EndsWith(roundSuffix, StringComparison.Ordinal)))
+            .FirstOrDefaultAsync();
+        if (alreadyRecorded != null)
         {
             return new IntervalRoundResult(0, false, Array.Empty<string>());
         }
 
+        // Only whether the cap is reached matters, so read no more than the cap's worth.
         var todayPrefix = $"interval:{localToday:yyyy-MM-dd}:";
-        var scoredToday = priorRounds.Count(id => id != null && id.StartsWith(todayPrefix, StringComparison.Ordinal));
+        var scoredToday = (await db.PointsTransactions
+            .AsNoTracking()
+            .Where(t => t.UserId == userId && t.Reason == PointsReason.IntervalRound && t.SourceId!.StartsWith(todayPrefix))
+            .Select(t => t.SourceId)
+            .Take(IntervalRoundsScoredPerDay)
+            .ToListAsync())
+            .Count;
         var capReached = scoredToday >= IntervalRoundsScoredPerDay;
         var points = capReached ? 0 : PointsByReason[PointsReason.IntervalRound];
 
@@ -140,6 +147,11 @@ public class GamificationService(AppDbContext db)
             Reason = PointsReason.IntervalRound,
             SourceId = $"{todayPrefix}{roundId}",
         });
+
+        // Loaded whole, not projected: a user document from before the counter existed lacks the
+        // field, and only entity materialization falls back to 0 for it.
+        var user = await db.Users.SingleAsync(u => u.UserId == userId);
+        user.IntervalRoundsCompleted++;
 
         var earnedKeys = (await db.UserBadges
             .AsNoTracking()
@@ -160,13 +172,12 @@ public class GamificationService(AppDbContext db)
         if (perfect) Award("interval-perfect");
         if (perfect && answeredByPlaying) Award("interval-perfect-play");
 
-        // This round isn't in priorRounds yet, hence the + 1.
-        var roundsCompleted = priorRounds.Count + 1;
         foreach (var milestone in IntervalRoundMilestones)
         {
-            if (roundsCompleted >= milestone) Award($"interval-rounds-{milestone}");
+            if (user.IntervalRoundsCompleted >= milestone) Award($"interval-rounds-{milestone}");
         }
 
+        // The ledger row, the counter and any badges land in one save.
         await db.SaveChangesAsync();
         return new IntervalRoundResult(points, capReached, newlyEarned);
     }

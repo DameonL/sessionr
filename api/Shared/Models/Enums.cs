@@ -66,6 +66,6 @@ public enum PointsReason
     PracticeLogged,
     StreakMilestone,
     /// <summary>A finished interval-training round. Rounds past the daily cap are still written, at 0
-    /// points, so the round-count badges see every round (see GamificationService.RecordIntervalRoundAsync).</summary>
+    /// points, so a retry of any round is recognised (see GamificationService.RecordIntervalRoundAsync).</summary>
     IntervalRound
 }

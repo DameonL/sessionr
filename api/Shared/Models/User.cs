@@ -21,6 +21,13 @@ public class User
     public int CurrentStreak { get; set; } = 0;
     public DateTime? StreakAnchorDate { get; set; }
 
+    /// <summary>
+    /// Finished interval-training rounds, scored or not, for the round-count badges. Kept here so
+    /// awarding a badge reads one counter rather than every round in the ledger. A document written
+    /// before this existed materializes it as 0, which is right: no rounds were recorded before it.
+    /// </summary>
+    public int IntervalRoundsCompleted { get; set; }
+
     public ICollection<UserTune> UserTunes { get; set; } = new List<UserTune>();
     public ICollection<Set> Sets { get; set; } = new List<Set>();
     public ICollection<GroupMembership> GroupMemberships { get; set; } = new List<GroupMembership>();
