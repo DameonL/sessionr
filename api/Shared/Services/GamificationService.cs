@@ -18,6 +18,7 @@ public class GamificationService(AppDbContext db)
     private static readonly Dictionary<PointsReason, int> PointsByReason = new()
     {
         [PointsReason.PracticeLogged] = 5,
+        [PointsReason.IntervalRound] = 5,
     };
 
     private const int Streak7BonusPoints = 25;
@@ -27,6 +28,15 @@ public class GamificationService(AppDbContext db)
 
     private const int ActiveTunesForFirstBadge = 5;
     private const int ActiveTunesForSecondBadge = 20;
+
+    /// <summary>Interval rounds that score points per local day; later rounds are recorded at 0.
+    /// Matches a round to one tune's practice log, and keeps the drill from being farmed.</summary>
+    public const int IntervalRoundsScoredPerDay = 3;
+    /// <summary>The shortest round the trainer offers; anything shorter isn't a round.</summary>
+    public const int IntervalRoundMinQuestions = 5;
+    /// <summary>A perfect round only counts at this length, so five lucky guesses don't earn it.</summary>
+    private const int IntervalPerfectMinQuestions = 10;
+    private static readonly int[] IntervalRoundMilestones = [10, 50, 200];
 
     /// <summary>Human-readable label for a badge key, for display in feeds/notifications. Badge labels live
     /// only in code (there is no badge table), so this is the single source of truth for them.</summary>
@@ -39,6 +49,12 @@ public class GamificationService(AppDbContext db)
         "streak-30" => "30-Day Streak",
         "streak-100" => "100-Day Streak",
         "streak-365" => "365-Day Streak",
+        "interval-first" => "First Interval Round",
+        "interval-perfect" => "Perfect Interval Round",
+        "interval-perfect-play" => "Perfect Round by Ear",
+        "interval-rounds-10" => "10 Interval Rounds",
+        "interval-rounds-50" => "50 Interval Rounds",
+        "interval-rounds-200" => "200 Interval Rounds",
         _ => badgeKey,
     };
 
@@ -83,6 +99,76 @@ public class GamificationService(AppDbContext db)
         }
 
         return newBadges;
+    }
+
+    /// <summary>
+    /// Records one finished interval-training round: 5 points for each of the day's first
+    /// IntervalRoundsScoredPerDay rounds, 0 after that, plus any interval badges it earns.
+    ///
+    /// Every round gets a ledger row, scored or not, so "rounds completed" can be counted from
+    /// the ledger without an interval table of its own. SourceId is "interval:{localDate}:{roundId}":
+    /// the date groups a day's rounds for the cap, and the round id makes a retry a no-op — matched
+    /// on the id alone, so a retry that lands after local midnight is still recognised.
+    ///
+    /// Scores are reported by the client and not re-derived here. That matches the rest of the API,
+    /// and the daily cap bounds what a forged request could gain.
+    /// </summary>
+    public async Task<IntervalRoundResult> RecordIntervalRoundAsync(
+        Guid userId, Guid roundId, int questionCount, int correctCount, bool answeredByPlaying, DateTime localToday)
+    {
+        var roundSuffix = $":{roundId}";
+        var priorRounds = await db.PointsTransactions
+            .AsNoTracking()
+            .Where(t => t.UserId == userId && t.Reason == PointsReason.IntervalRound)
+            .Select(t => t.SourceId)
+            .ToListAsync();
+
+        if (priorRounds.Any(id => id != null && id.EndsWith(roundSuffix, StringComparison.Ordinal)))
+        {
+            return new IntervalRoundResult(0, false, Array.Empty<string>());
+        }
+
+        var todayPrefix = $"interval:{localToday:yyyy-MM-dd}:";
+        var scoredToday = priorRounds.Count(id => id != null && id.StartsWith(todayPrefix, StringComparison.Ordinal));
+        var capReached = scoredToday >= IntervalRoundsScoredPerDay;
+        var points = capReached ? 0 : PointsByReason[PointsReason.IntervalRound];
+
+        db.PointsTransactions.Add(new PointsTransaction
+        {
+            UserId = userId,
+            Points = points,
+            Reason = PointsReason.IntervalRound,
+            SourceId = $"{todayPrefix}{roundId}",
+        });
+
+        var earnedKeys = (await db.UserBadges
+            .AsNoTracking()
+            .Where(b => b.UserId == userId)
+            .Select(b => b.BadgeKey)
+            .ToListAsync())
+            .ToHashSet();
+        var newlyEarned = new List<string>();
+        void Award(string key)
+        {
+            if (!earnedKeys.Add(key)) return;
+            db.UserBadges.Add(new UserBadge { UserId = userId, BadgeKey = key });
+            newlyEarned.Add(key);
+        }
+
+        Award("interval-first");
+        var perfect = questionCount >= IntervalPerfectMinQuestions && correctCount == questionCount;
+        if (perfect) Award("interval-perfect");
+        if (perfect && answeredByPlaying) Award("interval-perfect-play");
+
+        // This round isn't in priorRounds yet, hence the + 1.
+        var roundsCompleted = priorRounds.Count + 1;
+        foreach (var milestone in IntervalRoundMilestones)
+        {
+            if (roundsCompleted >= milestone) Award($"interval-rounds-{milestone}");
+        }
+
+        await db.SaveChangesAsync();
+        return new IntervalRoundResult(points, capReached, newlyEarned);
     }
 
     /// <summary>
@@ -147,3 +233,6 @@ public class GamificationService(AppDbContext db)
         return newlyEarned;
     }
 }
+
+/// <summary>What recording an interval round produced; see GamificationService.RecordIntervalRoundAsync.</summary>
+public record IntervalRoundResult(int PointsAwarded, bool DailyCapReached, IReadOnlyList<string> NewBadges);

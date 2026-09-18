@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import Link from '@/utils/routerCompat'
+import { recordIntervalRound, type IntervalRoundResult } from '../services/api'
+import { showBadgeToasts } from '../services/badges'
+import { rememberReturnUrl } from '../services/returnUrl'
+import { currentUserId, useSignal } from '../state/appState'
 import { playTargetNote, midiToHz } from '../services/earTraining'
 import {
   availableSizes,
@@ -170,6 +176,10 @@ export function IntervalTrainer() {
   const [feedback, setFeedback] = useState<string | null>(null)
   const [micError, setMicError] = useState<string | null>(null)
   const [history, setHistory] = useState<IntervalHistory>(loadHistory)
+  const userId = useSignal(currentUserId)
+  const queryClient = useQueryClient()
+  /** What the server made of the last finished round; null until it answers, or when signed out. */
+  const [roundReward, setRoundReward] = useState<IntervalRoundResult | null>(null)
 
   const phaseRef = useRef<Phase>('setup')
   const questionsRef = useRef<IntervalQuestion[]>([])
@@ -179,6 +189,21 @@ export function IntervalTrainer() {
   const listenerRef = useRef<PitchListener | null>(null)
   const holdTimerRef = useRef<number | null>(null)
   const answerModeRef = useRef<AnswerMode>(settings.answerMode)
+  /** Fresh per round, so a retried award can't score the same round twice. */
+  const roundIdRef = useRef('')
+  /** Right answers so far this round; `results` state lags a render behind when the round ends. */
+  const correctCountRef = useRef(0)
+  const userIdRef = useRef(userId)
+  userIdRef.current = userId
+
+  const rewardMutation = useMutation({
+    mutationFn: recordIntervalRound,
+    onSuccess: (data) => {
+      setRoundReward(data)
+      showBadgeToasts(data.newBadges)
+      queryClient.invalidateQueries({ queryKey: ['my-gamification'] })
+    },
+  })
 
   const scale = scaleMidis(settings.key, settings.mode, settings.minMidi, settings.maxMidi)
   const allSizes = scale ? availableSizes(scale) : []
@@ -382,6 +407,7 @@ export function IntervalTrainer() {
     const q = currentQuestion()
     if (!q) return
     setResults((prev) => [...prev, { size: q.size, correct }])
+    if (correct) correctCountRef.current++
     recordResult(q.size, correct)
     setPhaseBoth('reveal')
     listenerRef.current?.pause()
@@ -399,6 +425,16 @@ export function IntervalTrainer() {
       listenerRef.current?.pause()
       setFeedback(null)
       setPhaseBoth('summary')
+      // Only a finished round is sent; leaving through Settings mid-round earns nothing.
+      if (userIdRef.current) {
+        rewardMutation.mutate({
+          roundId: roundIdRef.current,
+          questionCount: questionsRef.current.length,
+          correctCount: correctCountRef.current,
+          // The mode actually used: a failed mic falls back to naming mid-setup.
+          answerMode: answerModeRef.current,
+        })
+      }
       return
     }
     setQuestionIndexBoth(next)
@@ -421,7 +457,10 @@ export function IntervalTrainer() {
     setMicError(null)
     setResults([])
     setFeedback(null)
+    setRoundReward(null)
     answerModeRef.current = settings.answerMode
+    roundIdRef.current = crypto.randomUUID()
+    correctCountRef.current = 0
 
     const config: RoundConfig = {
       key: settings.key,
@@ -663,6 +702,24 @@ export function IntervalTrainer() {
           <p className="badge badge-queue">
             🎉 Round complete — {correctCount} of {results.length} right
           </p>
+          {userId && roundReward && (
+            <p className="tune-meta" style={{ marginBottom: '1rem' }}>
+              {roundReward.pointsAwarded > 0
+                ? `+${roundReward.pointsAwarded} points`
+                : "You've had today's points for intervals — rounds still count toward badges."}
+            </p>
+          )}
+          {userId && rewardMutation.isError && (
+            <p className="error">Couldn't record this round for points.</p>
+          )}
+          {!userId && (
+            <p className="tune-meta" style={{ marginBottom: '1rem' }}>
+              <Link href="/login" prefetch={false} onClick={() => rememberReturnUrl()}>
+                Sign in
+              </Link>{' '}
+              to earn points and badges for your rounds.
+            </p>
+          )}
           <ul className="tune-list" style={{ marginBottom: '1rem' }}>
             {allSizes
               .map((size) => ({ size, asked: results.filter((r) => r.size === size) }))

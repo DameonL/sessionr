@@ -43,6 +43,36 @@ export const BADGE_CATALOG: Record<string, BadgeInfo> = {
     label: 'Session Ready',
     description: '20 tunes at Active status.',
   },
+  'interval-first': {
+    emoji: '👂',
+    label: 'Open Ears',
+    description: 'Finished your first interval round.',
+  },
+  'interval-perfect': {
+    emoji: '🎯',
+    label: 'Perfect Pitch Gap',
+    description: 'Got every interval right in a round of 10 or more.',
+  },
+  'interval-perfect-play': {
+    emoji: '🎯',
+    label: 'By Ear',
+    description: 'A perfect round of 10 or more, played back on your instrument.',
+  },
+  'interval-rounds-10': {
+    emoji: '👂',
+    label: 'Tuning In',
+    description: 'Finished 10 interval rounds.',
+  },
+  'interval-rounds-50': {
+    emoji: '👂',
+    label: 'Keen Ear',
+    description: 'Finished 50 interval rounds.',
+  },
+  'interval-rounds-200': {
+    emoji: '👂',
+    label: 'Golden Ear',
+    description: 'Finished 200 interval rounds.',
+  },
 }
 
 export function getBadgeInfo(badgeKey: string): BadgeInfo {

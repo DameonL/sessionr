@@ -768,6 +768,25 @@ export const logPractice = (userTuneId: string) =>
     { method: 'POST' },
   )
 
+export interface IntervalRoundResult {
+  /** 0 once the day's scored rounds are used up. */
+  pointsAwarded: number
+  dailyCapReached: boolean
+  newBadges: string[]
+}
+
+/** Records a finished interval round for points and badges. roundId makes a retry a no-op. */
+export const recordIntervalRound = (body: {
+  roundId: string
+  questionCount: number
+  correctCount: number
+  answerMode: 'play' | 'name'
+}) =>
+  apiFetch<IntervalRoundResult>('/users/me/interval-rounds', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
 export interface EarTrainingProgress {
   userTuneId: string
   phraseIndex: number
