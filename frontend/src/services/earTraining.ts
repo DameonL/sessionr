@@ -1,5 +1,6 @@
 import abcjs from 'abcjs'
 import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignature } from './abcTools'
+import { waitForAudioClock } from './audioClock'
 
 /**
  * Turns a tune's ABC into the material the ear trainer needs: an ordered
@@ -393,6 +394,15 @@ export function midiToHz(midi: number): number {
 }
 
 /**
+ * abcjs measures a note's length in measures, so a millisecond duration is passed as a fraction of
+ * a measure declared to last exactly one second.
+ */
+const MS_PER_MEASURE = 1000
+
+/** The volume abcjs is given for an audible prompt note, on its 0-127 scale. */
+const PROMPT_VOLUME = 85
+
+/**
  * Sound a single target pitch using the abcjs synth.
  *
  * Resolves when the note *starts*, not when it ends: playEvent's promise
@@ -405,14 +415,13 @@ export function midiToHz(midi: number): number {
  * for half its requested length.
  */
 export function playTargetNote(midi: number, durationMs = 600, instrument = 110): Promise<void> {
-  const MS_PER_MEASURE = 1000
   return new Promise((resolve) => {
     abcjs.synth
       .playEvent(
         [
           {
             pitch: midi,
-            volume: 85,
+            volume: PROMPT_VOLUME,
             start: 0,
             duration: durationMs / MS_PER_MEASURE,
             instrument,
@@ -425,4 +434,75 @@ export function playTargetNote(midi: number, durationMs = 600, instrument = 110)
       .then(() => resolve())
       .catch(() => resolve())
   })
+}
+
+export interface NoteStep {
+  midi: number
+  durationMs: number
+  /** Silence after this note before the next one. Ignored on the last step. */
+  gapMs?: number
+}
+
+export interface SequencePlayback {
+  /** How long the rendered buffer sounds, in ms. */
+  durationMs: number
+  /** Silences the buffer. Safe to call after it has already finished. */
+  stop(): void
+}
+
+/**
+ * Sound a run of notes, one after the other, as a single rendered buffer.
+ *
+ * Playing each note with its own playEvent and spacing them with setTimeout looks equivalent and
+ * isn't. Every playEvent ends in source.start(0) — "play at the context's current render position"
+ * — and a context's clock stays frozen until the output device has finished opening, which on a
+ * cold start or a Bluetooth handover takes seconds. JS timers keep running through that window, so
+ * notes meant to be seconds apart are all submitted at the same rendered instant and sound on top
+ * of each other when the device finally opens.
+ *
+ * Here the gaps are rendered into the samples instead, so the spacing is a property of the buffer
+ * and survives however late the device starts. waitForAudioClock then holds the one start() back
+ * until the device is really rendering, so the opening of the first note isn't swallowed either.
+ *
+ * Resolves once the buffer has *started*; the caller times the music out itself using the returned
+ * durationMs. Unlike playTargetNote, a failed soundfont load rejects rather than passing silently.
+ */
+export async function playNoteSequence(
+  steps: NoteStep[],
+  instrument = 110,
+): Promise<SequencePlayback> {
+  const sequence = new abcjs.synth.SynthSequence()
+  // addTrack returns the new track's index at runtime; the typings claim it returns the track.
+  const track = sequence.addTrack() as unknown as number
+  sequence.setInstrument(track, instrument)
+
+  let durationMs = 0
+  for (const [index, step] of steps.entries()) {
+    sequence.appendNote(track, step.midi, step.durationMs / MS_PER_MEASURE, PROMPT_VOLUME, 0)
+    durationMs += step.durationMs
+    const gapMs = index === steps.length - 1 ? 0 : (step.gapMs ?? 0)
+    if (gapMs > 0) {
+      // SynthSequence has no appendRest, and its per-track cursor only advances by what's appended,
+      // so silence has to be a note nobody can hear. Reusing the pitch just played keeps abcjs from
+      // fetching a second soundfont sample to render at zero volume.
+      sequence.appendNote(track, step.midi, gapMs / MS_PER_MEASURE, 0, 0)
+      durationMs += gapMs
+    }
+  }
+
+  const synth = new abcjs.synth.CreateSynth()
+  await synth.init({
+    // SynthSequence is what abcjs's own playEvent hands to init, but the typings describe the
+    // richer AudioSequence that comes off a tune.
+    sequence: sequence as unknown as abcjs.AudioSequence,
+    millisecondsPerMeasure: MS_PER_MEASURE,
+  })
+  await synth.prime()
+  await waitForAudioClock()
+  synth.start()
+
+  return {
+    durationMs,
+    stop: () => synth.stop(),
+  }
 }

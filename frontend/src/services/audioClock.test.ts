@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type abcjs from 'abcjs'
-import { outputLatencyMs, audioPositionMs, timerDriftMs, anchorTimerToAudio, seekAndLatch } from './audioClock'
+import {
+  outputLatencyMs,
+  audioPositionMs,
+  timerDriftMs,
+  anchorTimerToAudio,
+  seekAndLatch,
+  waitForAudioClock,
+  resetAudioClockConfirmation,
+} from './audioClock'
 
 const { activeAudioContext } = vi.hoisted(() => ({ activeAudioContext: vi.fn() }))
 
@@ -230,5 +238,88 @@ describe('timerDriftMs while the audio has not sounded', () => {
   it('reports the cursor as ahead, so the drift correction pulls it back', () => {
     activeAudioContext.mockReturnValue(ctx(5))
     expect(timerDriftMs(timerAt(10_000 - 250), synthAt(5))).toBeCloseTo(-250)
+  })
+})
+
+describe('waitForAudioClock', () => {
+  /**
+   * A context whose clock only starts moving after `framesUntilRunning` reads — which is what a
+   * real one does between being unsuspended and the output device finishing opening.
+   */
+  function openingContext(framesUntilRunning: number, state: AudioContextState = 'running') {
+    let reads = 0
+    return {
+      state,
+      resume: vi.fn().mockResolvedValue(undefined),
+      get currentTime() {
+        reads++
+        return reads > framesUntilRunning ? reads * 0.01 : 0
+      },
+    } as unknown as AudioContext & { resume: ReturnType<typeof vi.fn> }
+  }
+
+  /** performance.now advancing by `stepMs` per read, so a deadline can actually be reached. */
+  function advancingClock(stepMs: number) {
+    let now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      now += stepMs
+      return now
+    })
+  }
+
+  beforeEach(() => {
+    resetAudioClockConfirmation()
+  })
+
+  it('waits for the device to start rendering before letting the sound go', async () => {
+    advancingClock(16)
+    const ctx = openingContext(3)
+    activeAudioContext.mockReturnValue(ctx)
+
+    await waitForAudioClock()
+
+    expect(ctx.currentTime).toBeGreaterThan(0)
+  })
+
+  it('resumes a suspended context, since nothing else in the app does', async () => {
+    advancingClock(16)
+    const ctx = openingContext(1, 'suspended')
+    activeAudioContext.mockReturnValue(ctx)
+
+    await waitForAudioClock()
+
+    expect(ctx.resume).toHaveBeenCalled()
+  })
+
+  it('gives up rather than blocking playback on a device that never reports progress', async () => {
+    // Past the deadline on the first check inside the loop.
+    advancingClock(5000)
+    activeAudioContext.mockReturnValue(openingContext(Number.POSITIVE_INFINITY))
+
+    await waitForAudioClock(3000)
+
+    // Nothing was confirmed, so the next call has to wait all over again.
+    advancingClock(5000)
+    const second = openingContext(Number.POSITIVE_INFINITY)
+    activeAudioContext.mockReturnValue(second)
+    await waitForAudioClock(3000)
+    expect(second.currentTime).toBe(0)
+  })
+
+  it('costs nothing once the device has been seen running', async () => {
+    advancingClock(16)
+    activeAudioContext.mockReturnValue(openingContext(1))
+    await waitForAudioClock()
+
+    const later = openingContext(Number.POSITIVE_INFINITY, 'suspended')
+    activeAudioContext.mockReturnValue(later)
+    await waitForAudioClock()
+
+    expect(later.resume).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when no context exists yet', async () => {
+    activeAudioContext.mockReturnValue(undefined)
+    await expect(waitForAudioClock()).resolves.toBeUndefined()
   })
 })

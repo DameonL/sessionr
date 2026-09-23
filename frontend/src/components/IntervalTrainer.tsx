@@ -5,7 +5,7 @@ import { recordIntervalRound, type IntervalRoundResult } from '../services/api'
 import { showBadgeToasts } from '../services/badges'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { currentUserId, useSignal } from '../state/appState'
-import { playTargetNote, midiToHz } from '../services/earTraining'
+import { playNoteSequence, midiToHz, type NoteStep, type SequencePlayback } from '../services/earTraining'
 import {
   availableSizes,
   generateRound,
@@ -175,6 +175,8 @@ export function IntervalTrainer() {
   const [noteIndex, setNoteIndex] = useState(0)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [micError, setMicError] = useState<string | null>(null)
+  /** Set when a prompt couldn't be sounded at all, so silence doesn't read as a missing question. */
+  const [audioError, setAudioError] = useState<string | null>(null)
   const [history, setHistory] = useState<IntervalHistory>(loadHistory)
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
@@ -188,6 +190,14 @@ export function IntervalTrainer() {
   const noteIndexRef = useRef(0)
   const listenerRef = useRef<PitchListener | null>(null)
   const holdTimerRef = useRef<number | null>(null)
+  /** The prompt currently sounding, so anything that moves on can silence it. */
+  const playbackRef = useRef<SequencePlayback | null>(null)
+  /**
+   * Bumped by everything that abandons a prompt. A prompt only acts on what it finds after an
+   * await if its own number is still the current one, so a second prompt can never play over a
+   * first that was slow to load its soundfont.
+   */
+  const promptGenRef = useRef(0)
   const answerModeRef = useRef<AnswerMode>(settings.answerMode)
   /** Fresh per round, so a retried award can't score the same round twice. */
   const roundIdRef = useRef('')
@@ -268,6 +278,9 @@ export function IntervalTrainer() {
     return () => {
       listenerRef.current?.stop()
       if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
+      promptGenRef.current++
+      playbackRef.current?.stop()
+      playbackRef.current = null
     }
   }, [])
 
@@ -321,32 +334,54 @@ export function IntervalTrainer() {
 
   const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
 
+  /** Abandons whatever prompt is sounding, and voids any still waiting on its soundfont. */
+  function cancelPrompt() {
+    promptGenRef.current++
+    playbackRef.current?.stop()
+    playbackRef.current = null
+  }
+
   async function playPrompt() {
     const q = currentQuestion()
     if (!q) return
+    cancelPrompt()
+    const gen = promptGenRef.current
     setPhaseBoth('prompt')
     listenerRef.current?.pause()
 
+    // One buffer for the whole prompt, gaps and all: see playNoteSequence for why the notes can't
+    // be three separate sounds spaced by timers. PROMPT_NOTE_MS and PROMPT_GAP_MS are offsets
+    // within the rendered audio now, so nothing the device does can close the gap between them.
+    const steps: NoteStep[] = []
     if (settings.tonicReference && tonicMidi !== null) {
-      await playTargetNote(tonicMidi, PROMPT_NOTE_MS, settings.instrument)
-      await sleep(PROMPT_NOTE_MS + PROMPT_GAP_MS)
-      if (phaseRef.current !== 'prompt') return
+      steps.push({ midi: tonicMidi, durationMs: PROMPT_NOTE_MS, gapMs: PROMPT_GAP_MS })
+    }
+    steps.push({ midi: q.rootMidi, durationMs: PROMPT_NOTE_MS, gapMs: PROMPT_GAP_MS })
+    steps.push({ midi: q.targetMidi, durationMs: PROMPT_NOTE_MS })
+
+    let playedMs = steps.reduce((total, s) => total + s.durationMs + (s.gapMs ?? 0), 0)
+    try {
+      const playback = await playNoteSequence(steps, settings.instrument)
+      // The soundfont load can outlast the question it was for.
+      if (gen !== promptGenRef.current) {
+        playback.stop()
+        return
+      }
+      playbackRef.current = playback
+      playedMs = playback.durationMs
+      setAudioError(null)
+    } catch {
+      // Answering still opens: a dead soundfont shouldn't strand the player mid-round, and in
+      // naming mode the question is still answerable from the notation.
+      setAudioError('Audio unavailable (soundfont could not be loaded).')
+      playedMs = 0
     }
 
-    // playTargetNote resolves when the note starts, so each note's length is
-    // waited out here. Awaiting it still matters: it covers soundfont load and
-    // prime, which is what keeps the gap after the first note from absorbing a
-    // cold start.
-    await playTargetNote(q.rootMidi, PROMPT_NOTE_MS, settings.instrument)
-    await sleep(PROMPT_NOTE_MS + PROMPT_GAP_MS)
-    if (phaseRef.current !== 'prompt') return
-
-    await playTargetNote(q.targetMidi, PROMPT_NOTE_MS, settings.instrument)
-    await sleep(PROMPT_NOTE_MS + PROMPT_TAIL_MS)
-    if (phaseRef.current !== 'prompt') return
+    await sleep(playedMs + PROMPT_TAIL_MS)
+    if (gen !== promptGenRef.current || phaseRef.current !== 'prompt') return
 
     window.setTimeout(() => {
-      if (phaseRef.current !== 'prompt') return
+      if (gen !== promptGenRef.current || phaseRef.current !== 'prompt') return
       if (answerModeRef.current === 'play') {
         setNoteIndexBoth(0)
         listenerRef.current?.resume()
@@ -410,6 +445,9 @@ export function IntervalTrainer() {
     if (correct) correctCountRef.current++
     recordResult(q.size, correct)
     setPhaseBoth('reveal')
+    // An answer given over a still-sounding prompt (a skip, or naming it before it finishes) ends
+    // the prompt with it, rather than letting it run under the reveal and into the next question.
+    cancelPrompt()
     listenerRef.current?.pause()
     if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
     holdTimerRef.current = window.setTimeout(() => {
@@ -455,6 +493,7 @@ export function IntervalTrainer() {
   async function startRound() {
     if (!scale || scale.length < 2) return
     setMicError(null)
+    setAudioError(null)
     setResults([])
     setFeedback(null)
     setRoundReward(null)
@@ -499,6 +538,7 @@ export function IntervalTrainer() {
 
   function backToSetup() {
     if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current)
+    cancelPrompt()
     listenerRef.current?.pause()
     setFeedback(null)
     setPhaseBoth('setup')
@@ -741,6 +781,7 @@ export function IntervalTrainer() {
       )}
 
       {micError && <p className="error">{micError}</p>}
+      {audioError && <p className="error">{audioError}</p>}
     </div>
   )
 }
