@@ -621,7 +621,6 @@ label {
   .player-container:fullscreen,
   .player-container.is-fullscreen {
     padding: 0.75rem;
-    padding-top: 3.75rem;
   }
 }
 
@@ -1204,9 +1203,8 @@ a.stat:hover {
   overflow: hidden !important;
   height: 100dvh;
   width: 100vw;
-  /* .fullscreen-controls is position:fixed over this box; in a short landscape
-     viewport it would otherwise sit on top of the first system of the staff. */
-  padding-top: 4.5rem;
+  /* No top band is reserved for .fullscreen-controls: it is position:fixed over this box,
+     so the staff uses the full height and simply scrolls under it. */
 }
 
 /* Hide regular controls/sections in fullscreen */
