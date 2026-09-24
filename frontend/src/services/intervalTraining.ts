@@ -209,23 +209,34 @@ export interface SizeStat {
 /** Lifetime record per diatonic size, kept across rounds. */
 export type IntervalHistory = Record<number, SizeStat>
 
-/** How much harder a size you always miss is drawn than one you always get. */
-const WEAK_BIAS = 2
+/**
+ * Steepness of the weighting curve, as the exponent on a size's miss rate: a
+ * size always missed is drawn e^WEAK_BIAS — about 20 times — as often as one
+ * always got right.
+ *
+ * It is an exponent rather than a multiplier because the obvious linear form,
+ * 1 + k(1 - accuracy), cannot tilt a round far enough to be felt: the constant
+ * dominates, so a player at 8% on one size and 69% on another still saw the two
+ * in almost the same proportion. Real records also cluster well short of the
+ * ends — nobody is at 0% and 100% — and a curve only spreads them apart where
+ * it is steep.
+ */
+const WEAK_BIAS = 3
 /** Answers before a size's record is trusted rather than treated as unproven. */
 const MIN_SAMPLES = 4
 
 /**
  * Relative draw weights from a player's record: 1 for a size they always get,
- * up to 1 + WEAK_BIAS for one they always miss. A size with too few answers to
- * judge sits in the middle, so it comes up a little more often than a mastered
- * one without crowding out the sizes actually known to be weak.
+ * rising to e^WEAK_BIAS for one they always miss. A size with too few answers
+ * to judge counts as half right, so it comes up more often than a mastered one
+ * without crowding out the sizes actually known to be weak.
  */
 export function weightsFromHistory(history: IntervalHistory, sizes: number[]): Record<number, number> {
   const weights: Record<number, number> = {}
   for (const size of sizes) {
     const stat = history[size]
     const accuracy = !stat || stat.asked < MIN_SAMPLES ? 0.5 : stat.correct / stat.asked
-    weights[size] = 1 + WEAK_BIAS * (1 - accuracy)
+    weights[size] = Math.exp(WEAK_BIAS * (1 - accuracy))
   }
   return weights
 }

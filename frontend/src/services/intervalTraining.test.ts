@@ -237,14 +237,25 @@ describe('weightsFromHistory', () => {
       sizes,
     )
     expect(weights[2]).toBe(1)
-    expect(weights[3]).toBe(3)
+    expect(weights[3]).toBeCloseTo(Math.E ** 3, 5)
+  })
+
+  it('separates two middling records enough to be felt', () => {
+    // The spread a real record shows. A linear weighting put these within 1.7x
+    // of each other, which is invisible over a round; the curve has to do more.
+    const weights = weightsFromHistory(
+      { 2: { asked: 16, correct: 11 }, 3: { asked: 12, correct: 1 } },
+      sizes,
+    )
+    expect(weights[3] / weights[2]).toBeGreaterThan(5)
   })
 
   it('treats an unproven size as middling', () => {
     // Absent entirely, and present but under MIN_SAMPLES, both land in the middle.
+    const middling = Math.E ** 1.5
     const weights = weightsFromHistory({ 3: { asked: 2, correct: 0 } }, sizes)
-    expect(weights[4]).toBe(2)
-    expect(weights[3]).toBe(2)
+    expect(weights[4]).toBeCloseTo(middling, 5)
+    expect(weights[3]).toBeCloseTo(middling, 5)
   })
 
   it('gives every requested size a weight', () => {

@@ -48,6 +48,13 @@ const PROMPT_NOTE_MS = 900
 const PROMPT_GAP_MS = 400
 /** Breath after the second note before answering opens. */
 const PROMPT_TAIL_MS = 350
+/**
+ * A degree of the warm-up scale. Much shorter than a prompt note — the scale is there to settle the
+ * ear into the key, not to be compared note against note, and a two-octave range would outstay its
+ * welcome at prompt length. The sliver of silence keeps the degrees from running together.
+ */
+const SCALE_NOTE_MS = 340
+const SCALE_GAP_MS = 60
 /** How long an answer stays on screen before the next question. */
 const REVEAL_MS = 1600
 
@@ -177,6 +184,8 @@ export function IntervalTrainer() {
   const [micError, setMicError] = useState<string | null>(null)
   /** Set when a prompt couldn't be sounded at all, so silence doesn't read as a missing question. */
   const [audioError, setAudioError] = useState<string | null>(null)
+  /** True while the warm-up scale is sounding, so its button reads as busy rather than dead. */
+  const [scalePlaying, setScalePlaying] = useState(false)
   const [history, setHistory] = useState<IntervalHistory>(loadHistory)
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
@@ -334,11 +343,51 @@ export function IntervalTrainer() {
 
   const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
 
-  /** Abandons whatever prompt is sounding, and voids any still waiting on its soundfont. */
+  /**
+   * Abandons whatever this component is sounding — a prompt or the warm-up scale — and voids
+   * anything still waiting on its soundfont.
+   */
   function cancelPrompt() {
     promptGenRef.current++
     playbackRef.current?.stop()
     playbackRef.current = null
+    setScalePlaying(false)
+  }
+
+  /**
+   * Sounds the whole scale a round will draw from, low to high, so the player can settle into the
+   * key before being asked anything. It goes through the same playback handle and generation
+   * counter as a prompt, so starting the round cuts it off instead of playing over it.
+   */
+  async function playScale() {
+    if (!scale || scale.length === 0) return
+    cancelPrompt()
+    const gen = promptGenRef.current
+    setScalePlaying(true)
+
+    const steps: NoteStep[] = scale.map((midi) => ({
+      midi,
+      durationMs: SCALE_NOTE_MS,
+      gapMs: SCALE_GAP_MS,
+    }))
+    try {
+      const playback = await playNoteSequence(steps, settings.instrument)
+      // The soundfont load can outlast the press that asked for it.
+      if (gen !== promptGenRef.current) {
+        playback.stop()
+        return
+      }
+      playbackRef.current = playback
+      setAudioError(null)
+      await sleep(playback.durationMs)
+      if (gen !== promptGenRef.current) return
+      playbackRef.current = null
+    } catch {
+      setAudioError('Audio unavailable (soundfont could not be loaded).')
+    } finally {
+      // Whoever cancelled us owns the flag now — a second press has already set it for its own run.
+      if (gen === promptGenRef.current) setScalePlaying(false)
+    }
   }
 
   async function playPrompt() {
@@ -701,6 +750,9 @@ export function IntervalTrainer() {
 
           <div className="detail-controls">
             <button onClick={startRound}>▶ Start round</button>
+            <button onClick={playScale} disabled={scalePlaying}>
+              {scalePlaying ? '🔊 Sounding the scale…' : `🔊 Hear the ${settings.key} scale`}
+            </button>
           </div>
         </div>
       )}
