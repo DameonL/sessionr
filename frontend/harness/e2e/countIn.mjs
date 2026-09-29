@@ -13,15 +13,18 @@ import { chromium } from '@playwright/test'
  * Usage: node harness/e2e/countIn.mjs [reel|jig|slide]
  */
 const PROBE = process.argv[2] ?? 'reel'
-/**
+/*
  * The bar as written — a reel in four, a jig in six — except past 6/8, where a slide's twelve
- * eighths are counted as their four dotted-quarter groups instead.
+ * eighths are counted as their four dotted-quarter groups instead. The probes straddle the
+ * two-bar threshold on their own: the jig's bar lasts a second at the harness tempo, short enough
+ * to be counted twice, while the reel's 1.33s and the slide's 2s are each counted once.
  */
-const EXPECTED_BEATS = { reel: 4, jig: 6, slide: 4 }[PROBE]
-if (!EXPECTED_BEATS) {
+const EXPECTED = { reel: { beats: 4, bars: 1 }, jig: { beats: 6, bars: 2 }, slide: { beats: 4, bars: 1 } }[PROBE]
+if (!EXPECTED) {
   console.log(`FAIL  unknown probe "${PROBE}" (want reel, jig or slide)`)
   process.exit(1)
 }
+const EXPECTED_CLICKS = EXPECTED.beats * EXPECTED.bars
 
 const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] })
 const p = await b.newPage()
@@ -100,7 +103,8 @@ if (!count || !tune) {
 // quantizes each onset, which on its own is a 10% error on a jig's 167ms beat.
 const spacing =
   count.onsets.length > 1 ? (count.onsets.at(-1) - count.onsets[0]) / (count.onsets.length - 1) : 0
-const barMs = Math.round(spacing * EXPECTED_BEATS)
+const barMs = Math.round(spacing * EXPECTED.beats)
+const countMs = barMs * EXPECTED.bars
 const gap = tune.startedAt - count.startedAt
 console.log(`${PROBE}: count-in buffer ${count.dur}ms, onsets at [${count.onsets}]`)
 console.log(`  beat spacing ${Math.round(spacing)}ms → a bar is ${barMs}ms; tune started ${gap}ms after the count`)
@@ -113,12 +117,14 @@ const ok = (label, cond) => {
 }
 ok(`the whole count-in is one buffer (${beforeTune.length} sounded before the tune)`,
    beforeTune.length === 1)
-ok(`${EXPECTED_BEATS} clicks are heard (${count.onsets.length})`, count.onsets.length === EXPECTED_BEATS)
+ok(`${EXPECTED.bars} bar(s) of ${EXPECTED.beats} are heard — ${EXPECTED_CLICKS} clicks (${count.onsets.length})`,
+   count.onsets.length === EXPECTED_CLICKS)
 ok('the clicks are evenly spaced',
    count.onsets.every((on, i) => i === 0 || Math.abs(on - count.onsets[i - 1] - spacing) <= 25))
-ok(`the tune starts a bar later (${gap}ms vs ${barMs}ms, ±80)`, Math.abs(gap - barMs) <= 80)
-ok(`the numbers counted match the clicks (${seen.join(' ')})`,
-   seen.join(' ') === Array.from({ length: EXPECTED_BEATS }, (_, i) => i + 1).join(' '))
+ok(`the tune starts after the whole count (${gap}ms vs ${countMs}ms, ±80)`, Math.abs(gap - countMs) <= 80)
+// Each bar is counted from one again, the way a bar is counted aloud.
+const wantSeen = Array.from({ length: EXPECTED_CLICKS }, (_, i) => (i % EXPECTED.beats) + 1).join(' ')
+ok(`the numbers counted match the clicks (${seen.join(' ')})`, seen.join(' ') === wantSeen)
 
 await b.close()
 process.exit(failed ? 1 : 0)

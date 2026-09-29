@@ -10,7 +10,7 @@ import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoi
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
-import { getCountInBar, playCountIn } from "../services/countIn";
+import { getCountIn, playCountIn } from "../services/countIn";
 import type { SequencePlayback } from "../services/earTraining";
 import { extractComposerFromAbc, fixAbcRepeats } from "../services/abcTools";
 import { buildPlaybackAbc, shouldKeepLeadIn } from "../services/abcUnroll";
@@ -1667,22 +1667,22 @@ export function SetPlayer({
     }
 
     /**
-     * Counts a bar in, then starts the tune on the downbeat that follows.
+     * Counts the tune in, then starts it on the downbeat that follows.
      *
      * The clicks are one rendered buffer, so their spacing survives an output device that opens
      * late; the number on screen is driven by ordinary timers off the moment that buffer actually
      * started, which is wall-clock accurate because the audio is by then already sounding. The
-     * tune itself begins a bar after that same moment rather than when the buffer reports itself
-     * finished — playNoteSequence drops the silence after the last click, so the buffer is a
-     * click's length short of the bar.
+     * tune itself begins a count's length after that same moment rather than when the buffer
+     * reports itself finished — playNoteSequence drops the silence after the last click, so the
+     * buffer falls a click's length short of the count.
      */
     function countInThenPlay(stillCurrent: () => boolean) {
       // Re-read through the array rather than the narrowed local: the closure loses the
       // null check startTune made at the top.
       const tuneObj = visualObjsRef.current[index];
       if (!tuneObj) return;
-      const bar = getCountInBar(tuneObj, bpm);
-      if (bar.offsetsMs.length === 0) {
+      const countInPlan = getCountIn(tuneObj, bpm);
+      if (countInPlan.beats.length === 0) {
         beginPlayback();
         return;
       }
@@ -1691,7 +1691,7 @@ export function SetPlayer({
         timeouts: [],
       };
       countInRef.current = pending;
-      void playCountIn(bar, metronomeSoundRef.current)
+      void playCountIn(countInPlan, metronomeSoundRef.current)
         .then((playback) => {
           if (!stillCurrent() || countInRef.current !== pending) {
             playback.stop();
@@ -1710,10 +1710,10 @@ export function SetPlayer({
               window.setTimeout(fn, Math.max(0, delayMs - (performance.now() - startedAt))),
             );
           };
-          bar.offsetsMs.forEach((offsetMs, i) => {
-            at(offsetMs, () => setCountIn({ n: i + 1, total: bar.offsetsMs.length }));
-          });
-          at(bar.barMs, finish);
+          for (const beat of countInPlan.beats) {
+            at(beat.offsetMs, () => setCountIn({ n: beat.count, total: countInPlan.beatsPerBar }));
+          }
+          at(countInPlan.totalMs, finish);
         })
         .catch(() => {
           // A soundfont that won't load shouldn't cost the user their tune: start it unannounced.
