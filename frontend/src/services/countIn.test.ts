@@ -16,9 +16,9 @@ describe('getCountInBar', () => {
     expect(offsetsMs).toEqual([0, 500, 1000, 1500])
   })
 
-  it('counts a jig in two, not six: the dotted-quarter groups it is felt in', () => {
+  it('counts a jig in six: the bar as written, not the two groups it is felt in', () => {
     const { offsetsMs } = getCountInBar(tune(6, 8, 1500), 120)
-    expect(offsetsMs).toEqual([0, 750])
+    expect(offsetsMs).toEqual([0, 250, 500, 750, 1000, 1250])
   })
 
   it('counts a waltz in three', () => {
@@ -30,11 +30,9 @@ describe('getCountInBar', () => {
     expect(getCountInBar(tune(2, 4, 1000), 120).offsetsMs).toEqual([0, 500])
   })
 
-  it('follows the meter pulse groupings for an irregular meter', () => {
-    // 7/8 groups in twos, so the counted beats fall every quarter note: 0, 2/8, 4/8, 6/8 of a
-    // bar that is 7/8 long.
+  it('counts an irregular meter by its numerator too', () => {
     const { offsetsMs } = getCountInBar(tune(7, 8, 1400), 120)
-    expect(offsetsMs.map((ms) => Math.round(ms))).toEqual([0, 400, 800, 1200])
+    expect(offsetsMs.map((ms) => Math.round(ms))).toEqual([0, 200, 400, 600, 800, 1000, 1200])
   })
 
   it('counts nothing through a bar of no length, so the caller can skip it', () => {

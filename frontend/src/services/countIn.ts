@@ -4,13 +4,12 @@ import {
   type MetronomeSound,
 } from './metronome'
 import { playNoteSequence, type NoteStep, type SequencePlayback } from './earTraining'
-import { getMeterPulse } from './meterPulse'
 
 /**
  * A bar counted in before the tune starts, the way someone counts a session in.
  *
  * Two things have to agree: what the player hears and the number they read. Both come from the
- * offsets computed here, so a count that looks like "1 2" in a jig is also two clicks.
+ * offsets computed here, so a count that reads "1 2 3 4 5 6" is also six clicks.
  */
 
 /** How long each click sounds. Matches the metronome's own click length. */
@@ -31,21 +30,19 @@ interface CountInTuneObject {
 /**
  * The beats to count, for one bar of this tune at this tempo.
  *
+ * The count is what the meter says it is — the numerator, evenly across the bar. A jig is counted
+ * in six, not in the two dotted-quarter groups it is felt in: a count-in is someone saying "one
+ * two three four five six", and it has to match the bar the player is about to read.
+ *
  * The bar's length comes from abcjs rather than from bpm arithmetic, so the count-in is exactly a
- * bar however the tune's Q: field relates to its meter. Which beats inside it get counted comes
- * from the meter's pulse: four for a reel, two for a jig — the dotted-quarter groups a jig is
- * actually felt in, not six even eighths — three for a waltz, and the grouping meterPulse derives
- * for anything irregular.
+ * bar however the tune's Q: field relates to its meter.
  */
 export function getCountInBar(visualObj: CountInTuneObject, bpm: number): CountInBar {
   const barMs = Math.max(0, visualObj.millisecondsPerMeasure(bpm))
   // A bar of no length can't be counted through; the caller skips a count-in of zero beats.
   if (barMs <= 0) return { offsetsMs: [], barMs: 0 }
-  const pulse = getMeterPulse(visualObj.getMeterFraction())
-  const counted = pulse.beats.filter((beat) => beat.strength !== 'off')
-  const offsetsMs = counted.map(
-    (beat) => (beat.offsetWholeNotes / pulse.barLengthWholeNotes) * barMs,
-  )
+  const beats = Math.max(1, Math.round(visualObj.getMeterFraction().num ?? 4))
+  const offsetsMs = Array.from({ length: beats }, (_, i) => (i / beats) * barMs)
   return { offsetsMs, barMs }
 }
 
