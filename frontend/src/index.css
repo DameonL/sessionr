@@ -1207,9 +1207,10 @@ a.stat:hover {
      so the staff uses the full height and simply scrolls under it. */
 }
 
-/* Hide regular controls/sections in fullscreen */
-.player-container:fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls),
-.player-container.is-fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls) {
+/* Hide regular controls/sections in fullscreen. The count-in overlay has to be spared: it is a
+   direct child of the container, and fullscreen is exactly where the count matters most. */
+.player-container:fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls):not(.count-in-overlay),
+.player-container.is-fullscreen > :not(.sheet-music):not(.set-player-tunes-list):not(.fullscreen-controls):not(.count-in-overlay) {
   display: none !important;
 }
 
@@ -2158,4 +2159,52 @@ a.stat:hover {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Count-in
+   A bar counted in before the tune starts. The number is deliberately enormous:
+   it is read from a music stand, across a room, by someone holding an
+   instrument — not from a phone held at reading distance.
+   --------------------------------------------------------------------------- */
+
+.count-in-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000; /* above .fullscreen-controls */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(4px);
+  /* Never swallow a press: Stop has to stay reachable through the count. */
+  pointer-events: none;
+}
+
+.count-in-number {
+  font-size: min(40vw, 40vh);
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  text-shadow: var(--shadow-md);
+  animation: count-in-pulse 0.35s ease-out;
+}
+
+@keyframes count-in-pulse {
+  from {
+    transform: scale(1.25);
+    opacity: 0.35;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .count-in-number {
+    animation: none;
+  }
 }

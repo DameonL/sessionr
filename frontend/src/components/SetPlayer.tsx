@@ -10,6 +10,8 @@ import { backerStartOffsetMs, clearPendingTimeouts, pickBandVoices, type BandVoi
 import { createBandSynth } from "../services/bandSynth";
 import { loadBandPrefs, saveBandPrefs, MAX_BAND_COUNT, MIN_BAND_COUNT, type BandPrefs } from "../services/bandPrefs";
 import { getAbcKeyRoot, playMetronomeClick } from "../services/metronome";
+import { getCountInBar, playCountIn } from "../services/countIn";
+import type { SequencePlayback } from "../services/earTraining";
 import { extractComposerFromAbc, fixAbcRepeats } from "../services/abcTools";
 import { buildPlaybackAbc, shouldKeepLeadIn } from "../services/abcUnroll";
 import { generateBodhranTrack, getBodhranDrumOption } from "../services/bodhran";
@@ -238,6 +240,11 @@ export function SetPlayer({
   /** The user's own tempo, put back on the slider once a trainer run ends. */
   const trainerResumeBpmRef = useRef<number | null>(null);
   const passRef = useRef(1);
+  /**
+   * The count-in in flight, if any: the buffer sounding the clicks and the timers ticking the
+   * number over. Held so a Stop pressed mid-count can silence both.
+   */
+  const countInRef = useRef<{ playback: SequencePlayback | null; timeouts: number[] } | null>(null);
 
   const metronome = useMetronomePrefs();
   const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome;
@@ -267,6 +274,8 @@ export function SetPlayer({
   const [trainer, setTrainer] = useState<Trainer>(initialPrefs.trainer);
   trainerRef.current = trainer;
   const [passCount, setPassCount] = useState(1);
+  /** The number filling the screen during a count-in, and how many there are. Null when not counting. */
+  const [countIn, setCountIn] = useState<{ n: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
    * False until abcjs has actually engraved the items. The controls are hidden
@@ -950,8 +959,20 @@ export function SetPlayer({
     return playSessionRef.current;
   }
 
+  /** Silences a count-in in flight and takes the number off the screen. A no-op if none is running. */
+  function cancelCountIn() {
+    const pending = countInRef.current;
+    if (pending) {
+      pending.playback?.stop();
+      clearPendingTimeouts(pending.timeouts);
+      countInRef.current = null;
+    }
+    setCountIn(null);
+  }
+
   function stop(keepPosition = false) {
     beginNewPlaySession();
+    cancelCountIn();
     pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
     pendingBackersRef.current.clear();
     for (const voices of synthsRef.current) {
@@ -987,6 +1008,12 @@ export function SetPlayer({
   }
 
   function pause() {
+    // A count-in has no timer to pause — the tune has not started — so pausing one cancels it and
+    // leaves the transport stopped where it was, ready to count in again on the next Play.
+    if (countInRef.current) {
+      stop(true);
+      return;
+    }
     if (activeIndex === null) return;
     flushPendingBackers();
     forEachVoice(activeIndex, (v) => v.pause());
@@ -1378,7 +1405,15 @@ export function SetPlayer({
         passRef.current = trainerPass;
         setPassCount(trainerPass);
       }
-      startTune(targetIndex, effectiveBpm, targetPass, targetOffsetSec, true, true);
+      /*
+       * A bar is counted in only when a player is actually picking an instrument up: Play pressed
+       * from a standstill, at the top. Everything else that reaches play() is playback already
+       * under way — a resume, a seek, a Speed Trainer pass, and every settings change, since the
+       * tempo, swing, emphasis, instrument and bodhran controls all commit by restarting through
+       * here. Counting those in would put a bar of clicks between each nudge of the tempo slider.
+       */
+      const shouldCountIn = wasStopped && !keepPosition && trainerPass === undefined;
+      startTune(targetIndex, effectiveBpm, targetPass, targetOffsetSec, true, true, shouldCountIn);
     } catch {
       setError("Audio unavailable (soundfont could not be loaded).");
     }
@@ -1397,6 +1432,8 @@ export function SetPlayer({
      * the middle of continuous playback.
      */
     waitForPaint = false,
+    /** Count a bar in before the tune sounds. Only ever set on a fresh Play; see play(). */
+    countInFirst = false,
   ) {
     const visualObj = visualObjsRef.current[index];
     const voices = synthsRef.current[index];
@@ -1629,6 +1666,63 @@ export function SetPlayer({
       anchorOnNextFrame(timer, synth);
     }
 
+    /**
+     * Counts a bar in, then starts the tune on the downbeat that follows.
+     *
+     * The clicks are one rendered buffer, so their spacing survives an output device that opens
+     * late; the number on screen is driven by ordinary timers off the moment that buffer actually
+     * started, which is wall-clock accurate because the audio is by then already sounding. The
+     * tune itself begins a bar after that same moment rather than when the buffer reports itself
+     * finished — playNoteSequence drops the silence after the last click, so the buffer is a
+     * click's length short of the bar.
+     */
+    function countInThenPlay(stillCurrent: () => boolean) {
+      // Re-read through the array rather than the narrowed local: the closure loses the
+      // null check startTune made at the top.
+      const tuneObj = visualObjsRef.current[index];
+      if (!tuneObj) return;
+      const bar = getCountInBar(tuneObj, bpm);
+      if (bar.offsetsMs.length === 0) {
+        beginPlayback();
+        return;
+      }
+      const pending: { playback: SequencePlayback | null; timeouts: number[] } = {
+        playback: null,
+        timeouts: [],
+      };
+      countInRef.current = pending;
+      void playCountIn(bar, metronomeSoundRef.current)
+        .then((playback) => {
+          if (!stillCurrent() || countInRef.current !== pending) {
+            playback.stop();
+            return;
+          }
+          pending.playback = playback;
+          const startedAt = performance.now();
+          const finish = () => {
+            if (countInRef.current === pending) countInRef.current = null;
+            setCountIn(null);
+            if (!stillCurrent()) return;
+            beginPlayback();
+          };
+          const at = (delayMs: number, fn: () => void) => {
+            pending.timeouts.push(
+              window.setTimeout(fn, Math.max(0, delayMs - (performance.now() - startedAt))),
+            );
+          };
+          bar.offsetsMs.forEach((offsetMs, i) => {
+            at(offsetMs, () => setCountIn({ n: i + 1, total: bar.offsetsMs.length }));
+          });
+          at(bar.barMs, finish);
+        })
+        .catch(() => {
+          // A soundfont that won't load shouldn't cost the user their tune: start it unannounced.
+          if (countInRef.current === pending) countInRef.current = null;
+          setCountIn(null);
+          if (stillCurrent()) beginPlayback();
+        });
+    }
+
     const isPlayerPaused = statusRef.current === "paused";
     if (isPlayerPaused) {
       for (const v of voices) seekAndLatch(v, audioStartSec);
@@ -1660,7 +1754,8 @@ export function SetPlayer({
           if (!stillCurrent()) return;
           requestAnimationFrame(() => {
             if (!stillCurrent()) return;
-            beginPlayback();
+            if (countInFirst) countInThenPlay(stillCurrent);
+            else beginPlayback();
           });
         });
       });
@@ -1756,6 +1851,20 @@ export function SetPlayer({
 
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
+      {countIn && (
+        <div
+          className="count-in-overlay"
+          role="status"
+          aria-live="assertive"
+          aria-label={`Counting in, ${countIn.n} of ${countIn.total}`}
+        >
+          {/* Keyed by the count so each beat restarts the animation rather than reusing a node
+              that has already faded out. */}
+          <span className="count-in-number" key={countIn.n}>
+            {countIn.n}
+          </span>
+        </div>
+      )}
       {isFullscreen && isReady && (
         <div className={`fullscreen-controls ${showFsControls ? "" : "hidden"}`}>
           <button onClick={() => (status === "playing" ? pause() : status === "paused" ? resume() : play())} title={status === "playing" ? "Pause" : "Play"}>

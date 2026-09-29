@@ -441,6 +441,8 @@ export interface NoteStep {
   durationMs: number
   /** Silence after this note before the next one. Ignored on the last step. */
   gapMs?: number
+  /** abcjs velocity, 0-127. Defaults to the prompt volume; a count-in accents its downbeat with it. */
+  volume?: number
 }
 
 export interface SequencePlayback {
@@ -478,7 +480,7 @@ export async function playNoteSequence(
 
   let durationMs = 0
   for (const [index, step] of steps.entries()) {
-    sequence.appendNote(track, step.midi, step.durationMs / MS_PER_MEASURE, PROMPT_VOLUME, 0)
+    sequence.appendNote(track, step.midi, step.durationMs / MS_PER_MEASURE, step.volume ?? PROMPT_VOLUME, 0)
     durationMs += step.durationMs
     const gapMs = index === steps.length - 1 ? 0 : (step.gapMs ?? 0)
     if (gapMs > 0) {
