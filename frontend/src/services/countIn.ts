@@ -34,6 +34,12 @@ interface CountInTuneObject {
  * in six, not in the two dotted-quarter groups it is felt in: a count-in is someone saying "one
  * two three four five six", and it has to match the bar the player is about to read.
  *
+ * Past 6/8 that stops being true. A slide's twelve eighths go by at about eight a second, which
+ * nobody can either say or hear as a count — so the wider compound meters are counted in their
+ * dotted-quarter groups instead: a slide in four, a slip jig in three. 7/8 and its like keep their
+ * numerator, since a bar of seven is short enough to count and has no even grouping to fall back
+ * on anyway.
+ *
  * The bar's length comes from abcjs rather than from bpm arithmetic, so the count-in is exactly a
  * bar however the tune's Q: field relates to its meter.
  */
@@ -41,7 +47,10 @@ export function getCountInBar(visualObj: CountInTuneObject, bpm: number): CountI
   const barMs = Math.max(0, visualObj.millisecondsPerMeasure(bpm))
   // A bar of no length can't be counted through; the caller skips a count-in of zero beats.
   if (barMs <= 0) return { offsetsMs: [], barMs: 0 }
-  const beats = Math.max(1, Math.round(visualObj.getMeterFraction().num ?? 4))
+  const meter = visualObj.getMeterFraction()
+  const num = Math.max(1, Math.round(meter.num ?? 4))
+  const isWideCompound = meter.den === 8 && num > 6 && num % 3 === 0
+  const beats = isWideCompound ? num / 3 : num
   const offsetsMs = Array.from({ length: beats }, (_, i) => (i / beats) * barMs)
   return { offsetsMs, barMs }
 }

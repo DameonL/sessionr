@@ -67,7 +67,16 @@ L:1/8
 K:C
 CC|ccc ccc|ccc ccc|ccc ccc|ccc ccc|]`
 
-const PROBE = { reel: PULSE_REEL, jig: PULSE_JIG, pickup: PULSE_PICKUP, cowboy: COWBOY, leadin: PULSE_LEADIN }[
+// A slide: twelve eighths to the bar, which is where counting every written beat stops being
+// something anyone can say, and the count-in falls back to the four dotted-quarter groups.
+const PULSE_SLIDE = `X:1
+T:Pulse Slide
+M:12/8
+L:1/8
+K:C
+CCC CCC CCC CCC|CCC CCC CCC CCC|CCC CCC CCC CCC|CCC CCC CCC CCC|]`
+
+const PROBE = { reel: PULSE_REEL, jig: PULSE_JIG, slide: PULSE_SLIDE, pickup: PULSE_PICKUP, cowboy: COWBOY, leadin: PULSE_LEADIN }[
   params.get('probe') ?? ''
 ]
 const probeReps = Number(params.get('reps') ?? '1') || 1

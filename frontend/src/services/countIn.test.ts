@@ -30,6 +30,16 @@ describe('getCountInBar', () => {
     expect(getCountInBar(tune(2, 4, 1000), 120).offsetsMs).toEqual([0, 500])
   })
 
+  it('counts a slide in four, not twelve: a bar of twelve eighths goes by too fast to count', () => {
+    const { offsetsMs } = getCountInBar(tune(12, 8, 2000), 120)
+    expect(offsetsMs).toEqual([0, 500, 1000, 1500])
+  })
+
+  it('counts a slip jig in three, by its dotted-quarter groups', () => {
+    const { offsetsMs } = getCountInBar(tune(9, 8, 1500), 120)
+    expect(offsetsMs).toEqual([0, 500, 1000])
+  })
+
   it('counts an irregular meter by its numerator too', () => {
     const { offsetsMs } = getCountInBar(tune(7, 8, 1400), 120)
     expect(offsetsMs.map((ms) => Math.round(ms))).toEqual([0, 200, 400, 600, 800, 1000, 1200])

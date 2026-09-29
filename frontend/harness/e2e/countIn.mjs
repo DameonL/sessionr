@@ -10,13 +10,16 @@ import { chromium } from '@playwright/test'
  * off the count-in buffer's own duration would give, since the silence after the last click is
  * never rendered.
  *
- * Usage: node harness/e2e/countIn.mjs [reel|jig]
+ * Usage: node harness/e2e/countIn.mjs [reel|jig|slide]
  */
 const PROBE = process.argv[2] ?? 'reel'
-/** The bar as written: a reel is counted in four, a jig in six. */
-const EXPECTED_BEATS = { reel: 4, jig: 6 }[PROBE]
+/**
+ * The bar as written — a reel in four, a jig in six — except past 6/8, where a slide's twelve
+ * eighths are counted as their four dotted-quarter groups instead.
+ */
+const EXPECTED_BEATS = { reel: 4, jig: 6, slide: 4 }[PROBE]
 if (!EXPECTED_BEATS) {
-  console.log(`FAIL  unknown probe "${PROBE}" (want reel or jig)`)
+  console.log(`FAIL  unknown probe "${PROBE}" (want reel, jig or slide)`)
   process.exit(1)
 }
 
