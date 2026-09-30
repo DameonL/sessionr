@@ -3,6 +3,8 @@ import {
   METRONOME_VOLUME,
   type MetronomeSound,
 } from './metronome'
+import { getMeterPulse, type PulseStrength } from './meterPulse'
+import { strengthAtPosition } from './meterEmphasis'
 import { playNoteSequence, type NoteStep, type SequencePlayback } from './earTraining'
 
 /**
@@ -23,13 +25,29 @@ const CLICK_MS = 60
  */
 const TWO_BAR_MAX_BAR_MS = 1200
 
+/**
+ * How hard each click is struck, by the weight the meter gives its beat.
+ *
+ * Three levels rather than two: a flat count with one accent tells a player where the bar starts
+ * and nothing else, so a jig's six come out as six even eighths. Leaning on the second group as
+ * well is what makes the count sound like the tune it is counting in. The strong level is the
+ * metronome's own accent and the base level its own click, so a count-in and the metronome that
+ * follows it are the same two sounds; the middle sits between them.
+ */
+const STRENGTH_VOLUME: Record<PulseStrength, number> = {
+  strong: METRONOME_ACCENT_VOLUME,
+  medium: Math.round((METRONOME_VOLUME + METRONOME_ACCENT_VOLUME) / 2),
+  light: METRONOME_VOLUME,
+  off: METRONOME_VOLUME,
+}
+
 export interface CountInBeat {
   /** When this beat falls, in milliseconds from the start of the count-in. */
   offsetMs: number
   /** What the screen shows. Restarts at 1 on each bar, the way a bar is counted aloud. */
   count: number
-  /** A bar's downbeat: the click that gets the accent velocity. */
-  accented: boolean
+  /** The weight the meter gives this beat, which sets how hard the click is struck. */
+  strength: PulseStrength
 }
 
 export interface CountIn {
@@ -61,6 +79,11 @@ interface CountInTuneObject {
  * A short bar is counted twice rather than faster: the trouble with a quick count-in is that it is
  * over before it has registered, and repeating the bar is how a session fixes that.
  *
+ * Each beat is weighted by the same meter pulse the bodhrán and the melody's emphasis read, so the
+ * count leans where the tune leans: a jig counted in six still lands on 1 and 4, which is the pair
+ * the whole thing is felt in, and a reel answers its 1 on the 3. Counting six and *hearing* two is
+ * how the count tells a player what is coming as well as when.
+ *
  * The bar's length comes from abcjs rather than from bpm arithmetic, so the count-in is exactly a
  * bar — or two — however the tune's Q: field relates to its meter.
  */
@@ -74,13 +97,17 @@ export function getCountIn(visualObj: CountInTuneObject, bpm: number): CountIn {
   if (barMs <= 0) return { beats: [], totalMs: 0, beatsPerBar }
 
   const bars = barMs < TWO_BAR_MAX_BAR_MS ? 2 : 1
+  const pulse = getMeterPulse(meter)
   const beats: CountInBeat[] = []
   for (let bar = 0; bar < bars; bar++) {
     for (let i = 0; i < beatsPerBar; i++) {
+      // The count's beats divide the bar evenly, so beat i sits at that fraction of the pulse's
+      // own bar and can be looked up against it directly.
+      const position = (i / beatsPerBar) * pulse.barLengthWholeNotes
       beats.push({
         offsetMs: bar * barMs + (i / beatsPerBar) * barMs,
         count: i + 1,
-        accented: i === 0,
+        strength: strengthAtPosition(pulse, position),
       })
     }
   }
@@ -97,20 +124,34 @@ export function getCountIn(visualObj: CountInTuneObject, bpm: number): CountIn {
  * into the samples makes the spacing a property of the buffer instead. See the note on
  * playNoteSequence for the full story.
  *
- * Each bar's downbeat is the same click played harder, as in the running metronome.
+ * A weighted beat is the same click played harder, not a different drum — the rule the running
+ * metronome follows, and for the same reason: swapping the sample ties the accent's loudness to
+ * whichever sample was substituted.
+ *
+ * `keyRoot` is the tune's tonic. A melodic click takes it on the downbeat and an octave below it
+ * elsewhere, exactly as the metronome does once the tune is under way, so the count-in and the
+ * clicks that follow it are one continuous sound rather than two. A percussion sound has no pitch
+ * to set and keeps its own.
  */
 export function playCountIn(
   countIn: CountIn,
   sound: MetronomeSound,
+  keyRoot?: number,
 ): Promise<SequencePlayback> {
   const steps: NoteStep[] = countIn.beats.map((beat, index) => {
     const nextMs = countIn.beats[index + 1]?.offsetMs ?? countIn.totalMs
     const clickMs = Math.max(1, Math.min(CLICK_MS, nextMs - beat.offsetMs))
+    const pitch =
+      sound.instrument === 128 || keyRoot === undefined
+        ? sound.pitch
+        : beat.strength === 'strong'
+          ? keyRoot
+          : keyRoot - 12
     return {
-      midi: sound.pitch,
+      midi: pitch,
       durationMs: clickMs,
       gapMs: Math.max(0, nextMs - beat.offsetMs - clickMs),
-      volume: beat.accented ? METRONOME_ACCENT_VOLUME : METRONOME_VOLUME,
+      volume: STRENGTH_VOLUME[beat.strength],
     }
   })
   return playNoteSequence(steps, sound.instrument)

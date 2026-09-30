@@ -10,7 +10,7 @@ import { chromium } from '@playwright/test'
  * off the count-in buffer's own duration would give, since the silence after the last click is
  * never rendered.
  *
- * Usage: node harness/e2e/countIn.mjs [reel|jig|slide]
+ * Usage: node harness/e2e/countIn.mjs [reel|jig|slide|pickup]
  */
 const PROBE = process.argv[2] ?? 'reel'
 /*
@@ -18,10 +18,20 @@ const PROBE = process.argv[2] ?? 'reel'
  * eighths are counted as their four dotted-quarter groups instead. The probes straddle the
  * two-bar threshold on their own: the jig's bar lasts a second at the harness tempo, short enough
  * to be counted twice, while the reel's 1.33s and the slide's 2s are each counted once.
+ *
+ * `pickupBeats` is how much of the count the tune plays over, in count-in beats: the pickup probe
+ * is the reel with one eighth of anacrusis, which against a count of four to a 4/4 bar is half a
+ * beat. The tune has to come in that much early, so the pickup lands on the upbeat and the first
+ * barline falls where the next click would have.
  */
-const EXPECTED = { reel: { beats: 4, bars: 1 }, jig: { beats: 6, bars: 2 }, slide: { beats: 4, bars: 1 } }[PROBE]
+const EXPECTED = {
+  reel: { beats: 4, bars: 1 },
+  jig: { beats: 6, bars: 2 },
+  slide: { beats: 4, bars: 1 },
+  pickup: { beats: 4, bars: 1, pickupBeats: 0.5 },
+}[PROBE]
 if (!EXPECTED) {
-  console.log(`FAIL  unknown probe "${PROBE}" (want reel, jig or slide)`)
+  console.log(`FAIL  unknown probe "${PROBE}" (want reel, jig, slide or pickup)`)
   process.exit(1)
 }
 const EXPECTED_CLICKS = EXPECTED.beats * EXPECTED.bars
@@ -104,7 +114,8 @@ if (!count || !tune) {
 const spacing =
   count.onsets.length > 1 ? (count.onsets.at(-1) - count.onsets[0]) / (count.onsets.length - 1) : 0
 const barMs = Math.round(spacing * EXPECTED.beats)
-const countMs = barMs * EXPECTED.bars
+// When the tune comes in: the whole count, less whatever of it the anacrusis plays over.
+const countMs = Math.round(spacing * (EXPECTED.beats * EXPECTED.bars - (EXPECTED.pickupBeats ?? 0)))
 const gap = tune.startedAt - count.startedAt
 console.log(`${PROBE}: count-in buffer ${count.dur}ms, onsets at [${count.onsets}]`)
 console.log(`  beat spacing ${Math.round(spacing)}ms → a bar is ${barMs}ms; tune started ${gap}ms after the count`)
@@ -121,7 +132,12 @@ ok(`${EXPECTED.bars} bar(s) of ${EXPECTED.beats} are heard — ${EXPECTED_CLICKS
    count.onsets.length === EXPECTED_CLICKS)
 ok('the clicks are evenly spaced',
    count.onsets.every((on, i) => i === 0 || Math.abs(on - count.onsets[i - 1] - spacing) <= 25))
-ok(`the tune starts after the whole count (${gap}ms vs ${countMs}ms, ±80)`, Math.abs(gap - countMs) <= 80)
+ok(
+  EXPECTED.pickupBeats
+    ? `the tune comes in a pickup early, under the last clicks (${gap}ms vs ${countMs}ms, ±80)`
+    : `the tune starts after the whole count (${gap}ms vs ${countMs}ms, ±80)`,
+  Math.abs(gap - countMs) <= 80,
+)
 // Each bar is counted from one again, the way a bar is counted aloud.
 const wantSeen = Array.from({ length: EXPECTED_CLICKS }, (_, i) => (i % EXPECTED.beats) + 1).join(' ')
 ok(`the numbers counted match the clicks (${seen.join(' ')})`, seen.join(' ') === wantSeen)

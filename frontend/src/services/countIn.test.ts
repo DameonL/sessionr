@@ -11,6 +11,7 @@ function tune(num: number, den: number, barMs: number) {
 
 const offsets = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => Math.round(b.offsetMs))
 const counts = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => b.count)
+const strengths = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => b.strength)
 
 describe('getCountIn', () => {
   it('counts a reel in four, evenly across the bar', () => {
@@ -41,9 +42,40 @@ describe('getCountIn', () => {
     expect(offsets(getCountIn(tune(7, 8, 1400), 120))).toEqual([0, 200, 400, 600, 800, 1000, 1200])
   })
 
-  it('accents the downbeat and nothing else', () => {
-    const countIn = getCountIn(tune(4, 4, 2000), 120)
-    expect(countIn.beats.map((b) => b.accented)).toEqual([true, false, false, false])
+  describe('the weight the meter gives each beat', () => {
+    it('answers a reel’s 1 on its 3', () => {
+      expect(strengths(getCountIn(tune(4, 4, 2000), 120))).toEqual([
+        'strong',
+        'light',
+        'medium',
+        'light',
+      ])
+    })
+
+    it('leans on 1 and 4 of a jig, the pair it is felt in', () => {
+      // Counted in six, heard in two: the count says what bar is coming as well as when.
+      expect(strengths(getCountIn(tune(6, 8, 1500), 120))).toEqual([
+        'strong',
+        'off',
+        'off',
+        'medium',
+        'off',
+        'off',
+      ])
+    })
+
+    it('gives a slide’s four dotted-quarter groups a weight each', () => {
+      expect(strengths(getCountIn(tune(12, 8, 2000), 120))).toEqual([
+        'strong',
+        'medium',
+        'medium',
+        'medium',
+      ])
+    })
+
+    it('puts a waltz’s weight all on the 1', () => {
+      expect(strengths(getCountIn(tune(3, 4, 1800), 100))).toEqual(['strong', 'light', 'light'])
+    })
   })
 
   describe('a bar too short to latch onto', () => {
@@ -64,9 +96,15 @@ describe('getCountIn', () => {
       expect(offsets(countIn)).toEqual([0, 500, 1000, 1500])
     })
 
-    it('accents both downbeats', () => {
+    it('repeats the meter’s weights over both bars, so both downbeats are strong', () => {
       const countIn = getCountIn(tune(4, 4, 1000), 240)
-      expect(countIn.beats.filter((b) => b.accented).map((b) => b.offsetMs)).toEqual([0, 1000])
+      expect(strengths(countIn)).toEqual([
+        'strong', 'light', 'medium', 'light',
+        'strong', 'light', 'medium', 'light',
+      ])
+      expect(countIn.beats.filter((b) => b.strength === 'strong').map((b) => b.offsetMs)).toEqual([
+        0, 1000,
+      ])
     })
 
     it('takes the second bar just under the threshold, and not at it', () => {

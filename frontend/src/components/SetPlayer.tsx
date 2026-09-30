@@ -243,8 +243,15 @@ export function SetPlayer({
   /**
    * The count-in in flight, if any: the buffer sounding the clicks and the timers ticking the
    * number over. Held so a Stop pressed mid-count can silence both.
+   *
+   * It outlives the tune's entrance by the length of any pickup, because the last clicks keep
+   * sounding over an anacrusis. `tuneStarted` is what tells the two halves of that apart.
    */
-  const countInRef = useRef<{ playback: SequencePlayback | null; timeouts: number[] } | null>(null);
+  const countInRef = useRef<{
+    playback: SequencePlayback | null;
+    timeouts: number[];
+    tuneStarted: boolean;
+  } | null>(null);
 
   const metronome = useMetronomePrefs();
   const { useMetronome, metronomeSound, useMetronomeRef, metronomeSoundRef } = metronome;
@@ -276,6 +283,8 @@ export function SetPlayer({
   const [passCount, setPassCount] = useState(1);
   /** The number filling the screen during a count-in, and how many there are. Null when not counting. */
   const [countIn, setCountIn] = useState<{ n: number; total: number } | null>(null);
+  /** Said once, to a screen reader, when the count starts. See countInThenPlay. */
+  const [countInLabel, setCountInLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   /**
    * False until abcjs has actually engraved the items. The controls are hidden
@@ -1009,8 +1018,9 @@ export function SetPlayer({
 
   function pause() {
     // A count-in has no timer to pause — the tune has not started — so pausing one cancels it and
-    // leaves the transport stopped where it was, ready to count in again on the next Play.
-    if (countInRef.current) {
+    // leaves the transport stopped where it was, ready to count in again on the next Play. Once the
+    // tune has come in under the last of the clicks, though, there is a timer, and Pause means it.
+    if (countInRef.current && !countInRef.current.tuneStarted) {
       stop(true);
       return;
     }
@@ -1675,6 +1685,12 @@ export function SetPlayer({
      * tune itself begins a count's length after that same moment rather than when the buffer
      * reports itself finished — playNoteSequence drops the silence after the last click, so the
      * buffer falls a click's length short of the count.
+     *
+     * A tune that starts on an upbeat comes in that much sooner. Counting a full bar and only then
+     * letting the anacrusis sound would put the pickup where the downbeat belongs and leave the
+     * tune's barlines a pickup adrift of the pulse the clicks just set up. Starting early instead
+     * is what a count-in actually is — "…three, four-and", the pickup on the and — and it costs
+     * nothing here, because the clicks are their own buffer and simply carry on underneath.
      */
     function countInThenPlay(stillCurrent: () => boolean) {
       // Re-read through the array rather than the narrowed local: the closure loses the
@@ -1686,12 +1702,29 @@ export function SetPlayer({
         beginPlayback();
         return;
       }
-      const pending: { playback: SequencePlayback | null; timeouts: number[] } = {
-        playback: null,
-        timeouts: [],
-      };
+      /*
+       * How much of the count the tune plays over. A count-in only ever runs on a fresh start, so
+       * this is pass 1 from the top — the one pass whose audio does sound the lead-in (see
+       * skippedSec). Clamped to the count itself, since a pickup can be most of a bar.
+       */
+      const pickupMs = Math.min(Math.max(0, leadInSec(tuneObj, bpm) * 1000), countInPlan.totalMs);
+      const startAtMs = countInPlan.totalMs - pickupMs;
+      const bars = countInPlan.beats.length / countInPlan.beatsPerBar;
+
+      const pending: {
+        playback: SequencePlayback | null;
+        timeouts: number[];
+        tuneStarted: boolean;
+      } = { playback: null, timeouts: [], tuneStarted: false };
       countInRef.current = pending;
-      void playCountIn(countInPlan, metronomeSoundRef.current)
+      // One announcement for the whole count. The numbers themselves change every beat — every
+      // 170ms in a jig — which a live region would read as an interruption rather than as a count.
+      setCountInLabel(
+        bars > 1
+          ? `Counting in, ${bars} bars of ${countInPlan.beatsPerBar}`
+          : `Counting in, ${countInPlan.beatsPerBar} beats`,
+      );
+      void playCountIn(countInPlan, metronomeSoundRef.current, keyRootRef.current)
         .then((playback) => {
           if (!stillCurrent() || countInRef.current !== pending) {
             playback.stop();
@@ -1699,21 +1732,28 @@ export function SetPlayer({
           }
           pending.playback = playback;
           const startedAt = performance.now();
-          const finish = () => {
-            if (countInRef.current === pending) countInRef.current = null;
-            setCountIn(null);
-            if (!stillCurrent()) return;
-            beginPlayback();
-          };
           const at = (delayMs: number, fn: () => void) => {
             pending.timeouts.push(
               window.setTimeout(fn, Math.max(0, delayMs - (performance.now() - startedAt))),
             );
           };
+          // Only the numbers the player still sees: the overlay comes off when the tune does, so a
+          // beat falling inside the pickup would otherwise put it back over the playing staff.
           for (const beat of countInPlan.beats) {
+            if (beat.offsetMs >= startAtMs && beat.offsetMs > 0) continue;
             at(beat.offsetMs, () => setCountIn({ n: beat.count, total: countInPlan.beatsPerBar }));
           }
-          at(countInPlan.totalMs, finish);
+          at(startAtMs, () => {
+            pending.tuneStarted = true;
+            setCountIn(null);
+            if (!stillCurrent()) return;
+            beginPlayback();
+          });
+          // The clicks outlast the tune's entrance by the pickup; the record stays until they are
+          // done so a Stop in that window still silences them.
+          at(countInPlan.totalMs, () => {
+            if (countInRef.current === pending) countInRef.current = null;
+          });
         })
         .catch(() => {
           // A soundfont that won't load shouldn't cost the user their tune: start it unannounced.
@@ -1852,15 +1892,14 @@ export function SetPlayer({
   return (
     <div ref={containerRef} className={`player-container ${isFullscreen ? "is-fullscreen" : ""}`}>
       {countIn && (
-        <div
-          className="count-in-overlay"
-          role="status"
-          aria-live="assertive"
-          aria-label={`Counting in, ${countIn.n} of ${countIn.total}`}
-        >
+        <div className="count-in-overlay">
+          {/* Constant for the whole count, so it is announced once rather than at every beat. */}
+          <div className="visually-hidden" role="status">
+            {countInLabel}
+          </div>
           {/* Keyed by the count so each beat restarts the animation rather than reusing a node
               that has already faded out. */}
-          <span className="count-in-number" key={countIn.n}>
+          <span className="count-in-number" key={countIn.n} aria-hidden="true">
             {countIn.n}
           </span>
         </div>
