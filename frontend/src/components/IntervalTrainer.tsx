@@ -10,9 +10,9 @@ import {
   availableSizes,
   generateRound,
   intervalSizeLabel,
+  masteryLevel,
   scaleMidis,
   tonicMidiInScale,
-  weightsFromHistory,
   type DirectionMode,
   type IntervalQuestion,
   type IntervalHistory,
@@ -72,6 +72,11 @@ interface Settings {
   sizes: number[] | null
   /** Bias the draw toward the sizes this player misses. */
   focusWeak: boolean
+  /**
+   * Work up the difficulty ladder — wider intervals later in a round, and further up the ladder as
+   * the easier sizes are mastered.
+   */
+  rampDifficulty: boolean
   /** Sound the tonic before each pair, so the interval is heard in its mode. */
   tonicReference: boolean
   answerMode: AnswerMode
@@ -97,6 +102,7 @@ const DEFAULT_SETTINGS: Settings = {
   directionMode: 'mixed',
   sizes: null,
   focusWeak: true,
+  rampDifficulty: true,
   tonicReference: false,
   answerMode: 'name',
   instrument: 110, // Fiddle
@@ -229,6 +235,12 @@ export function IntervalTrainer() {
   /** The sizes a round will actually ask for — what the answer buttons offer. */
   const sizes = settings.sizes ? allSizes.filter((s) => settings.sizes!.includes(s)) : allSizes
   const useFlats = (parseKeySignature(settings.key + settings.mode)?.sharps ?? 0) < 0
+  /**
+   * The widest size the record has earned, so the ramp reads as progress being made rather than as
+   * the draw quietly favouring something. Null once every size is mastered — there is no frontier
+   * left to show.
+   */
+  const frontierSize: number | null = sizes[masteryLevel(history, sizes)] ?? null
 
   /** The mode's home note, taken low in the range so it stays put between questions. */
   const tonicMidi = scale ? tonicMidiInScale(settings.key, settings.mode, scale) : null
@@ -558,7 +570,11 @@ export function IntervalTrainer() {
       questionCount: settings.questionCount,
       directionMode: settings.directionMode,
       sizes: settings.sizes ?? undefined,
-      weights: settings.focusWeak ? weightsFromHistory(history, sizes) : undefined,
+      progression: {
+        history,
+        focusWeak: settings.focusWeak,
+        ramp: settings.rampDifficulty,
+      },
     }
     const round = generateRound(config)
     if (round.length === 0) return
@@ -712,7 +728,10 @@ export function IntervalTrainer() {
           </div>
 
           <p className="tune-meta" style={{ marginBottom: '0.5rem' }}>
-            Intervals to drill:
+            Intervals to drill
+            {settings.rampDifficulty && frontierSize !== null &&
+              ` — working up to ${intervalSizeLabel(frontierSize)}s`}
+            :
           </p>
           <div className="detail-controls" style={{ marginBottom: '1rem' }}>
             {allSizes.map((size) => (
@@ -739,6 +758,12 @@ export function IntervalTrainer() {
               onClick={() => updateSettings({ focusWeak: !settings.focusWeak })}
             >
               Focus on weak intervals
+            </button>
+            <button
+              className={settings.rampDifficulty ? 'toggled' : ''}
+              onClick={() => updateSettings({ rampDifficulty: !settings.rampDifficulty })}
+            >
+              Work up to wider intervals
             </button>
             <button
               className={settings.tonicReference ? 'toggled' : ''}

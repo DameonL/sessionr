@@ -4,9 +4,12 @@ import {
   generateQuestion,
   generateRound,
   intervalSizeLabel,
+  masteryLevel,
+  progressionWeights,
   scaleMidis,
   tonicMidiInScale,
   weightsFromHistory,
+  type ProgressionConfig,
 } from './intervalTraining'
 
 /** Deterministic stand-in for Math.random: cycles through the given values. */
@@ -260,6 +263,136 @@ describe('weightsFromHistory', () => {
 
   it('gives every requested size a weight', () => {
     expect(Object.keys(weightsFromHistory({}, sizes))).toEqual(['2', '3', '4'])
+  })
+})
+
+describe('masteryLevel', () => {
+  const ladder = [2, 3, 4, 5, 6, 7, 8]
+
+  it('sits at the bottom for a record with nothing in it', () => {
+    expect(masteryLevel({}, ladder)).toBe(0)
+  })
+
+  it('stops at the lowest unmastered size however good the wider ones look', () => {
+    const level = masteryLevel(
+      {
+        2: { asked: 10, correct: 10 },
+        3: { asked: 10, correct: 8 },
+        4: { asked: 10, correct: 4 },
+        8: { asked: 10, correct: 10 },
+      },
+      ladder,
+    )
+    // The mastered octave is past the frontier, so it doesn't advance it.
+    expect(level).toBe(2)
+  })
+
+  it('counts an unproven size as unmastered', () => {
+    expect(masteryLevel({ 2: { asked: 2, correct: 2 } }, ladder)).toBe(0)
+  })
+
+  it('reaches the top of the ladder once every size is mastered', () => {
+    const history = Object.fromEntries(ladder.map((size) => [size, { asked: 10, correct: 9 }]))
+    expect(masteryLevel(history, ladder)).toBe(ladder.length)
+  })
+})
+
+describe('progressionWeights', () => {
+  const ladder = [2, 3, 4, 5, 6, 7, 8]
+  const rampOnly: ProgressionConfig = { history: {}, focusWeak: false, ramp: true }
+
+  /** The size the draw favours most. */
+  function peak(weights: Record<number, number>): number {
+    return ladder.reduce((best, size) => (weights[size] > weights[best] ? size : best), ladder[0])
+  }
+
+  it('opens a round at the easy end and ends it reaching wider', () => {
+    expect(peak(progressionWeights(ladder, 0, 0, rampOnly))).toBe(2)
+    expect(peak(progressionWeights(ladder, 0, 1, rampOnly))).toBe(4)
+  })
+
+  it('moves the whole ramp up as the record earns it', () => {
+    expect(peak(progressionWeights(ladder, 4, 0, rampOnly))).toBe(5)
+    expect(peak(progressionWeights(ladder, 4, 1, rampOnly))).toBe(8)
+  })
+
+  it('never leaves a size unreachable, at either extreme', () => {
+    for (const level of [0, 3, ladder.length]) {
+      for (const progress of [0, 0.5, 1]) {
+        const weights = progressionWeights(ladder, level, progress, rampOnly)
+        for (const size of ladder) expect(weights[size]).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('leaves the record out when focusWeak is off', () => {
+    const history = { 8: { asked: 10, correct: 0 } }
+    const withRecord = progressionWeights(ladder, 0, 0, { history, focusWeak: true, ramp: true })
+    const without = progressionWeights(ladder, 0, 0, { history, focusWeak: false, ramp: true })
+    expect(withRecord[8] / without[8]).toBeCloseTo(Math.E ** 3, 5)
+  })
+
+  it('is the record alone when the ramp is off', () => {
+    const history = { 8: { asked: 10, correct: 0 } }
+    expect(progressionWeights(ladder, 0, 0, { history, focusWeak: true, ramp: false }))
+      .toEqual(weightsFromHistory(history, ladder))
+  })
+
+  it('is flat when both are off', () => {
+    const weights = progressionWeights(ladder, 0, 0, { history: {}, focusWeak: false, ramp: false })
+    expect(new Set(Object.values(weights))).toEqual(new Set([1]))
+  })
+})
+
+describe('generateRound with progression', () => {
+  const config = { key: 'D', mode: 'dor', minMidi: 62, maxMidi: 86, questionCount: 10 }
+  const ladder = [2, 3, 4, 5, 6, 7, 8]
+  const progression: ProgressionConfig = { history: {}, focusWeak: false, ramp: true }
+
+  it('asks wider intervals as a round proceeds', () => {
+    const rounds = 400
+    let firstTotal = 0
+    let lastTotal = 0
+    const seen = new Set<number>()
+    for (let i = 0; i < rounds; i++) {
+      const round = generateRound({ ...config, progression }, Math.random)
+      expect(round).toHaveLength(10)
+      for (const q of round) seen.add(q.size)
+      firstTotal += round[0].size
+      lastTotal += round[round.length - 1].size
+    }
+    // Centred two ranks apart; a wide margin so the test can't flake on the draw.
+    expect(lastTotal / rounds).toBeGreaterThan(firstTotal / rounds + 0.5)
+    // The floor keeps the whole ladder in play, however far a size is from the target.
+    expect([...seen].sort((a, b) => a - b)).toEqual(ladder)
+  })
+
+  it('mixes an easier question into a round that came out all wide', () => {
+    // Every draw at 0.99 takes the widest size left in the pool, so the 2nd — the only size at or
+    // below a fresh record's frontier — never comes up on its own.
+    const round = generateRound(
+      { ...config, questionCount: 6, sizes: [2, 3, 4, 5], progression },
+      seeded([0.99]),
+    )
+    expect(round[0].size).toBe(2)
+    expect(round.slice(1).map((q) => q.size)).not.toContain(2)
+  })
+
+  it('leaves a single-size round alone, having no other side to mix in', () => {
+    const round = generateRound(
+      { ...config, questionCount: 5, sizes: [4], progression },
+      seeded([0.99]),
+    )
+    expect(round.map((q) => q.size)).toEqual([4, 4, 4, 4, 4])
+  })
+
+  it('takes progression in place of fixed weights', () => {
+    // Both given: the per-question shape wins, so the fixed weights can't flatten the ramp.
+    const round = generateRound(
+      { ...config, questionCount: 40, progression, weights: { 8: 1000 } },
+      Math.random,
+    )
+    expect(round.filter((q) => q.size === 8).length).toBeLessThan(20)
   })
 })
 

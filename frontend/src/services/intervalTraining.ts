@@ -41,8 +41,13 @@ export interface RoundConfig {
   directionMode?: DirectionMode
   /** Limit the round to these sizes; omitted or empty means every size the scale allows. */
   sizes?: number[]
-  /** Relative draw weight per size, as weightsFromHistory builds them. */
+  /** Relative draw weight per size, as weightsFromHistory builds them. Fixed for the whole round. */
   weights?: Record<number, number>
+  /**
+   * Shape the draw from the player's record and the round's progress instead, recomputed per
+   * question. Takes precedence over `weights`.
+   */
+  progression?: ProgressionConfig
 }
 
 /** The smallest and largest diatonic sizes a question can use. */
@@ -241,6 +246,121 @@ export function weightsFromHistory(history: IntervalHistory, sizes: number[]): R
   return weights
 }
 
+/**
+ * A size's place on the difficulty ladder a round draws from, 0 for the easiest.
+ *
+ * The ladder is the round's own selection rather than an absolute 2..8 scale, so a round limited to
+ * the 6th and the 7th still has an easy end and a hard end to move between. -1 for a size the round
+ * isn't drawing.
+ */
+export function difficultyRank(size: number, ladder: number[]): number {
+  return ladder.indexOf(size)
+}
+
+/** The accuracy at which a size counts as mastered rather than still being learnt. */
+const MASTERY_ACCURACY = 0.7
+/** How far past the frontier a round reaches by its last question. */
+const REACH = 2
+/** Ranks either side of the target the draw still lands on readily. */
+const SPREAD = 1.2
+/**
+ * The share of a question every size keeps however far it is from the target. It is what makes a
+ * round never exclusively easy or difficult: no size's weight reaches zero, so the whole ladder
+ * stays reachable at every point in every round.
+ */
+const PROXIMITY_FLOOR = 0.15
+
+/**
+ * How far up the ladder a record has earned: the rank of the lowest size not yet mastered, so a
+ * fresh record sits at 0 and a complete one at the ladder's length.
+ *
+ * It stops at the first unmastered size rather than counting mastered ones wherever they fall,
+ * which is what makes the level a frontier — guessing a few octaves right doesn't move a player
+ * past the 3rd they still miss.
+ */
+export function masteryLevel(history: IntervalHistory, ladder: number[]): number {
+  for (let rank = 0; rank < ladder.length; rank++) {
+    const stat = history[ladder[rank]]
+    const mastered =
+      stat && stat.asked >= MIN_SAMPLES && stat.correct / stat.asked >= MASTERY_ACCURACY
+    if (!mastered) return rank
+  }
+  return ladder.length
+}
+
+export interface ProgressionConfig {
+  history: IntervalHistory
+  /** Bias the draw toward the sizes this record shows as weak. */
+  focusWeak: boolean
+  /** Work up the ladder through a round, and further up it as easier sizes are mastered. */
+  ramp: boolean
+}
+
+/**
+ * Draw weights for one question, as the product of what the record says and where in the round the
+ * question falls. Either factor can be switched off, and with both off the draw is flat.
+ *
+ * The ramp aims at a target rank that opens a notch inside what the player holds — secure ground to
+ * start on — and climbs to REACH past the frontier by the last question. Sizes near that target are
+ * drawn most; everything else keeps PROXIMITY_FLOOR.
+ *
+ * @param progress 0 for a round's first question, 1 for its last.
+ */
+export function progressionWeights(
+  ladder: number[],
+  level: number,
+  progress: number,
+  config: ProgressionConfig,
+): Record<number, number> {
+  const top = ladder.length - 1
+  const fromHistory = config.focusWeak ? weightsFromHistory(config.history, ladder) : null
+  const start = Math.max(0, Math.min(top, level - 1))
+  const end = Math.min(top, level + REACH)
+  const center = start + (end - start) * progress
+
+  const weights: Record<number, number> = {}
+  for (let rank = 0; rank <= top; rank++) {
+    const size = ladder[rank]
+    const proximity = config.ramp
+      ? PROXIMITY_FLOOR + Math.exp(-((rank - center) ** 2) / (2 * SPREAD ** 2))
+      : 1
+    weights[size] = (fromHistory?.[size] ?? 1) * proximity
+  }
+  return weights
+}
+
+/**
+ * Keeps a round from landing entirely on one side of the frontier, which the weights make unlikely
+ * but a short round can still manage. An all-easy round has its last question redrawn as a stretch;
+ * an all-hard one has its first redrawn as secure ground, so it doesn't open cold.
+ */
+function mixAcrossFrontier(
+  questions: IntervalQuestion[],
+  ladder: number[],
+  level: number,
+  scale: number[],
+  config: RoundConfig,
+  randomFn: () => number,
+): void {
+  if (questions.length < 2) return
+  const easy = ladder.filter((size) => difficultyRank(size, ladder) <= level)
+  const hard = ladder.filter((size) => difficultyRank(size, ladder) > level)
+  // Nothing to mix when the round's selection sits wholly on one side of the frontier anyway.
+  if (easy.length === 0 || hard.length === 0) return
+
+  const ranks = questions.map((q) => difficultyRank(q.size, ladder))
+  const allEasy = ranks.every((rank) => rank <= level)
+  const allHard = ranks.every((rank) => rank > level)
+  if (!allEasy && !allHard) return
+
+  const index = allEasy ? questions.length - 1 : 0
+  const replacement = generateQuestion(scale, randomFn, {
+    directionMode: config.directionMode,
+    sizes: allEasy ? hard : easy,
+  })
+  if (replacement) questions[index] = replacement
+}
+
 /** A round's worth of questions, never repeating a size back to back. */
 export function generateRound(
   config: RoundConfig,
@@ -249,18 +369,28 @@ export function generateRound(
   const scale = scaleMidis(config.key, config.mode, config.minMidi, config.maxMidi)
   if (!scale) return []
 
+  const { progression } = config
+  const ladder = availableSizes(scale).filter(
+    (size) => !config.sizes?.length || config.sizes.includes(size),
+  )
+  const level = progression ? masteryLevel(progression.history, ladder) : 0
+
   const questions: IntervalQuestion[] = []
   let lastSize: number | undefined
   for (let i = 0; i < config.questionCount; i++) {
+    const progress = config.questionCount < 2 ? 1 : i / (config.questionCount - 1)
     const q = generateQuestion(scale, randomFn, {
       excludeSize: lastSize,
       directionMode: config.directionMode,
       sizes: config.sizes,
-      weights: config.weights,
+      weights: progression
+        ? progressionWeights(ladder, level, progress, progression)
+        : config.weights,
     })
     if (!q) break
     questions.push(q)
     lastSize = q.size
   }
+  if (progression) mixAcrossFrontier(questions, ladder, level, scale, config, randomFn)
   return questions
 }
