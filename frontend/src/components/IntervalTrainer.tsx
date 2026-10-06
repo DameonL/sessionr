@@ -21,6 +21,13 @@ import {
 import { parseKeySignature } from '../services/abcTools'
 import { spellMidiNote } from '../services/noteSpelling'
 import { createPitchListener, midiToNoteName, type PitchListener } from '../services/pitchDetector'
+import {
+  appendRound,
+  clearIntervalLog,
+  loadIntervalLog,
+  type LoggedAnswer,
+} from '../services/intervalStats'
+import { IntervalProgress } from './IntervalProgress'
 import { INSTRUMENTS } from './instruments'
 
 const SETTINGS_KEY = 'sessionapp.interval-training'
@@ -193,6 +200,9 @@ export function IntervalTrainer() {
   /** True while the warm-up scale is sounding, so its button reads as busy rather than dead. */
   const [scalePlaying, setScalePlaying] = useState(false)
   const [history, setHistory] = useState<IntervalHistory>(loadHistory)
+  /** Every finished round, for the progress graphs. Local only, so it needs no sign-in. */
+  const [log, setLog] = useState(loadIntervalLog)
+  const [showProgress, setShowProgress] = useState(false)
   const userId = useSignal(currentUserId)
   const queryClient = useQueryClient()
   /** What the server made of the last finished round; null until it answers, or when signed out. */
@@ -218,6 +228,8 @@ export function IntervalTrainer() {
   const roundIdRef = useRef('')
   /** Right answers so far this round; `results` state lags a render behind when the round ends. */
   const correctCountRef = useRef(0)
+  /** This round's answers in order, for the log — a ref for the same reason correctCountRef is. */
+  const roundAnswersRef = useRef<LoggedAnswer[]>([])
   const userIdRef = useRef(userId)
   userIdRef.current = userId
 
@@ -271,6 +283,9 @@ export function IntervalTrainer() {
   function resetHistory() {
     saveHistory({})
     setHistory({})
+    // One record as far as a player is concerned, so the graphs go with the tallies.
+    clearIntervalLog()
+    setLog([])
   }
 
   /** Toggles a size in the drill selection; the last one left can't be removed. */
@@ -503,6 +518,7 @@ export function IntervalTrainer() {
     const q = currentQuestion()
     if (!q) return
     setResults((prev) => [...prev, { size: q.size, correct }])
+    roundAnswersRef.current.push({ size: q.size, correct })
     if (correct) correctCountRef.current++
     recordResult(q.size, correct)
     setPhaseBoth('reveal')
@@ -524,7 +540,17 @@ export function IntervalTrainer() {
       listenerRef.current?.pause()
       setFeedback(null)
       setPhaseBoth('summary')
-      // Only a finished round is sent; leaving through Settings mid-round earns nothing.
+      // Only a finished round is logged or sent; leaving through Settings mid-round counts for
+      // nothing. The log needs no sign-in, though — it never leaves the device.
+      setLog(
+        appendRound({
+          at: Date.now(),
+          key: settings.key,
+          mode: settings.mode,
+          answerMode: answerModeRef.current,
+          answers: roundAnswersRef.current,
+        }),
+      )
       if (userIdRef.current) {
         rewardMutation.mutate({
           roundId: roundIdRef.current,
@@ -561,6 +587,7 @@ export function IntervalTrainer() {
     answerModeRef.current = settings.answerMode
     roundIdRef.current = crypto.randomUUID()
     correctCountRef.current = 0
+    roundAnswersRef.current = []
 
     const config: RoundConfig = {
       key: settings.key,
@@ -620,6 +647,8 @@ export function IntervalTrainer() {
   }
 
   const hasHistory = Object.keys(history).length > 0
+  /** The sizes the round just played asked about, so its summary reports on those and no others. */
+  const roundSizes = allSizes.filter((size) => results.some((r) => r.size === size))
   const question = questions[questionIndex]
   const correctCount = results.filter((r) => r.correct).length
   const inDrill = phase !== 'setup' && phase !== 'summary'
@@ -752,6 +781,19 @@ export function IntervalTrainer() {
             )}
           </div>
 
+          {(hasHistory || log.length > 0) && (
+            <div style={{ marginBottom: '1rem' }}>
+              <button onClick={() => setShowProgress(!showProgress)}>
+                {showProgress ? '▾' : '▸'} 📈 Your progress
+              </button>
+              {showProgress && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <IntervalProgress log={log} history={history} sizes={sizes} />
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="detail-controls" style={{ marginBottom: '1rem' }}>
             <button
               className={settings.focusWeak ? 'toggled' : ''}
@@ -837,19 +879,13 @@ export function IntervalTrainer() {
               to earn points and badges for your rounds.
             </p>
           )}
-          <ul className="tune-list" style={{ marginBottom: '1rem' }}>
-            {allSizes
-              .map((size) => ({ size, asked: results.filter((r) => r.size === size) }))
-              .filter((row) => row.asked.length > 0)
-              .map((row) => (
-                <li key={row.size} className="tune-meta">
-                  {intervalSizeLabel(row.size)}: {row.asked.filter((r) => r.correct).length} of{' '}
-                  {row.asked.length}
-                  {history[row.size] &&
-                    ` · ${history[row.size].correct} of ${history[row.size].asked} all told`}
-                </li>
-              ))}
-          </ul>
+          <IntervalProgress
+            log={log}
+            history={history}
+            sizes={roundSizes}
+            roundResults={results}
+            compact
+          />
           <div className="detail-controls">
             <button onClick={startRound}>↻ Another round</button>
             <button onClick={backToSetup}>← Change settings</button>

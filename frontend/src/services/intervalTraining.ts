@@ -228,7 +228,7 @@ export type IntervalHistory = Record<number, SizeStat>
  */
 const WEAK_BIAS = 3
 /** Answers before a size's record is trusted rather than treated as unproven. */
-const MIN_SAMPLES = 4
+export const MIN_SAMPLES = 4
 
 /**
  * Relative draw weights from a player's record: 1 for a size they always get,
@@ -257,8 +257,11 @@ export function difficultyRank(size: number, ladder: number[]): number {
   return ladder.indexOf(size)
 }
 
-/** The accuracy at which a size counts as mastered rather than still being learnt. */
-const MASTERY_ACCURACY = 0.7
+/**
+ * The accuracy at which a size counts as mastered rather than still being learnt. Exported so the
+ * progress panel reads mastery the same way the ramp's frontier does.
+ */
+export const MASTERY_ACCURACY = 0.7
 /** How far past the frontier a round reaches by its last question. */
 const REACH = 2
 /** Ranks either side of the target the draw still lands on readily. */
