@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import { getSet } from '../services/api'
 import { currentUserId, useSignal } from '../state/appState'
+import { usePageMeta, SITE_ORIGIN } from '../hooks/usePageMeta'
 import { Spinner } from '../components/Spinner'
 
 // Dynamically import SetPlayer to prevent abcjs SSR errors
@@ -16,7 +17,45 @@ export function SetDetail({ setId }: { setId?: string }) {
   const id = setId ?? ''
   const viewerId = useSignal(currentUserId)
 
-  const set = useQuery({ queryKey: ['set', id], queryFn: () => getSet(id) })
+  const set = useQuery({
+    queryKey: ['set', id],
+    queryFn: () => getSet(id),
+    enabled: !!id,
+  })
+
+  const setData = set.data
+  const tuneNames = setData?.items.map((i) => i.title).join(' → ') ?? ''
+
+  usePageMeta(
+    set.isError
+      ? {
+          title: 'Set not found',
+          description: 'The requested traditional tune set could not be found.',
+          robots: 'noindex, nofollow',
+        }
+      : setData
+        ? {
+            title: `${setData.title} — Tune Set`,
+            description: `Play the traditional tune set "${setData.title}" (${setData.analysis.totalPlaytime} min): ${tuneNames}.`,
+            canonicalPath: `/set/${setData.setId}`,
+            ogType: 'music.playlist',
+            jsonLd: {
+              '@context': 'https://schema.org',
+              '@type': 'MusicPlaylist',
+              name: setData.title,
+              numTracks: setData.items.length,
+              url: `${SITE_ORIGIN}/set/${setData.setId}`,
+              track: setData.items.map((item) => ({
+                '@type': 'MusicRecording',
+                name: item.title,
+              })),
+            },
+          }
+        : {
+            title: 'Tune Set',
+            canonicalPath: id ? `/set/${id}` : '/',
+          }
+  )
 
   // /sets is the signed-in builder; send a visitor home instead of into a sign-in card.
   const backHref = viewerId ? '/sets' : '/'

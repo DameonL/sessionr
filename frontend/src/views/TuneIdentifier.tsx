@@ -7,6 +7,7 @@ import { addToRepertoire, formatTuneType, matchTune, type TuneMatchCandidate } f
 import { classifyClip, createTuneSample, groupNotes, smoothPitchTrack, SAMPLE_DURATION_MS, type TuneSample } from '../services/tuneMatcher'
 import type { RawFrame } from '../services/pitchDetector'
 import { currentUserId, useSignal } from '../state/appState'
+import { usePageMeta, SITE_ORIGIN } from '../hooks/usePageMeta'
 import { Spinner } from '../components/Spinner'
 
 type Phase = 'idle' | 'listening' | 'matching' | 'results'
@@ -56,6 +57,21 @@ function confidenceBadgeClass(confidence: number): string {
  */
 export function TuneIdentifier() {
   const userId = useSignal(currentUserId)
+
+  usePageMeta({
+    title: 'Identify a Traditional Tune by Microphone',
+    description:
+      'Play or hum a traditional Irish reel, jig, or folk melody into your microphone to identify the tune name and view its ABC sheet music.',
+    canonicalPath: '/identify',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'sessionr Tune Identifier',
+      url: `${SITE_ORIGIN}/identify`,
+      applicationCategory: 'MusicApplication',
+      operatingSystem: 'Any',
+    },
+  })
 
   const sampleRef = useRef<TuneSample | null>(null)
   const finishTimerRef = useRef<number | null>(null)

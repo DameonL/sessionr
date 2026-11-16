@@ -8,6 +8,7 @@ import {
   getFullRepertoire,
 } from '../../../services/api'
 import { currentUserId, useAuthStatus, useSignal } from '../../../state/appState'
+import { usePageMeta, SITE_ORIGIN } from '../../../hooks/usePageMeta'
 import { Spinner } from '../../../components/Spinner'
 import { PublicEarTunePicker } from './PublicEarTunePicker'
 
@@ -19,7 +20,22 @@ export default function EarTrainingPage() {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
 
-  if (status === 'pending') return <div className="spinner-row"><Spinner /></div>
+  usePageMeta({
+    title: 'Learn Traditional Tunes by Ear — Ear Training',
+    description:
+      'Practice traditional Irish and folk melodies phrase-by-phrase by ear with interactive pitch detection and ABC tune playback.',
+    canonicalPath: '/practice/ear',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: 'sessionr Ear Training',
+      url: `${SITE_ORIGIN}/practice/ear`,
+      applicationCategory: 'MusicApplication',
+      operatingSystem: 'Any',
+    },
+  })
+
+  if (status === 'pending' && !!userId) return <div className="spinner-row"><Spinner /></div>
   if (!userId) return <PublicEarTunePicker />
   return <RepertoireEarTunePicker userId={userId} />
 }

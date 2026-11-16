@@ -1,6 +1,14 @@
 {
   "routes": [
     {
+      "route": "/robots.txt",
+      "headers": { "Cache-Control": "public, max-age=3600" }
+    },
+    {
+      "route": "/sitemap*.xml",
+      "headers": { "Cache-Control": "public, max-age=3600" }
+    },
+    {
       "route": "/sw.js",
       "headers": { "Cache-Control": "no-cache" }
     },
@@ -22,7 +30,7 @@
     "exclude": [
       "/api/*",
       "/assets/*",
-      "/*.{png,jpg,jpeg,gif,svg,ico,webmanifest,json,css,js,woff,woff2,map}"
+      "/*.{png,jpg,jpeg,gif,svg,ico,webmanifest,json,css,js,woff,woff2,map,txt,xml}"
     ]
   },
   "responseOverrides": {

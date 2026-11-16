@@ -23,6 +23,7 @@ import { QRCodeModal } from '../../../components/QRCodeModal'
 import { Spinner } from '../../../components/Spinner'
 import { TabNav, type Tab } from '../../../components/TabNav'
 import { PublicProfileProvider } from '../../../views/profile/publicProfileContext'
+import { usePageMeta } from '../../../hooks/usePageMeta'
 
 /**
  * Bookmarkable public profile: /profile/{username}, with the musician's tunes and sets on their own
@@ -55,6 +56,28 @@ export default function PublicProfileLayout({ children }: { children: React.Reac
     queryFn: () => getPublicUserProfile(slug),
     retry: false,
   })
+
+  usePageMeta(
+    profile.isError
+      ? {
+          title: 'Profile not found',
+          robots: 'noindex, nofollow',
+        }
+      : profile.data
+        ? {
+            title: profile.data.username
+              ? `${profile.data.displayName} (@${profile.data.username})`
+              : profile.data.displayName,
+            description:
+              profile.data.bio?.slice(0, 155) ||
+              `${profile.data.displayName}'s traditional music repertoire and sets on sessionr.`,
+            robots: 'noindex, nofollow',
+          }
+        : {
+            title: 'Musician Profile',
+            robots: 'noindex, nofollow',
+          }
+  )
 
   const resolvedUserId = profile.data?.userId
 

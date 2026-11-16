@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import Link from '@/utils/routerCompat'
 import { searchTunes, formatTuneType, TUNE_TYPES } from '../../services/api'
 import { useQueryFilters } from '../../hooks/useQueryFilters'
+import { usePageMeta, SITE_ORIGIN } from '../../hooks/usePageMeta'
 import { TuneResultsList } from './TuneResultsList'
 
 /** Search the tune library by name/alternate name, optionally filtered by type. */
@@ -23,6 +25,25 @@ export function TuneSearchView() {
   useEffect(() => setFilterTypeInput(submittedType), [submittedType])
 
   const hasSearchQuery = submittedSearch.length > 0 || submittedType !== ''
+
+  usePageMeta({
+    title: hasSearchQuery
+      ? `Tune Search${submittedSearch ? `: ${submittedSearch}` : ''}${submittedType ? ` (${formatTuneType(submittedType)})` : ''}`
+      : 'Tune Library — Search Traditional Tunes',
+    description:
+      'Search traditional Irish, Scottish, and folk tunes by title, alternate name, or rhythm type, and play ABC sheet music right in your browser.',
+    canonicalPath: '/tunes',
+    robots: hasSearchQuery ? 'noindex, follow' : 'index, follow',
+    jsonLd: hasSearchQuery
+      ? null
+      : {
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: 'sessionr Tune Library',
+          url: `${SITE_ORIGIN}/tunes`,
+          description: 'Searchable library of traditional music tunes in ABC notation.',
+        },
+  })
 
   const libraryQuery = useInfiniteQuery({
     queryKey: ['tune-library', 'search', submittedSearch, submittedType],
@@ -88,10 +109,22 @@ export function TuneSearchView() {
       </form>
 
       {!hasSearchQuery ? (
-        <div className="card" style={{ padding: '2.5rem', textAlign: 'center', marginTop: '1.5rem', background: 'var(--surface-2)' }}>
-          <p style={{ fontSize: '1.1rem', margin: 0, color: 'var(--muted)' }}>
-            🔍 Search for a tune above by name or alternate name
+        <div className="card" style={{ padding: '2rem', textAlign: 'center', marginTop: '1.5rem', background: 'var(--surface-2)' }}>
+          <p style={{ fontSize: '1.05rem', margin: '0 0 1rem', color: 'var(--muted)' }}>
+            🔍 Search for a tune above by name or alternate name, or browse the library:
           </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <Link href="/tunes/popular" className="btn primary" prefetch={false}>🔥 Most Popular Tunes</Link>
+            <Link href="/tunes/newest" className="btn" prefetch={false}>✨ Newest Tunes</Link>
+            <Link href="/identify" className="btn" prefetch={false}>🎙️ Identify by Mic</Link>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', flexWrap: 'wrap', marginTop: '1rem', fontSize: '0.85rem' }}>
+            {['Reel', 'Jig', 'SlipJig', 'Hornpipe', 'Polka', 'Waltz', 'Slide'].map((t) => (
+              <Link key={t} href={`/tunes?type=${t}`} prefetch={false}>
+                {formatTuneType(t)}s
+              </Link>
+            ))}
+          </div>
         </div>
       ) : (
         <TuneResultsList

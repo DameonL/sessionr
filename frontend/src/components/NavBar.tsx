@@ -67,7 +67,7 @@ export function NavBar() {
     <header className={`app-header${mobileOpen ? ' drawer-open' : ''}`} ref={headerRef}>
       <div className="nav-container">
         <Link href="/" className="nav-brand" prefetch={false}>
-          <span className="brand-icon"><img src="/favicon-96x96.png" /></span>
+          <span className="brand-icon"><img src="/favicon-96x96.png" alt="sessionr" /></span>
           <span className="brand-text">sessionr</span>
         </Link>
 

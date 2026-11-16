@@ -45,9 +45,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // 404.html and staticwebapp.config.json are server-side artifacts, not app shell.
-        globIgnores: ['**/404.html', '**/staticwebapp.config.json'],
+        globIgnores: ['**/404.html', '**/staticwebapp.config.json', '**/robots.txt', '**/sitemap*.xml'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/404\.html$/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/404\.html$/, /^\/robots\.txt$/, /^\/sitemap.*\.xml$/],
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {

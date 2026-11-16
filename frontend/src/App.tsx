@@ -56,10 +56,22 @@ import IntervalsPage from './app/practice/intervals/page'
 // Components
 import { MsalLoginPanel } from './components/MsalLoginPanel'
 
+function isAuthRedirectReturn(): boolean {
+  if (typeof window === 'undefined') return false
+  const hash = window.location.hash
+  const search = window.location.search
+  return (
+    hash.includes('code=') ||
+    hash.includes('id_token=') ||
+    hash.includes('error=') ||
+    (search.includes('code=') && search.includes('state='))
+  )
+}
+
 function HomePage() {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
-  if (status === 'pending') {
+  if (status === 'pending' && isAuthRedirectReturn()) {
     return <div className="spinner-row" style={{ minHeight: '80dvh' }}><Spinner /></div>
   }
   return userId ? <Dashboard /> : <Landing />
@@ -163,14 +175,7 @@ export function App() {
             } />
 
             {/* Groups */}
-            <Route
-              path="/groups"
-              element={
-                <RequireAuth message="Sign in to join or manage traditional music groups.">
-                  <Groups />
-                </RequireAuth>
-              }
-            />
+            <Route path="/groups" element={<Groups />} />
             <Route path="/group/:groupId/*" element={
               <GroupDetailLayout>
                 <Routes>

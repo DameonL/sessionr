@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /repertoire
+Disallow: /sets
+Disallow: /tune/
+Disallow: /groupset/
+Disallow: /profile
+Disallow: /moderator
+Disallow: /practice/queue
+Disallow: /practice/session
+Disallow: /practice/sets
+
+Sitemap: https://sessionr.org/sitemap.xml

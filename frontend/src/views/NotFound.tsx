@@ -1,20 +1,18 @@
 "use client";
 
-import { useEffect } from 'react'
 import Link, { usePathname, useRouter } from '@/utils/routerCompat'
+import { usePageMeta } from '../hooks/usePageMeta'
 
 /** Rendered for any URL the router can't match, instead of silently bouncing to home. */
 export function NotFound() {
   const router = useRouter()
   const pathname = usePathname()
 
-  useEffect(() => {
-    const previous = document.title
-    document.title = 'Page not found · sessionr'
-    return () => {
-      document.title = previous
-    }
-  }, [])
+  usePageMeta({
+    title: 'Page not found',
+    description: 'The requested page could not be found on sessionr.',
+    robots: 'noindex, nofollow',
+  })
 
   return (
     <section>
@@ -27,7 +25,7 @@ export function NotFound() {
           out of date, or the page may have moved.
         </p>
         <div className="detail-controls not-found-actions">
-          <Link href="/" prefetch={false}><button className="not-found-primary">Go Home</button></Link>
+          <Link href="/" className="btn not-found-primary" prefetch={false}>Go Home</Link>
           <button onClick={router.back}>Go Back</button>
         </div>
       </div>

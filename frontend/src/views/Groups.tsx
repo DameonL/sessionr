@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from 'react'
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
-import { getGroups, createGroup, joinGroup, leaveGroup, GroupSummary } from '../services/api'
+import { getGroups, createGroup, joinGroup, leaveGroup } from '../services/api'
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
+import { usePageMeta, SITE_ORIGIN } from '../hooks/usePageMeta'
 import { GroupScheduleBuilder, ScheduleDraft, generateScheduleText } from '../components/GroupScheduleBuilder'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { QRScannerModal } from '../components/QRScannerModal'
@@ -13,8 +14,21 @@ import { Spinner } from '../components/Spinner'
 export function Groups() {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
-  const showSignedInUi = status !== 'anonymous'
+  const showSignedInUi = status !== 'anonymous' && !!userId
   const queryClient = useQueryClient()
+
+  usePageMeta({
+    title: 'Traditional Music Session Groups',
+    description:
+      'Discover public traditional music session groups, view meeting calendars and shared tune lists, and connect with local players.',
+    canonicalPath: '/groups',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: 'Traditional Music Session Groups',
+      url: `${SITE_ORIGIN}/groups`,
+    },
+  })
 
   // Form fields
   const [newGroupName, setNewGroupName] = useState('')
@@ -27,13 +41,12 @@ export function Groups() {
   const [showScannerModal, setShowScannerModal] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  // Fetch groups
+  // Fetch groups immediately (anonymous public list when userId is empty; personalized once signed in).
   const groupsQuery = useInfiniteQuery({
     queryKey: ['groups', userId],
     queryFn: ({ pageParam = 1 }) => getGroups(userId, undefined, pageParam, 20),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     initialPageParam: 1,
-    enabled: status !== 'pending',
   })
 
   const invalidate = () => {

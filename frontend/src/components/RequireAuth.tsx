@@ -4,11 +4,18 @@ import type { ReactNode } from 'react'
 import Link from '@/utils/routerCompat'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { currentUserId, useAuthStatus, useSignal } from '../state/appState'
+import { usePageMeta } from '../hooks/usePageMeta'
 
 /** Gates inherently personal pages (repertoire, sets, practice room) behind sign-in. */
 export function RequireAuth({ children, message }: { children: ReactNode; message?: string }) {
   const userId = useSignal(currentUserId)
   const status = useAuthStatus()
+
+  usePageMeta({
+    title: userId ? 'sessionr' : 'Sign In Required',
+    rawTitle: !!userId,
+    robots: 'noindex, nofollow',
+  })
 
   if (status === 'pending') {
     return (

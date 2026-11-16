@@ -20,6 +20,7 @@ import { loginRequest } from '../services/authConfig'
 import { recoverFromStaleInteraction } from '../services/msalRecovery'
 import { rememberReturnUrl } from '../services/returnUrl'
 import { currentUserId, showToast, useSignal } from '../state/appState'
+import { usePageMeta } from '../hooks/usePageMeta'
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel'
 import { Spinner } from '../components/Spinner'
 
@@ -27,6 +28,11 @@ export function Dashboard() {
   const userId = useSignal(currentUserId)
   const { instance } = useMsal()
   const [filter, setFilter] = useState<'all' | 'groups' | 'friends'>('all')
+
+  usePageMeta({
+    title: 'Dashboard',
+    robots: 'noindex, nofollow',
+  })
 
   const stats = useQuery({
     queryKey: ['repertoire-stats', userId],

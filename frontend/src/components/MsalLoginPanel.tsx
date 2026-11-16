@@ -7,11 +7,18 @@ import { InteractionStatus } from '@azure/msal-browser'
 import { loginRequest } from '../services/authConfig'
 import { recoverFromStaleInteraction } from '../services/msalRecovery'
 import { useAuthStatus } from '../state/appState'
+import { usePageMeta } from '../hooks/usePageMeta'
 
 export function MsalLoginPanel() {
   const { instance, inProgress } = useMsal()
   const status = useAuthStatus()
   const router = useRouter()
+
+  usePageMeta({
+    title: 'Sign In',
+    description: 'Sign in to sessionr to manage your traditional music repertoire, sets, and groups.',
+    robots: 'noindex, nofollow',
+  })
 
   useEffect(() => {
     if (status === 'authenticated') {

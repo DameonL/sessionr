@@ -51,8 +51,7 @@ export default function PracticeLayout({ children }: { children: React.ReactNode
     <section>
       <h1>Practice Room</h1>
 
-      {status === 'pending' ? (
-        // Same blank card RequireAuth shows, so the tabs don't flash between sets.
+      {status === 'pending' && signedIn ? (
         <div className="card" style={{ padding: '1.5rem', minHeight: '120px' }} />
       ) : (
         <>

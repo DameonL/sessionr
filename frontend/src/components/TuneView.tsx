@@ -89,7 +89,7 @@ export function TuneView({
   const { data: details, isPending, isError, refetch } = useQuery({
     queryKey: ['tune-details', tuneId],
     queryFn: () => getTuneDetails(tuneId),
-    enabled: authStatus !== 'pending',
+    enabled: !!tuneId,
   })
 
   const { data: myVotes, refetch: refetchMyVotes } = useQuery({

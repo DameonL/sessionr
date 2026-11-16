@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import {
   formatTuneType,
+  getTuneDetails,
   moderatorDeleteTune,
   moderatorUpdateTune,
   type TuneDetails,
 } from '../services/api'
+import { usePageMeta, SITE_ORIGIN } from '../hooks/usePageMeta'
 import { currentUserProfile, useSignal, showToast } from '../state/appState'
 import { useRouter } from '@/utils/routerCompat'
 import { Dialog } from '../components/Dialog'
@@ -27,6 +29,46 @@ export function TuneLibraryDetail({ tuneId }: { tuneId?: string }) {
   const isModerator = !!profile?.isModerator
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // Shares the same cache entry as TuneView so SEO metadata updates without an extra fetch.
+  const detailsQuery = useQuery({
+    queryKey: ['tune-details', id],
+    queryFn: () => getTuneDetails(id),
+    enabled: !!id,
+  })
+  const tune = detailsQuery.data
+  const tuneTypeLabel = tune ? formatTuneType(tune.tuneType) : ''
+  const aliasText = tune && tune.aliases.length > 0 ? ` Also known as ${tune.aliases.slice(0, 4).join(', ')}.` : ''
+  const settingCount = tune?.settings.length ?? 0
+
+  usePageMeta(
+    detailsQuery.isError
+      ? {
+          title: 'Tune not found',
+          description: 'The requested traditional tune could not be found.',
+          robots: 'noindex, nofollow',
+        }
+      : tune
+        ? {
+            title: `${tune.title} (${tuneTypeLabel} in ${tune.key})`,
+            description: `Play ${tune.title}, a traditional ${tuneTypeLabel.toLowerCase()} in ${tune.key} with ${settingCount} ABC notation ${settingCount === 1 ? 'setting' : 'settings'} and audio playback.${aliasText}`,
+            canonicalPath: `/tunes/${tune.tuneId}`,
+            ogType: 'music.song',
+            jsonLd: {
+              '@context': 'https://schema.org',
+              '@type': 'MusicComposition',
+              name: tune.title,
+              ...(tune.aliases.length > 0 ? { alternateName: tune.aliases } : {}),
+              musicalKey: tune.key,
+              genre: ['Traditional music', tuneTypeLabel],
+              url: `${SITE_ORIGIN}/tunes/${tune.tuneId}`,
+            },
+          }
+        : {
+            title: 'Tune Details',
+            canonicalPath: id ? `/tunes/${id}` : '/tunes',
+          }
+  )
 
   const [showEditModal, setShowEditModal] = useState(false)
   const [editTitle, setEditTitle] = useState('')

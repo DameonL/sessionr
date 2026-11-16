@@ -7,6 +7,7 @@ import { useRouter, useSearchParams, usePathname, useParams } from '@/utils/rout
 import { getGroupDetails, joinGroup, leaveGroup } from '../../../services/api'
 import { currentUserId, currentUserProfile, useAuthStatus, useSignal } from '../../../state/appState'
 import { GroupDetailProvider } from '../../../views/group/groupDetailContext'
+import { usePageMeta, SITE_ORIGIN } from '../../../hooks/usePageMeta'
 import { QRCodeModal } from '../../../components/QRCodeModal'
 import { Spinner } from '../../../components/Spinner'
 import { TabNav, type Tab } from '../../../components/TabNav'
@@ -40,8 +41,49 @@ export default function GroupDetailLayout({ children }: { children: React.ReactN
   const groupQuery = useQuery({
     queryKey: ['group-details', groupId, userId],
     queryFn: () => getGroupDetails(groupId, userId),
-    enabled: authStatus !== 'pending',
+    enabled: !!groupId,
   })
+
+  const detailsForMeta = groupQuery.data
+  const isPrivateMeta = detailsForMeta?.isPrivate ?? false
+  usePageMeta(
+    groupQuery.isError
+      ? {
+          title: 'Group not found',
+          description: 'The requested session group could not be found.',
+          robots: 'noindex, nofollow',
+        }
+      : detailsForMeta
+        ? isPrivateMeta
+          ? {
+              title: detailsForMeta.name,
+              description: 'Private traditional music session group on sessionr.',
+              robots: 'noindex, nofollow',
+            }
+          : {
+              title: detailsForMeta.city
+                ? `${detailsForMeta.name} (${detailsForMeta.city})`
+                : detailsForMeta.name,
+              description:
+                detailsForMeta.description?.slice(0, 155) ||
+                `View session calendar, master tune list, and set lists for ${detailsForMeta.name}.`,
+              canonicalPath: `/group/${detailsForMeta.groupId}`,
+              jsonLd: {
+                '@context': 'https://schema.org',
+                '@type': 'MusicGroup',
+                name: detailsForMeta.name,
+                ...(detailsForMeta.description ? { description: detailsForMeta.description } : {}),
+                ...(detailsForMeta.city
+                  ? { location: { '@type': 'Place', name: detailsForMeta.city } }
+                  : {}),
+                url: `${SITE_ORIGIN}/group/${detailsForMeta.groupId}`,
+              },
+            }
+        : {
+            title: 'Session Group',
+            canonicalPath: groupId ? `/group/${groupId}` : '/groups',
+          }
+  )
 
   const joinMutation = useMutation({
     mutationFn: () => joinGroup(groupId, inviteCodeInput.trim() || undefined),
