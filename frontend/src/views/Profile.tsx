@@ -331,18 +331,104 @@ export function Profile() {
 
       <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
         <h2 style={{ marginTop: 0 }}>Your Progress</h2>
-        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          <div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{gamification?.totalPoints ?? 0}</div>
-            <div className="tune-meta">Points</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+          <div className="card" style={{ padding: '0.85rem 1rem', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>
               {stats ? `🔥 ${stats.currentStreakDays}` : '—'}
             </div>
             <div className="tune-meta">Day streak</div>
           </div>
+          <div className="card" style={{ padding: '0.85rem 1rem', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>
+              {stats ? `🎻 ${stats.tunesPracticedToday}` : '—'}
+            </div>
+            <div className="tune-meta">Tunes today</div>
+          </div>
+          <div className="card" style={{ padding: '0.85rem 1rem', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>
+              {stats ? `${stats.averageTunesPerPracticeDay.toFixed(1)}` : '—'}
+            </div>
+            <div className="tune-meta">Avg tunes / day</div>
+          </div>
+          <div className="card" style={{ padding: '0.85rem 1rem', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700 }}>{gamification?.totalPoints ?? 0}</div>
+            <div className="tune-meta">Total points</div>
+          </div>
         </div>
+
+        {/* Practice Consistency Section */}
+        {stats && (
+          <div style={{ marginBottom: '1.25rem', padding: '1rem', background: 'var(--subtle-bg)', borderRadius: '8px', border: '1px solid var(--subtle-border)' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Practice Consistency
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span>Last 7 Days</span>
+                  <strong>{stats.lastWeek.practicedDays} / {stats.lastWeek.totalDays} days</strong>
+                </div>
+                <div style={{ height: '6px', background: 'var(--surface-3)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round((stats.lastWeek.practicedDays / stats.lastWeek.totalDays) * 100)}%`, height: '100%', background: 'var(--accent)', borderRadius: '3px' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span>Last 30 Days</span>
+                  <strong>{stats.lastMonth.practicedDays} / {stats.lastMonth.totalDays} days</strong>
+                </div>
+                <div style={{ height: '6px', background: 'var(--surface-3)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round((stats.lastMonth.practicedDays / stats.lastMonth.totalDays) * 100)}%`, height: '100%', background: 'var(--accent)', borderRadius: '3px' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span>Last Year</span>
+                  <strong>{stats.lastYear.practicedDays} / {stats.lastYear.totalDays} days</strong>
+                </div>
+                <div style={{ height: '6px', background: 'var(--surface-3)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round((stats.lastYear.practicedDays / stats.lastYear.totalDays) * 100)}%`, height: '100%', background: 'var(--accent)', borderRadius: '3px' }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Daily tunes history (past 14 days) */}
+            {stats.perDay && stats.perDay.length > 0 && (
+              <div style={{ marginTop: '1.25rem' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>
+                  Daily Tunes Practiced (Past 14 Days)
+                </div>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end', height: '52px', paddingTop: '4px' }}>
+                  {stats.perDay.slice(-14).map((d) => {
+                    const maxTunes = Math.max(...stats.perDay.slice(-14).map((p) => p.tunesPracticed), 1)
+                    const heightPercent = d.tunesPracticed > 0 ? Math.max(Math.round((d.tunesPracticed / maxTunes) * 100), 25) : 8
+                    const label = d.date.slice(5) // MM-DD
+                    return (
+                      <div
+                        key={d.date}
+                        style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}
+                        title={`${d.date}: ${d.tunesPracticed} tune${d.tunesPracticed === 1 ? '' : 's'} practiced (${d.count} session${d.count === 1 ? '' : 's'})`}
+                      >
+                        <div
+                          style={{
+                            width: '100%',
+                            height: `${heightPercent}%`,
+                            background: d.tunesPracticed > 0 ? 'var(--accent)' : 'var(--surface-3)',
+                            borderRadius: '3px 3px 0 0',
+                            transition: 'height 0.2s ease',
+                          }}
+                        />
+                        <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: '3px' }}>
+                          {label.slice(3)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {gamification && gamification.badges.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {gamification.badges.map((b) => {

@@ -171,9 +171,19 @@ public record NextTuneSuggestionDto(
     int Score,
     string Reason);
 
-public record PracticeDayDto(string Date, int Count);
+public record PracticeDayDto(string Date, int Count, int TunesPracticed);
 
-public record PracticeStatsDto(int CurrentStreakDays, int TotalLast30, List<PracticeDayDto> PerDay);
+public record PracticeFrequencyDto(int PracticedDays, int TotalDays);
+
+public record PracticeStatsDto(
+    int CurrentStreakDays,
+    int TotalLast30,
+    List<PracticeDayDto> PerDay,
+    int TunesPracticedToday,
+    double AverageTunesPerPracticeDay,
+    PracticeFrequencyDto LastWeek,
+    PracticeFrequencyDto LastMonth,
+    PracticeFrequencyDto LastYear);
 
 public record MarkPracticedResponseDto(Guid UserTuneId, DateTime? LastPracticed, List<string> NewBadges);
 

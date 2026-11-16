@@ -33,8 +33,6 @@ public class Get(AppDbContext db)
 
         var offsetMinutes = req.GetTimezoneOffsetMinutes();
         var now = DateTime.UtcNow;
-        var localToday = now.AddMinutes(-offsetMinutes).Date;
-        var localWindowStart = localToday.AddDays(-29);
 
         // PracticeLog references its UserTune by id only; resolve the user's UserTune ids first.
         var userTuneIds = await db.UserTunes
@@ -42,28 +40,22 @@ public class Get(AppDbContext db)
             .Where(ut => ut.UserId == callerUserId.Value)
             .Select(ut => ut.UserTuneId)
             .ToListAsync();
-        var allPracticeTimestamps = await db.PracticeLog
+
+        if (userTuneIds.Count == 0)
+        {
+            return new OkObjectResult(PracticeStatsCalculator.Calculate([], now, offsetMinutes));
+        }
+
+        var rawEntries = await db.PracticeLog
             .AsNoTracking()
             .Where(p => userTuneIds.Contains(p.UserTuneId))
-            .Select(p => p.PracticedAt)
+            .Select(p => new { p.UserTuneId, p.PracticedAt })
             .ToListAsync();
 
-        var streak = PracticeStreakCalculator.ComputeCurrentStreak(allPracticeTimestamps, now, offsetMinutes);
+        var practiceItems = rawEntries
+            .Select(p => new PracticeLogItem(p.UserTuneId, p.PracticedAt));
 
-        var countsInWindow = allPracticeTimestamps
-            .Select(d => d.AddMinutes(-offsetMinutes).Date)
-            .Where(d => d >= localWindowStart && d <= localToday)
-            .GroupBy(d => d)
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        var perDay = Enumerable.Range(0, 30)
-            .Select(offset =>
-            {
-                var day = localWindowStart.AddDays(offset);
-                return new PracticeDayDto(day.ToString("yyyy-MM-dd"), countsInWindow.GetValueOrDefault(day));
-            })
-            .ToList();
-
-        return new OkObjectResult(new PracticeStatsDto(streak, countsInWindow.Values.Sum(), perDay));
+        var stats = PracticeStatsCalculator.Calculate(practiceItems, now, offsetMinutes);
+        return new OkObjectResult(stats);
     }
 }

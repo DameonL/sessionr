@@ -812,12 +812,23 @@ export const removeFromRepertoire = (userTuneId: string) =>
 export interface PracticeDay {
   date: string
   count: number
+  tunesPracticed: number
+}
+
+export interface PracticeFrequency {
+  practicedDays: number
+  totalDays: number
 }
 
 export interface PracticeStats {
   currentStreakDays: number
   totalLast30: number
   perDay: PracticeDay[]
+  tunesPracticedToday: number
+  averageTunesPerPracticeDay: number
+  lastWeek: PracticeFrequency
+  lastMonth: PracticeFrequency
+  lastYear: PracticeFrequency
 }
 
 export const getPracticeStats = () => apiFetch<PracticeStats>('/practice/stats')

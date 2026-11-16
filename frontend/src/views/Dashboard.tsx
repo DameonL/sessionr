@@ -9,6 +9,7 @@ import {
   getActivityFeed,
   getDashboardSummary,
   getPracticeQueue,
+  getPracticeStats,
   getRepertoireStats,
   getSets,
   getUpcomingMeetings,
@@ -44,6 +45,12 @@ export function Dashboard() {
   const summary = useQuery({
     queryKey: ['dashboard-summary', userId],
     queryFn: () => getDashboardSummary(),
+    enabled: !!userId,
+  })
+
+  const practiceStats = useQuery({
+    queryKey: ['practice-stats', userId],
+    queryFn: () => getPracticeStats(),
     enabled: !!userId,
   })
 
@@ -101,7 +108,11 @@ export function Dashboard() {
             <span>{summary.isPending ? '...' : streakDays > 0 ? `${streakDays} Day Practice Streak` : 'Start Your Practice Streak'}</span>
           </div>
           <span className="tune-meta" style={{ fontSize: '0.85rem' }}>
-            {streakDays > 0 ? 'Keep the momentum going today!' : 'Start a practice session to build your streak!'}
+            {practiceStats.data
+              ? `${practiceStats.data.lastWeek.practicedDays}/${practiceStats.data.lastWeek.totalDays} days practiced this week • ${practiceStats.data.tunesPracticedToday} tune${practiceStats.data.tunesPracticedToday === 1 ? '' : 's'} practiced today`
+              : streakDays > 0
+                ? 'Keep the momentum going today!'
+                : 'Start a practice session to build your streak!'}
           </span>
         </div>
         <Link href="/practice" prefetch={false} className="primary" style={{ textDecoration: 'none', padding: '0.4rem 0.9rem', fontSize: '0.9rem' }}>
