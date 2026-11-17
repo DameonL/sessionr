@@ -93,12 +93,14 @@ export function SetDetail({ setId }: { setId?: string }) {
       )}
 
       <SetPlayer
-        items={items.map(({ userTuneId, tuneId, title: tuneTitle, abc, repetitions }) => ({
+        title={title}
+        items={items.map(({ userTuneId, tuneId, title: tuneTitle, abc, repetitions, tuneType }) => ({
           userTuneId,
           tuneId,
           title: tuneTitle,
           abc,
           repetitions,
+          tuneType,
         }))}
         // The player's default target is /tune/{userTuneId}, the owner's private repertoire page —
         // a dead end for a visitor, and a 404 for any signed-in non-owner. The public tune library

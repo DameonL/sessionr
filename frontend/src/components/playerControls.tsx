@@ -13,20 +13,14 @@ import {
   type MetronomeSound,
 } from '../services/metronome'
 
+import { toAbcjsSwing } from '../services/swing'
+
+export { toAbcjsSwing }
+
 /** mm:ss formatting for playback position/duration labels. */
 export function formatTime(sec: number): string {
   const whole = Math.max(0, Math.round(sec))
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
-}
-
-/**
- * Maps the UI's 0-100 "how much swing" dial onto abcjs's own swing parameter,
- * which only has a real effect in the 50-75 range (<=50 is a no-op/no swing,
- * >75 clamps to 75/max swing) — so 0 on the UI dial lands at abcjs's no-swing
- * floor, and 100 lands at its max.
- */
-export function toAbcjsSwing(uiPercent: number): number {
-  return Math.round(50 + (uiPercent / 100) * 25)
 }
 
 export function getOrCreateCursor(svg: SVGSVGElement | null): SVGLineElement | null {

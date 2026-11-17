@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
-import { INSTRUMENTS, loadInstruments, saveInstruments, shouldSubdivideInstrument, subdivideLongNotes, synthInstrumentOptions } from "./instruments";
+import { INSTRUMENTS, loadInstruments, saveInstruments, synthInstrumentOptions } from "./instruments";
 import { anchorTimerToAudio, seekAndLatch, timerDriftMs, waitForAudioClock } from "../services/audioClock";
 import { prefersFlats, spellMidiNotes } from "../services/noteSpelling";
 import { showToast } from "../state/appState";
@@ -20,10 +20,9 @@ import { primeMediaSession } from "../services/mediaSession";
 import { usePlayerMediaSession } from "../hooks/usePlayerMediaSession";
 import { DEFAULT_EMPHASIS_PERCENT, loadTunePlaybackPrefs, saveTunePlaybackPrefs } from "../services/tunePlaybackPrefs";
 import { getDefaultTargetBpm } from "../services/api";
-import { applyMeterEmphasis } from "../services/meterEmphasis";
-import { getMeterPulse } from "../services/meterPulse";
-import { applyCustomTripletSwing, isCompoundMeter } from "../services/swing";
-import { strumChords } from "../services/strum";
+import { buildMidiFile, downloadMidiFile } from "../services/midiExport";
+import { transformNoteMapTracks } from "../services/midiPlaybackPipeline";
+import { isCompoundMeter, toAbcjsSwing } from "../services/swing";
 import { DebouncedNumberInput } from "./DebouncedNumberInput";
 import { Spinner } from "./Spinner";
 import {
@@ -33,7 +32,6 @@ import {
   formatTime,
   getOrCreateCursor,
   scrollToKeepLinesVisible,
-  toAbcjsSwing,
   updateCursorPosition,
   useCommitOnChange,
   useMetronomePrefs,
@@ -117,6 +115,8 @@ interface Trainer {
 
 export interface SetPlayerProps {
   items: SetPlayerItem[];
+  /** Display title for the tune or set (used in MIDI export filenames and metadata). */
+  title?: string;
   targetBpm?: number | null;
   isSingleTune?: boolean;
   /** Overrides the per-tune link target (defaults to the personal tune detail page); return null to render plain text. */
@@ -150,6 +150,7 @@ function getTuneBaseBpm(visualObj: abcjs.TuneObject | null, targetBpm?: number |
  */
 export function SetPlayer({
   items,
+  title,
   targetBpm,
   isSingleTune,
   linkHref,
@@ -889,6 +890,39 @@ export function SetPlayer({
       .catch(() => showToast("Could not copy to clipboard", "error"));
   }
 
+  function handleExportMidi() {
+    if (!isReady) return;
+    try {
+      const result = buildMidiFile({
+        title,
+        items: items.map((item) => ({
+          title: item.title,
+          abc: item.abc,
+          repetitions: item.repetitions,
+          tuneType: item.tuneType,
+        })),
+        bpm: currentBpm,
+        swingPercent,
+        emphasisPercent,
+        instruments,
+        bandMode: isBandMode,
+        bandVoices,
+        bodhran,
+        repeat,
+        repeatLimit,
+      });
+      downloadMidiFile(result.bytes, result.filename);
+      showToast(
+        result.infiniteRepeatClamped
+          ? `Exported ${result.filename} (infinite repeat exported as 1 pass)`
+          : `Exported ${result.filename}`,
+        "success",
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not export MIDI file.", "error");
+    }
+  }
+
   /**
    * Moves the ABC view's cursor to the note this timing event belongs to.
    *
@@ -1239,7 +1273,6 @@ export function SetPlayer({
       const compound = isCompoundMeter(meter);
       const swingPercent = swingPercentRef.current;
       const emphasisPercent = emphasisPercentRef.current;
-      const pulse = getMeterPulse(meter);
       // Where bar 1 actually starts. Most tunes in this repertoire begin on an upbeat, and without
       // this every accent would land a beat or two off for all of them.
       const pickupWholeNotes = playObj.getPickupLength();
@@ -1274,28 +1307,15 @@ export function SetPlayer({
           drum: bodhranPattern,
           drumBars: bodhranPattern ? 1 : undefined,
           // abcjs discards this callback's return value, so every helper rewrites the
-          // tracks in place. Order matters: swing moves note starts, subdivision splits
-          // from those (already swung) starts, and the strum spreads each re-strike
-          // subdivision produced.
+          // tracks in place.
           sequenceCallback: (tracks) => {
-            if (compound && swingPercent > 0) {
-              applyCustomTripletSwing(tracks, swingPercent);
-            }
-            // After swing (so it weighs each note's final position) and before subdivision (so a
-            // re-struck long note inherits its beat's weight) and the strum (so a chord's volume
-            // ramp is relative to the accented level rather than fighting it).
-            applyMeterEmphasis(tracks, pulse, pickupWholeNotes, emphasisPercent);
-            tracks.forEach((track, trackIdx) => {
-              let prog: number | string = trackIdx === 0 ? currentInst.melody : trackIdx === 1 ? currentInst.chords : currentInst.bass;
-              if (track.length > 0 && track[0].instrument) {
-                prog = track[0].instrument;
-              }
-              if (shouldSubdivideInstrument(prog)) {
-                subdivideLongNotes(track);
-              }
-              // Judges each simultaneous group on its own instrument, so it still strums
-              // the chord track when the track's first note is a bass note.
-              strumChords(track, tempoMultiplierSec);
+            transformNoteMapTracks(tracks, {
+              meter,
+              pickupWholeNotes,
+              tempoMultiplierSec,
+              swingPercent,
+              emphasisPercent,
+              fallbackPrograms: [currentInst.melody, currentInst.chords, currentInst.bass],
             });
             // Ignored at runtime; abcjs's type declaration still demands a return.
             return tracks;
@@ -2022,6 +2042,14 @@ export function SetPlayer({
           onClick={() => setViewMode((v) => (v === "abc" ? "sheet" : "abc"))}
         >
           {viewMode === "abc" ? "🔤 ABC" : "🎼 Sheet"}
+        </button>
+        <button
+          type="button"
+          onClick={handleExportMidi}
+          disabled={!isReady}
+          title="Download a MIDI file using your configured repeats, tempo, swing, emphasis, and instruments"
+        >
+          ⬇ MIDI
         </button>
         <button onClick={toggleFullscreen}>⛶ Fullscreen</button>
         <button

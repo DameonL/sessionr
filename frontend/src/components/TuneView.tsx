@@ -274,7 +274,7 @@ export function TuneView({
                   <div className="setting-sheet-preview">
                     <Suspense fallback={<div className="spinner-row"><Spinner /></div>}>
                       {isPage ? (
-                        <TunePlayer abc={s.abcText} tuneId={s.tuneSettingId} tuneType={details.tuneType} />
+                        <TunePlayer abc={s.abcText} title={details.title} tuneId={s.tuneSettingId} tuneType={details.tuneType} />
                       ) : (
                         <>
                           <SheetMusic abcString={s.abcText} />

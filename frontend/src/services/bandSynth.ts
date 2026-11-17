@@ -1,11 +1,8 @@
 import abcjs from 'abcjs'
-import { humanizeBackerTracks, type BandVoice } from './band'
-import { shouldSubdivideInstrument, subdivideLongNotes } from '../components/instruments'
+import type { BandVoice } from './band'
 import { getBodhranDrumOption } from './bodhran'
-import { applyMeterEmphasis } from './meterEmphasis'
-import { getMeterPulse } from './meterPulse'
-import { applyCustomTripletSwing, isCompoundMeter } from './swing'
-import { strumChords } from './strum'
+import { transformNoteMapTracks } from './midiPlaybackPipeline'
+import { isCompoundMeter } from './swing'
 
 export interface BandSynthOptions extends abcjs.SynthOptions {
   bodhran?: boolean
@@ -36,15 +33,12 @@ export async function createBandSynth(
   extraOptions?: BandSynthOptions,
 ): Promise<abcjs.MidiBuffer> {
   const synth = new abcjs.synth.CreateSynth()
-  const isSubdivided = shouldSubdivideInstrument(voice.program)
-  const isBacker = voice.role === 'backer'
   const isBodhran = !!extraOptions?.bodhran && voice.role === 'leader'
   const bodhranPattern = isBodhran ? getBodhranDrumOption(visualObj.getMeterFraction()) : undefined
   const meter = visualObj.getMeterFraction()
   const compound = isCompoundMeter(meter)
   const swingPercent = extraOptions?.swingPercent ?? 0
   const emphasisPercent = extraOptions?.emphasisPercent ?? 0
-  const pulse = getMeterPulse(meter)
   const pickupWholeNotes = visualObj.getPickupLength()
 
   await synth.init({
@@ -59,23 +53,17 @@ export async function createBandSynth(
       pan: [voice.pan, voice.pan, voice.pan],
       drum: bodhranPattern || extraOptions?.drum,
       drumBars: bodhranPattern ? 1 : extraOptions?.drumBars,
-      // abcjs discards this callback's return value, so every stage rewrites the tracks
-      // in place. Order matters: swing moves note starts, meter emphasis reads those final
-      // starts to weigh each note by its place in the bar, subdivision splits from them so
-      // each re-strike inherits its beat's weight, the strum spreads the re-strikes, and
-      // humanization rides on top of all of it.
+      // abcjs discards this callback's return value, so every stage rewrites the tracks in place.
       sequenceCallback: (tracks: abcjs.NoteMapTrack[]) => {
-        if (compound && swingPercent > 0) {
-          applyCustomTripletSwing(tracks, swingPercent)
-        }
-        applyMeterEmphasis(tracks, pulse, pickupWholeNotes, emphasisPercent)
-        if (isSubdivided) {
-          for (const track of tracks) subdivideLongNotes(track)
-        }
-        for (const track of tracks) strumChords(track, tempoMultiplierSec)
-        if (isBacker) {
-          humanizeBackerTracks(tracks, voice, tempoMultiplierSec)
-        }
+        transformNoteMapTracks(tracks, {
+          meter,
+          pickupWholeNotes,
+          tempoMultiplierSec,
+          swingPercent,
+          emphasisPercent,
+          uniformProgram: voice.program,
+          bandVoice: voice,
+        })
         // Ignored at runtime; abcjs's type declaration still demands a return.
         return tracks
       },

@@ -23,6 +23,16 @@ const MAX_ACCENT = 0.5
 const MAX_SOFTEN = 0.2
 
 /**
+ * Maps the UI's 0-100 "how much swing" dial onto abcjs's own swing parameter,
+ * which only has a real effect in the 50-75 range (<=50 is a no-op/no swing,
+ * >75 clamps to 75/max swing) — so 0 on the UI dial lands at abcjs's no-swing
+ * floor, and 100 lands at its max.
+ */
+export function toAbcjsSwing(uiPercent: number): number {
+  return Math.round(50 + (uiPercent / 100) * 25)
+}
+
+/**
  * Returns true for compound meters (6/8, 9/8, 12/8), where the beat divides into three
  * and the lilt lengthens the first of each group of three — the jig/slip jig/slide feel.
  *

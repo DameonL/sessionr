@@ -230,6 +230,7 @@ export default function MedleySetsPage() {
             <div style={{ marginTop: '1.5rem' }}>
               <h3>Practice Medley</h3>
               <SetPlayer
+                title="Practice Medley"
                 items={setDraft}
                 onLogPractice={logSetPractice}
                 isLoggingPractice={practiceMutation.isPending}

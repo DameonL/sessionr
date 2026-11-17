@@ -371,7 +371,7 @@ function SetEditor({
       {previewItems.length > 0 && (
         <>
           <h2>Preview set</h2>
-          <SetPlayer items={previewItems} />
+          <SetPlayer title={draft.title} items={previewItems} />
         </>
       )}
 

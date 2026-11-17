@@ -72,6 +72,7 @@ export default function DailyQueuePage() {
           <p className="badge badge-queue">{current.reason}</p>
           <TunePlayer
             abc={current.abcText ?? current.abc ?? ''}
+            title={current.title}
             tuneId={current.userTuneId}
             targetBpm={current.targetBpm}
             tuneType={current.tuneType}

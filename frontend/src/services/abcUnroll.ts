@@ -180,14 +180,22 @@ export function shouldKeepLeadIn(visualObj: abcjs.TuneObject): boolean {
     const pickup = visualObj.getPickupLength()
     if (!meterSize || !pickup) return true
 
-    const msPerMeasure = visualObj.millisecondsPerMeasure(visualObj.getBpm())
-    if (!msPerMeasure) return true
-    // getTotalTime() is undefined until the tune has been timed, and an untimed object would
-    // silently answer "keep" for every tune.
-    if (typeof visualObj.getTotalTime() !== 'number') {
+    let measures: number
+    if (typeof visualObj.getTotalTime() === 'number') {
+      const msPerMeasure = visualObj.millisecondsPerMeasure(visualObj.getBpm())
+      if (!msPerMeasure) return true
+      measures = (visualObj.getTotalTime() * 1000) / msPerMeasure
+    } else if ((visualObj as unknown as { engraver?: { staffgroups?: unknown } }).engraver?.staffgroups) {
+      const msPerMeasure = visualObj.millisecondsPerMeasure(visualObj.getBpm())
+      if (!msPerMeasure) return true
       ;(visualObj as unknown as { setTiming(bpm?: number): unknown }).setTiming(visualObj.getBpm())
+      measures = (visualObj.getTotalTime() * 1000) / msPerMeasure
+    } else {
+      // parseOnly TuneObjects have no engraver, so derive measure count directly from setUpAudio.
+      const totalWholeNotes = visualObj.setUpAudio({}).totalDuration
+      if (typeof totalWholeNotes !== 'number') return true
+      measures = totalWholeNotes / meterSize
     }
-    const measures = (visualObj.getTotalTime() * 1000) / msPerMeasure
     if (!Number.isFinite(measures)) return true
 
     const pickupMeasures = pickup / meterSize

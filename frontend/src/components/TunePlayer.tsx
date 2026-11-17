@@ -47,6 +47,7 @@ export function TunePlayer({
   return (
     <SetPlayer
       items={items}
+      title={title}
       targetBpm={targetBpm}
       isSingleTune
       onLogPractice={onLogPractice}

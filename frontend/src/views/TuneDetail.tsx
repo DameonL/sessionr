@@ -134,6 +134,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
         <>
           <TunePlayer
             abc={effectiveAbc}
+            title={item.title}
             tuneId={item.userTuneId}
             targetBpm={item.targetBpm}
             tuneType={item.tuneType}

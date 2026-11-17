@@ -56,11 +56,13 @@ export function GroupSetDetail({ groupSetId }: { groupSetId?: string }) {
       )}
 
       <SetPlayer
-        items={items.map(({ groupTuneId, title: tuneTitle, abc, repetitions }) => ({
+        title={title}
+        items={items.map(({ groupTuneId, title: tuneTitle, abc, repetitions, tuneType }) => ({
           userTuneId: groupTuneId,
           title: tuneTitle,
           abc,
           repetitions,
+          tuneType,
         }))}
         linkHref={() => null}
       />
