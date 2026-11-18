@@ -17,7 +17,7 @@ public sealed record TheSessionSearchResponse(List<TheSessionSearchTune> Tunes);
 public sealed record TheSessionTunebookResponse(int Pages, List<TheSessionSearchTune>? Tunes);
 public sealed record TheSessionSearchTune(int Id, string Name, string Type);
 public sealed record TheSessionTuneDetail(int Id, string? Name, string? Type, List<TheSessionSetting>? Settings);
-public sealed record TheSessionSetting(string? Key, string? Abc);
+public sealed record TheSessionSetting(string? Key, string? Abc, int? Id = null);
 
 /// <summary>
 /// Shared client for thesession.org's public JSON API, plus the tune-upsert logic
@@ -91,7 +91,7 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         }
 
         var key = NormalizeKey(setting.Key);
-        var (tuneType, meter) = TypeMap.GetValueOrDefault(detail.Type ?? "", (TuneType.Other, "4/4"));
+        var (tuneType, meter) = MapTypeAndMeter(detail.Type);
 
         var title = detail.Name!.Trim();
         var existing = await db.Tunes.FirstOrDefaultAsync(t => t.TheSessionId == detail.Id);
@@ -131,14 +131,17 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         // Mirrors CreateTune's initial setting so imported tunes have at least one
         // TuneSetting to display/vote on/add-to-repertoire — without this, GetTuneDetails
         // returns an empty settings list and the tune's ABC never surfaces on its page.
-        db.TuneSettings.Add(new TuneSetting
+        var initialSetting = new TuneSetting
         {
             TuneId = tune.TuneId,
+            TheSessionSettingId = setting.Id is > 0 ? setting.Id : null,
             Key = tune.Key,
             AbcText = tune.MasterAbcText,
             SubmitterName = "System",
             VoteScore = 3
-        });
+        };
+        heuristics.ApplyFingerprint(initialSetting, tune.TuneType);
+        db.TuneSettings.Add(initialSetting);
         await db.SaveChangesAsync();
 
         return tune;
@@ -152,14 +155,22 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         return client;
     }
 
+    internal static (TuneType Type, string Meter) MapTypeAndMeter(string? rawType, string? explicitMeter = null)
+    {
+        var (tuneType, defaultMeter) = TypeMap.GetValueOrDefault(rawType?.Trim() ?? "", (TuneType.Other, "4/4"));
+        var meter = string.IsNullOrWhiteSpace(explicitMeter) ? defaultMeter : explicitMeter.Trim();
+        return (tuneType, meter);
+    }
+
     /// <summary>thesession.org keys like "Dmajor"/"Edorian"/"Aminor" -> ABC form "D"/"Edor"/"Am".</summary>
-    private static string NormalizeKey(string? key)
+    internal static string NormalizeKey(string? key)
     {
         if (string.IsNullOrWhiteSpace(key))
         {
             return "";
         }
 
+        var trimmed = key.Trim();
         (string Suffix, string Abc)[] modes =
         [
             ("major", ""), ("minor", "m"), ("dorian", "dor"),
@@ -167,21 +178,29 @@ public class TheSessionImportService(AppDbContext db, IHttpClientFactory httpCli
         ];
         foreach (var (suffix, abc) in modes)
         {
-            if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
             {
-                return key[..^suffix.Length] + abc;
+                return trimmed[..^suffix.Length] + abc;
             }
         }
-        return key;
+        return trimmed;
     }
 
     /// <summary>
-    /// thesession.org settings are body-only with "!" as line separators;
+    /// thesession.org REST API settings are body-only with "!" as line separators;
     /// synthesize a complete ABC tune around them.
     /// </summary>
     private static string BuildAbc(string title, string rhythm, string meter, string key, string abcBody)
     {
         var body = abcBody.Replace("!", "\n").Trim();
-        return $"X:1\nT:{title}\nR:{rhythm}\nM:{meter}\nL:1/8\nK:{key}\n{body}";
+        return FormatAbcDocument(title, rhythm, meter, key, body);
+    }
+
+    /// <summary>Synthesizes a complete ABC tune document from normalized headers and body.</summary>
+    internal static string FormatAbcDocument(
+        string title, string rhythm, string meter, string key, string body, string? composer = null)
+    {
+        var composerLine = string.IsNullOrWhiteSpace(composer) ? "" : $"C:{composer.Trim()}\n";
+        return $"X:1\nT:{title}\n{composerLine}R:{rhythm}\nM:{meter}\nL:1/8\nK:{key}\n{body}";
     }
 }

@@ -15,8 +15,17 @@ public static class LibraryStatsSupport
     /// isn't provisioned yet) must not surface as a failure of the actual operation. Get.cs's
     /// read side falls back to a live count when the cache is stale or unreadable.
     /// </summary>
-    public static async Task IncrementTuneCountAsync(AppDbContext db)
+    public static Task IncrementTuneCountAsync(AppDbContext db)
+        => IncrementTuneCountAsync(db, 1);
+
+    public static async Task IncrementTuneCountAsync(AppDbContext db, int delta)
     {
+        if (delta <= 0)
+        {
+            await MarkTunesChangedAsync(db);
+            return;
+        }
+
         try
         {
             var stats = await db.LibraryStats.FirstOrDefaultAsync(s => s.LibraryStatsId == Models.LibraryStats.SingletonId);
@@ -30,7 +39,7 @@ public static class LibraryStatsSupport
             }
             else
             {
-                stats.TuneCount++;
+                stats.TuneCount += delta;
                 stats.TunesChangedAt = DateTime.UtcNow;
             }
             await db.SaveChangesAsync();

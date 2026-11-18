@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import {
@@ -13,6 +13,7 @@ import {
   moderatorDeleteTune,
   moderatorRecomputeHeuristics,
   moderatorRefreshMatchIndex,
+  moderatorMigrateTheSession,
   formatTuneType,
   type ModeratorTuneData,
   type ModeratorGroupData,
@@ -139,6 +140,108 @@ export function ModeratorView() {
   })
 
   const maintenanceBusy = backfillMutation.isPending || refreshIndexMutation.isPending
+
+  // Bulk thesession.org migration state
+  const [migrationRunning, setMigrationRunning] = useState(false)
+  const [migrationDryRun, setMigrationDryRun] = useState(false)
+  const [afterTuneId, setAfterTuneId] = useState(0)
+  const [includeMissingSettings, setIncludeMissingSettings] = useState(true)
+  const [migrationTotals, setMigrationTotals] = useState({
+    totalInSource: 0,
+    processed: 0,
+    tunesCreated: 0,
+    tunesSkipped: 0,
+    tunesBackfilled: 0,
+    settingsCreated: 0,
+    settingsSkipped: 0,
+  })
+  const [migrationLog, setMigrationLog] = useState<string[]>([])
+  const migrationStopRef = useRef(false)
+
+  const appendMigrationLog = (line: string) =>
+    setMigrationLog((prev) => [...prev.slice(-99), line])
+
+  const runMigration = async (dryRun: boolean) => {
+    if (migrationRunning || maintenanceBusy) return
+    migrationStopRef.current = false
+    setMigrationRunning(true)
+    setMigrationDryRun(dryRun)
+
+    let cursor = Math.max(0, Math.floor(afterTuneId) || 0)
+    let isFirstBatch = cursor === 0
+    const totals = {
+      totalInSource: 0,
+      processed: 0,
+      tunesCreated: 0,
+      tunesSkipped: 0,
+      tunesBackfilled: 0,
+      settingsCreated: 0,
+      settingsSkipped: 0,
+    }
+    setMigrationTotals(totals)
+    setMigrationLog([
+      dryRun
+        ? `Starting dry-run preview after TheSessionId ${cursor}…`
+        : `Starting bulk migration after TheSessionId ${cursor}…`,
+    ])
+
+    try {
+      while (!migrationStopRef.current) {
+        const batch = await moderatorMigrateTheSession({
+          afterTuneId: cursor,
+          batchSize: 50,
+          dryRun,
+          refreshDataset: isFirstBatch,
+          includeMissingSettingsForExistingTunes: includeMissingSettings,
+        })
+        isFirstBatch = false
+
+        totals.totalInSource = batch.totalTunesInSource
+        totals.processed += batch.processedInBatch
+        totals.tunesCreated += batch.tunesCreated
+        totals.tunesSkipped += batch.tunesSkippedExisting
+        totals.tunesBackfilled += batch.tunesBackfilledId
+        totals.settingsCreated += batch.settingsCreated
+        totals.settingsSkipped += batch.settingsSkipped
+        setMigrationTotals({ ...totals })
+
+        cursor = batch.nextAfterTuneId
+        setAfterTuneId(cursor)
+
+        appendMigrationLog(
+          `Batch through #${cursor}: +${batch.tunesCreated} tunes (${batch.tunesSkippedExisting} skipped, ${batch.tunesBackfilledId} IDs backfilled), +${batch.settingsCreated} settings (${batch.settingsSkipped} skipped). Remaining: ${batch.remainingTunes}`,
+        )
+
+        if (!batch.hasMore || batch.processedInBatch === 0) {
+          if (!dryRun && (totals.tunesCreated > 0 || totals.settingsCreated > 0)) {
+            appendMigrationLog('Refreshing the in-memory match index…')
+            await moderatorRefreshMatchIndex()
+            appendMigrationLog('Match index refreshed.')
+            queryClient.invalidateQueries({ queryKey: ['tunes'] })
+          }
+          appendMigrationLog(dryRun ? 'Dry-run preview complete.' : 'Bulk migration complete!')
+          showToast(
+            dryRun
+              ? `Dry run complete: ${totals.tunesCreated} new tunes, ${totals.settingsCreated} new settings.`
+              : `Migration complete: ${totals.tunesCreated} tunes, ${totals.settingsCreated} settings added.`,
+            'success',
+          )
+          break
+        }
+      }
+
+      if (migrationStopRef.current) {
+        appendMigrationLog(`Paused after TheSessionId ${cursor}. You can resume from this ID anytime.`)
+        showToast(`Migration paused at TheSessionId ${cursor}.`, 'info')
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Unknown error.'
+      appendMigrationLog(`Failed at TheSessionId ${cursor}: ${msg}`)
+      showToast(`Migration failed: ${msg}`, 'error')
+    } finally {
+      setMigrationRunning(false)
+    }
+  }
 
   const handleOpenEdit = (tune: ModeratorTuneData) => {
     setEditingTune(tune)
@@ -435,6 +538,117 @@ export function ModeratorView() {
                   </div>
                 ))}
                 {maintenanceBusy && (
+                  <div className="spinner-row" style={{ justifyContent: 'flex-start', marginTop: '0.25rem' }}>
+                    <Spinner />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--brand-2)' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0' }}>📥 Migrate thesession.org Tune Library</h3>
+            <p style={{ margin: '0 0 0.75rem 0', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              Imports all tunes and alternate settings from <code>adactio/TheSession-data/json/tunes.json</code> in
+              resumable batches, normalizing titles (&ldquo;Name, The&rdquo; → &ldquo;The Name&rdquo;), keys, ABC
+              headers, and melodic fingerprints while preserving existing tunes and settings.
+            </p>
+
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                Resume after Tune ID:
+                <input
+                  type="number"
+                  min={0}
+                  value={afterTuneId}
+                  disabled={migrationRunning}
+                  onChange={(e) => setAfterTuneId(Math.max(0, Number(e.target.value) || 0))}
+                  style={{ width: '110px' }}
+                />
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                <input
+                  type="checkbox"
+                  checked={includeMissingSettings}
+                  disabled={migrationRunning}
+                  onChange={(e) => setIncludeMissingSettings(e.target.checked)}
+                />
+                Add missing alternate settings to existing tunes
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                className="secondary"
+                disabled={migrationRunning || maintenanceBusy}
+                onClick={() => runMigration(true)}
+              >
+                {migrationRunning && migrationDryRun ? 'Running dry run…' : '🔍 Dry Run Preview'}
+              </button>
+              <button
+                className="primary"
+                disabled={migrationRunning || maintenanceBusy}
+                onClick={() => {
+                  if (confirm(`Start bulk migration from TheSessionId > ${afterTuneId}?`)) {
+                    runMigration(false)
+                  }
+                }}
+              >
+                {migrationRunning && !migrationDryRun ? 'Migrating…' : '▶ Run Bulk Migration'}
+              </button>
+              {migrationRunning && (
+                <button
+                  className="secondary danger-hover"
+                  onClick={() => {
+                    migrationStopRef.current = true
+                  }}
+                >
+                  ⏸ Pause after current batch
+                </button>
+              )}
+            </div>
+
+            {migrationTotals.totalInSource > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '0.35rem' }}>
+                  <span>
+                    Processed {migrationTotals.processed.toLocaleString()} / {migrationTotals.totalInSource.toLocaleString()} source tunes
+                  </span>
+                  <span>
+                    +{migrationTotals.tunesCreated.toLocaleString()} tunes ({migrationTotals.tunesSkipped.toLocaleString()} existing, {migrationTotals.tunesBackfilled.toLocaleString()} backfilled) · +{migrationTotals.settingsCreated.toLocaleString()} settings ({migrationTotals.settingsSkipped.toLocaleString()} skipped)
+                  </span>
+                </div>
+                <progress
+                  value={migrationTotals.processed}
+                  max={migrationTotals.totalInSource}
+                  style={{ width: '100%', height: '8px' }}
+                />
+              </div>
+            )}
+
+            {migrationLog.length > 0 && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  background: 'var(--sunken-bg)',
+                  padding: '0.75rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  fontFamily: 'monospace',
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                {migrationLog.map((line, i) => (
+                  <div key={i} style={{ color: line.startsWith('Failed') ? 'var(--danger)' : 'var(--muted)' }}>
+                    {line}
+                  </div>
+                ))}
+                {migrationRunning && (
                   <div className="spinner-row" style={{ justifyContent: 'flex-start', marginTop: '0.25rem' }}>
                     <Spinner />
                   </div>

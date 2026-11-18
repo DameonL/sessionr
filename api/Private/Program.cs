@@ -21,7 +21,9 @@ builder.Services.AddSingleton<SetAnalyzer>();
 builder.Services.AddSingleton<TuneHeuristics>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ICloudflareCachePurgeService, CloudflareCachePurgeService>();
+builder.Services.AddSingleton<TheSessionDatasetCache>();
 builder.Services.AddScoped<TheSessionImportService>();
+builder.Services.AddScoped<TheSessionDataMigrationService>();
 builder.Services.AddScoped<GamificationService>();
 
 var app = builder.Build();

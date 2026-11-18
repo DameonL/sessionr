@@ -169,6 +169,7 @@ public static class DbInitializer
         try
         {
             db.Tunes.Select(t => new { t.RepertoireCount, t.CreatedAt, t.Difficulty }).Take(1).ToList();
+            db.TuneSettings.Select(s => s.TheSessionSettingId).Take(1).ToList();
         }
         catch (Microsoft.Data.Sqlite.SqliteException)
         {

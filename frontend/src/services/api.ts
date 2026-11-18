@@ -1548,6 +1548,38 @@ export const moderatorRecomputeHeuristics = () =>
 export const moderatorRefreshMatchIndex = () =>
   apiFetchPublicAuthed<void>('/moderator/tunes/refresh-match-index', { method: 'POST' })
 
+export interface MigrateTheSessionRequest {
+  afterTuneId?: number
+  batchSize?: number
+  dryRun?: boolean
+  refreshDataset?: boolean
+  includeMissingSettingsForExistingTunes?: boolean
+}
+
+export interface MigrateTheSessionBatchResult {
+  totalTunesInSource: number
+  processedInBatch: number
+  remainingTunes: number
+  nextAfterTuneId: number
+  hasMore: boolean
+  tunesCreated: number
+  tunesSkippedExisting: number
+  tunesBackfilledId: number
+  settingsCreated: number
+  settingsSkipped: number
+  warnings: string[]
+}
+
+/**
+ * Runs one resumable batch of the bulk migration from adactio/TheSession-data's tunes.json.
+ */
+export const moderatorMigrateTheSession = (payload: MigrateTheSessionRequest) =>
+  apiFetch<MigrateTheSessionBatchResult>(
+    '/moderator/tunes/migrate-thesession',
+    { method: 'POST', body: JSON.stringify(payload) },
+    { skipOfflineQueue: true, timeoutMs: 120_000 },
+  )
+
 export interface FriendDto {
   userId: string
   displayName: string

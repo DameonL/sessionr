@@ -21,6 +21,26 @@ public record TunebookImportResultDto(
     int SettingsCreated,
     List<string> Failures);
 
+public record MigrateTheSessionRequest(
+    int AfterTuneId = 0,
+    int BatchSize = 50,
+    bool DryRun = false,
+    bool RefreshDataset = false,
+    bool IncludeMissingSettingsForExistingTunes = true);
+
+public record MigrateTheSessionBatchResult(
+    int TotalTunesInSource,
+    int ProcessedInBatch,
+    int RemainingTunes,
+    int NextAfterTuneId,
+    bool HasMore,
+    int TunesCreated,
+    int TunesSkippedExisting,
+    int TunesBackfilledId,
+    int SettingsCreated,
+    int SettingsSkipped,
+    List<string> Warnings);
+
 public record AddToRepertoireRequest(Guid TuneId, Guid? TuneSettingId = null);
 
 /// <summary>

@@ -6,6 +6,9 @@ public class TuneSetting
 {
     public Guid TuneSettingId { get; set; } = Guid.CreateVersion7();
     public Guid TuneId { get; set; }
+
+    /// <summary>Numeric setting ID on thesession.org, when imported from there — used to deduplicate settings.</summary>
+    public int? TheSessionSettingId { get; set; }
     public string Key { get; set; } = string.Empty;
     public string AbcText { get; set; } = string.Empty;
     public string SubmitterName { get; set; } = "System";
