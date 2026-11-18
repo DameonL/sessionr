@@ -38,6 +38,25 @@ public class CosmosTranslationTests(CosmosEmulatorFixture fixture) : CosmosTestB
     }
 
     [Fact]
+    public async Task TuneLibraryIndex_RebuildsOverADocumentPredatingRepertoireCountCreatedAtAndDifficulty()
+    {
+        var legacy = await SeedAsync(db => db.SeedTuneAsync("Legacy Browse Tune"));
+        await Fixture.StripPropertiesAsync(
+            nameof(Tune),
+            legacy.TuneId,
+            nameof(Tune.RepertoireCount),
+            nameof(Tune.CreatedAt),
+            nameof(Tune.Difficulty));
+
+        var index = Fixture.LibraryIndex;
+        await index.ForceRefreshAsync();
+
+        var result = await index.SearchAsync("Legacy Browse Tune", null, null, "popular", 1, 20);
+
+        Assert.Contains(result.Items, item => item.TuneId == legacy.TuneId && item.RepertoireCount == 0 && item.Difficulty == 0);
+    }
+
+    [Fact]
     public async Task ProjectingANonNullableValueTypeOutOfALegacyDocument_StillFailsOnCosmos()
     {
         // The "still fails" half: this is the shape TuneMatchIndex used to have, and the reason it

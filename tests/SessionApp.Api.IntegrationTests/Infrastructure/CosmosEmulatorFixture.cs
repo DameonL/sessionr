@@ -74,6 +74,7 @@ public sealed class CosmosEmulatorFixture : IAsyncLifetime
         services.AddSingleton<SetAnalyzer>();
         services.AddSingleton<TuneHeuristics>();
         services.AddSingleton<TuneMatchIndex>();
+        services.AddSingleton<TuneLibraryIndex>();
         services.AddHttpClient();
         // As Program.cs registers it. With no CloudflareCacheToken in the environment it makes no
         // HTTP call at all — but the endpoints that purge the edge cache cannot be constructed
@@ -114,6 +115,9 @@ public sealed class CosmosEmulatorFixture : IAsyncLifetime
 
     /// <summary>The singleton match index, resolved the way the Functions host would resolve it.</summary>
     public TuneMatchIndex MatchIndex => _services!.GetRequiredService<TuneMatchIndex>();
+
+    /// <summary>The singleton library browse/search index, resolved the way the Functions host would resolve it.</summary>
+    public TuneLibraryIndex LibraryIndex => _services!.GetRequiredService<TuneLibraryIndex>();
 
     /// <summary>Runs <paramref name="action"/> against its own scoped context, like a single request would.</summary>
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)

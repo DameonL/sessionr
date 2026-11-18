@@ -18,6 +18,7 @@ var useSqlite = builder.Services.AddSessionAppDbContext();
 builder.Services.AddSingleton<SetAnalyzer>();
 builder.Services.AddSingleton<TuneHeuristics>();
 builder.Services.AddSingleton<TuneMatchIndex>();
+builder.Services.AddSingleton<TuneLibraryIndex>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<TheSessionImportService>();
 
