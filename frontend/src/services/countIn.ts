@@ -46,6 +46,8 @@ export interface CountInBeat {
   offsetMs: number
   /** What the screen shows. Restarts at 1 on each bar, the way a bar is counted aloud. */
   count: number
+  /** 1-based bar number within the count-in. */
+  bar: number
   /** The weight the meter gives this beat, which sets how hard the click is struck. */
   strength: PulseStrength
 }
@@ -56,6 +58,8 @@ export interface CountIn {
   totalMs: number
   /** Numbers to a bar, for the overlay to say "3 of 6". */
   beatsPerBar: number
+  /** Total bars in the count-in (0 if skipped, 1 normally, 2 for short bars). */
+  bars: number
 }
 
 interface CountInTuneObject {
@@ -94,7 +98,7 @@ export function getCountIn(visualObj: CountInTuneObject, bpm: number): CountIn {
   const isWideCompound = meter.den === 8 && num > 6 && num % 3 === 0
   const beatsPerBar = isWideCompound ? num / 3 : num
   // A bar of no length can't be counted through; the caller skips a count-in of no beats.
-  if (barMs <= 0) return { beats: [], totalMs: 0, beatsPerBar }
+  if (barMs <= 0) return { beats: [], totalMs: 0, beatsPerBar, bars: 0 }
 
   const bars = barMs < TWO_BAR_MAX_BAR_MS ? 2 : 1
   const pulse = getMeterPulse(meter)
@@ -107,11 +111,12 @@ export function getCountIn(visualObj: CountInTuneObject, bpm: number): CountIn {
       beats.push({
         offsetMs: bar * barMs + (i / beatsPerBar) * barMs,
         count: i + 1,
+        bar: bar + 1,
         strength: strengthAtPosition(pulse, position),
       })
     }
   }
-  return { beats, totalMs: bars * barMs, beatsPerBar }
+  return { beats, totalMs: bars * barMs, beatsPerBar, bars }
 }
 
 /**

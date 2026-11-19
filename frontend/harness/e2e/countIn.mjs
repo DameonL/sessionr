@@ -77,13 +77,21 @@ await p.addInitScript(() => {
 await p.goto(`http://localhost:5199/harness/?probe=${PROBE}`, { waitUntil: 'networkidle' })
 await p.waitForSelector('.sheet-music svg')
 
-// Every distinct number the overlay shows, in the order it shows them.
+// Every distinct number the overlay shows, in the order it shows them, plus any multi-bar indicator.
 await p.evaluate(() => {
   window.__seen = []
+  window.__barsSeen = []
   const tick = () => {
     const el = document.querySelector('.count-in-number')
     const text = el?.textContent?.trim()
     if (text && window.__seen.at(-1) !== text) window.__seen.push(text)
+    const barLabel = document.querySelector('.count-in-bar-label')?.textContent?.trim()
+    const pips = [...document.querySelectorAll('.count-in-bar-pip')]
+    const activePip = pips.findIndex((pip) => pip.classList.contains('is-active'))
+    if (barLabel) {
+      const entry = `${barLabel}|${pips.length}|${activePip + 1}`
+      if (window.__barsSeen.at(-1) !== entry) window.__barsSeen.push(entry)
+    }
     requestAnimationFrame(tick)
   }
   tick()
@@ -92,7 +100,11 @@ await p.evaluate(() => {
 await p.getByRole('button', { name: /▶ Play/ }).click()
 await p.waitForTimeout(8000)
 
-const { bufs, seen } = await p.evaluate(() => ({ bufs: window.__bufs, seen: window.__seen }))
+const { bufs, seen, barsSeen } = await p.evaluate(() => ({
+  bufs: window.__bufs,
+  seen: window.__seen,
+  barsSeen: window.__barsSeen,
+}))
 /*
  * Priming a synth starts its buffers at context time zero, whoever built it, so those renders are
  * not sounds anyone hears and are no part of what this measures. Everything actually played is
@@ -141,6 +153,15 @@ ok(
 // Each bar is counted from one again, the way a bar is counted aloud.
 const wantSeen = Array.from({ length: EXPECTED_CLICKS }, (_, i) => (i % EXPECTED.beats) + 1).join(' ')
 ok(`the numbers counted match the clicks (${seen.join(' ')})`, seen.join(' ') === wantSeen)
+if (EXPECTED.bars > 1) {
+  const wantBars = Array.from(
+    { length: EXPECTED.bars },
+    (_, i) => `Bar ${i + 1} of ${EXPECTED.bars}|${EXPECTED.bars}|${i + 1}`,
+  ).join(', ')
+  ok(`multi-bar indicator progresses (${barsSeen.join(', ')})`, barsSeen.join(', ') === wantBars)
+} else {
+  ok('single-bar count-in hides bar indicator', barsSeen.length === 0)
+}
 
 await b.close()
 process.exit(failed ? 1 : 0)

@@ -11,14 +11,17 @@ function tune(num: number, den: number, barMs: number) {
 
 const offsets = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => Math.round(b.offsetMs))
 const counts = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => b.count)
+const bars = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => b.bar)
 const strengths = (c: ReturnType<typeof getCountIn>) => c.beats.map((b) => b.strength)
 
 describe('getCountIn', () => {
   it('counts a reel in four, evenly across the bar', () => {
     const countIn = getCountIn(tune(4, 4, 2000), 120)
     expect(countIn.totalMs).toBe(2000)
+    expect(countIn.bars).toBe(1)
     expect(offsets(countIn)).toEqual([0, 500, 1000, 1500])
     expect(counts(countIn)).toEqual([1, 2, 3, 4])
+    expect(bars(countIn)).toEqual([1, 1, 1, 1])
   })
 
   it('counts a jig by the bar as written, not the two groups it is felt in', () => {
@@ -84,7 +87,9 @@ describe('getCountIn', () => {
       const countIn = getCountIn(tune(6, 8, 1000), 120)
       expect(countIn.totalMs).toBe(2000)
       expect(countIn.beatsPerBar).toBe(6)
+      expect(countIn.bars).toBe(2)
       expect(counts(countIn)).toEqual([1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6])
+      expect(bars(countIn)).toEqual([1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2])
       expect(offsets(countIn)).toEqual([
         0, 167, 333, 500, 667, 833, 1000, 1167, 1333, 1500, 1667, 1833,
       ])
@@ -92,7 +97,9 @@ describe('getCountIn', () => {
 
     it('counts a polka twice too, in two', () => {
       const countIn = getCountIn(tune(2, 4, 1000), 120)
+      expect(countIn.bars).toBe(2)
       expect(counts(countIn)).toEqual([1, 2, 1, 2])
+      expect(bars(countIn)).toEqual([1, 1, 2, 2])
       expect(offsets(countIn)).toEqual([0, 500, 1000, 1500])
     })
 
@@ -108,8 +115,12 @@ describe('getCountIn', () => {
     })
 
     it('takes the second bar just under the threshold, and not at it', () => {
-      expect(getCountIn(tune(4, 4, 1199), 120).totalMs).toBe(2398)
-      expect(getCountIn(tune(4, 4, 1200), 120).totalMs).toBe(1200)
+      const twoBar = getCountIn(tune(4, 4, 1199), 120)
+      const oneBar = getCountIn(tune(4, 4, 1200), 120)
+      expect(twoBar.totalMs).toBe(2398)
+      expect(twoBar.bars).toBe(2)
+      expect(oneBar.totalMs).toBe(1200)
+      expect(oneBar.bars).toBe(1)
     })
   })
 
@@ -117,5 +128,6 @@ describe('getCountIn', () => {
     const countIn = getCountIn(tune(4, 4, 0), 120)
     expect(countIn.beats).toEqual([])
     expect(countIn.totalMs).toBe(0)
+    expect(countIn.bars).toBe(0)
   })
 })

@@ -290,8 +290,13 @@ export function SetPlayer({
   const [trainer, setTrainer] = useState<Trainer>(initialPrefs.trainer);
   trainerRef.current = trainer;
   const [passCount, setPassCount] = useState(1);
-  /** The number filling the screen during a count-in, and how many there are. Null when not counting. */
-  const [countIn, setCountIn] = useState<{ n: number; total: number } | null>(null);
+  /** The beat and bar state filling the screen during a count-in. Null when not counting. */
+  const [countIn, setCountIn] = useState<{
+    n: number;
+    total: number;
+    bar: number;
+    bars: number;
+  } | null>(null);
   /** Said once, to a screen reader, when the count starts. See countInThenPlay. */
   const [countInLabel, setCountInLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -1795,7 +1800,6 @@ export function SetPlayer({
        */
       const pickupMs = Math.min(Math.max(0, leadInSec(tuneObj, bpm) * 1000), countInPlan.totalMs);
       const startAtMs = countInPlan.totalMs - pickupMs;
-      const bars = countInPlan.beats.length / countInPlan.beatsPerBar;
 
       const pending: {
         playback: SequencePlayback | null;
@@ -1806,8 +1810,8 @@ export function SetPlayer({
       // One announcement for the whole count. The numbers themselves change every beat — every
       // 170ms in a jig — which a live region would read as an interruption rather than as a count.
       setCountInLabel(
-        bars > 1
-          ? `Counting in, ${bars} bars of ${countInPlan.beatsPerBar}`
+        countInPlan.bars > 1
+          ? `Counting in, ${countInPlan.bars} bars of ${countInPlan.beatsPerBar}`
           : `Counting in, ${countInPlan.beatsPerBar} beats`,
       );
       void playCountIn(countInPlan, metronomeSoundRef.current, keyRootRef.current)
@@ -1827,7 +1831,14 @@ export function SetPlayer({
           // beat falling inside the pickup would otherwise put it back over the playing staff.
           for (const beat of countInPlan.beats) {
             if (beat.offsetMs >= startAtMs && beat.offsetMs > 0) continue;
-            at(beat.offsetMs, () => setCountIn({ n: beat.count, total: countInPlan.beatsPerBar }));
+            at(beat.offsetMs, () =>
+              setCountIn({
+                n: beat.count,
+                total: countInPlan.beatsPerBar,
+                bar: beat.bar,
+                bars: countInPlan.bars,
+              }),
+            );
           }
           at(startAtMs, () => {
             pending.tuneStarted = true;
@@ -1988,11 +1999,32 @@ export function SetPlayer({
           <div className="visually-hidden" role="status">
             {countInLabel}
           </div>
-          {/* Keyed by the count so each beat restarts the animation rather than reusing a node
-              that has already faded out. */}
-          <span className="count-in-number" key={countIn.n} aria-hidden="true">
-            {countIn.n}
-          </span>
+          <div className="count-in-display" aria-hidden="true">
+            {/* Keyed by bar and beat so each beat restarts the animation rather than reusing a node
+                that has already faded out. */}
+            <span className="count-in-number" key={`${countIn.bar}-${countIn.n}`}>
+              {countIn.n}
+            </span>
+            {countIn.bars > 1 && (
+              <div className="count-in-bars">
+                <div className="count-in-bar-pips">
+                  {Array.from({ length: countIn.bars }, (_, i) => {
+                    const barNum = i + 1;
+                    const state =
+                      barNum < countIn.bar
+                        ? "done"
+                        : barNum === countIn.bar
+                          ? "active"
+                          : "upcoming";
+                    return <span key={barNum} className={`count-in-bar-pip is-${state}`} />;
+                  })}
+                </div>
+                <span className="count-in-bar-label">
+                  Bar {countIn.bar} of {countIn.bars}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
       {isFullscreen && isReady && (

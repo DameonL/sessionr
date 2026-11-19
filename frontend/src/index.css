@@ -2195,6 +2195,13 @@ a.stat:hover {
   pointer-events: none;
 }
 
+.count-in-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.5rem, 2vh, 1.25rem);
+}
+
 .count-in-number {
   font-size: min(40vw, 40vh);
   line-height: 1;
@@ -2207,6 +2214,54 @@ a.stat:hover {
   paint-order: stroke fill;
   opacity: 0.9;
   animation: count-in-pulse 0.35s ease-out;
+}
+
+.count-in-bars {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.35rem, 1.2vh, 0.75rem);
+}
+
+.count-in-bar-pips {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.5rem, 1.8vw, 1rem);
+}
+
+.count-in-bar-pip {
+  width: clamp(2.25rem, 7vw, 4.5rem);
+  height: clamp(0.45rem, 1.2vh, 0.75rem);
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--bg);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.count-in-bar-pip.is-active {
+  background-color: var(--accent);
+  opacity: 0.95;
+  transform: scale(1.06);
+}
+
+.count-in-bar-pip.is-done {
+  background-color: var(--accent);
+  opacity: 0.35;
+}
+
+.count-in-bar-pip.is-upcoming {
+  background-color: color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.count-in-bar-label {
+  font-size: clamp(1.25rem, min(5vw, 5vh), 3rem);
+  line-height: 1.1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  -webkit-text-stroke: 3px var(--bg);
+  paint-order: stroke fill;
+  opacity: 0.95;
 }
 
 @keyframes count-in-pulse {
@@ -2224,6 +2279,10 @@ a.stat:hover {
 @media (prefers-reduced-motion: reduce) {
   .count-in-number {
     animation: none;
+  }
+
+  .count-in-bar-pip {
+    transition: none;
   }
 }
 
