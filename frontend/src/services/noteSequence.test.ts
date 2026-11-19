@@ -11,6 +11,7 @@ const { log, appended, initOptions, clockGate } = vi.hoisted(() => ({
 }))
 
 vi.mock('./audioClock', () => ({
+  ensureAudioContextReady: () => Promise.resolve(true),
   waitForAudioClock: () => {
     log.push('waitForAudioClock')
     if (!clockGate.release) return Promise.resolve()

@@ -8,7 +8,7 @@ import {
   saveEarTrainingProgress,
 } from '../services/api'
 import { rememberReturnUrl } from '../services/returnUrl'
-import { anchorTimerToAudio } from '../services/audioClock'
+import { anchorTimerToAudio, ensureAudioContextReady, waitForAudioClock } from '../services/audioClock'
 import {
   buildCallResponseChunks,
   buildEarTrainingTune,
@@ -608,13 +608,17 @@ export function EarTrainer({ item }: EarTrainerProps) {
    * after it ends, or at once if it can't play.
    */
   function playAudio(visualObj: ExtendedTuneObject | null): Promise<void> {
+    if (!visualObj) {
+      return Promise.resolve()
+    }
+    const audioReadyPromise = ensureAudioContextReady()
     return new Promise((resolve) => {
-      if (!visualObj) {
-        resolve()
-        return
-      }
       ;(async () => {
         try {
+          const ready = await audioReadyPromise
+          if (!ready) {
+            throw new Error('AudioContext could not be resumed')
+          }
           const bpm = Math.round(visualObj.getBpm() * (PHRASE_TEMPO_PERCENT / 100))
           const synth = new abcjs.synth.CreateSynth()
           synthRef.current = synth
@@ -624,6 +628,7 @@ export function EarTrainer({ item }: EarTrainerProps) {
             options: { ...synthInstrumentOptions(loadInstruments()), program: earInstrument },
           })
           await synth.prime()
+          await waitForAudioClock()
           const timer = new abcjs.TimingCallbacks(visualObj, {
             qpm: bpm,
             eventCallback: (ev: abcjs.NoteTimingEvent | null) => {

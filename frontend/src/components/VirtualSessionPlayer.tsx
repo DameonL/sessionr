@@ -5,7 +5,7 @@ import abcjs from "abcjs";
 import { fixAbcRepeats } from "../services/abcTools";
 import { getDefaultTargetBpm } from "../services/api";
 import type { BandVoice, SessionTune } from "../services/virtualSession";
-import { anchorTimerToAudio } from "../services/audioClock";
+import { anchorTimerToAudio, ensureAudioContextReady, waitForAudioClock } from "../services/audioClock";
 import { backerStartOffsetMs, clearPendingTimeouts } from "../services/band";
 import { createBandSynth } from "../services/bandSynth";
 import { getOrCreateCursor, updateCursorPosition } from "./playerControls";
@@ -147,6 +147,13 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
     setError(null);
     pendingTimeoutsRef.current = clearPendingTimeouts(pendingTimeoutsRef.current);
 
+    const ready = await ensureAudioContextReady();
+    if (playSessionRef.current !== mySession) return;
+    if (!ready) {
+      setError("Audio playback was blocked or suspended by the browser. Please tap or refresh to play.");
+      return;
+    }
+
     const isFirstPass = isFirstPassRef.current;
 
     // Reuse the band that was primed in the background while the previous pass was
@@ -182,6 +189,12 @@ export function VirtualSessionPlayer({ tune, bandVoices, alreadyRevealed, onTune
         eventCallback: (ev: abcjs.NoteTimingEvent | null) => handleEvent(ev, isFirstPass),
       });
       timerRef.current = timer;
+
+      await waitForAudioClock();
+      if (playSessionRef.current !== mySession) {
+        synths.forEach((s) => s.stop());
+        return;
+      }
 
       setStatus("playing");
       synths[0].start();

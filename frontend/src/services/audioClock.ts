@@ -103,47 +103,247 @@ export function seekAndLatch(synth: abcjs.MidiBuffer, positionSec: number): void
 }
 
 /**
- * Once the output device has been seen running, it stays running for the life of the page, so the
- * wait below only ever costs anything on the first sound.
+ * Once the output device has been seen running, we skip the frame-wait on immediate follow-up
+ * plays — but never permanently. Browsers suspend, interrupt, or close an AudioContext when a tab
+ * sits open or backgrounded, when the device sleeps, or when an audio route changes, so we
+ * invalidate on state/lifecycle events and after an idle gap.
  */
+const IDLE_REVERIFY_MS = 15_000
+
 let audioClockConfirmed = false
+let lastConfirmedAtMs = 0
+let lifecycleListenersInstalled = false
+const observedContexts = new WeakSet<AudioContext>()
+
+function markAudioClockConfirmed() {
+  audioClockConfirmed = true
+  lastConfirmedAtMs = performance.now()
+}
+
+/** Test seam (and internal helper): forget that the device was seen running. */
+export function resetAudioClockConfirmation() {
+  audioClockConfirmed = false
+  lastConfirmedAtMs = 0
+}
+
+function ensureLifecycleListeners() {
+  if (lifecycleListenersInstalled) return
+  lifecycleListenersInstalled = true
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      resetAudioClockConfirmation()
+    })
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pageshow', () => resetAudioClockConfirmation())
+    window.addEventListener('pagehide', () => resetAudioClockConfirmation())
+  }
+}
+
+function observeContext(ctx: AudioContext) {
+  if (observedContexts.has(ctx)) return
+  observedContexts.add(ctx)
+  if (typeof ctx.addEventListener === 'function') {
+    ctx.addEventListener('statechange', () => {
+      if ((ctx.state as string) !== 'running') {
+        resetAudioClockConfirmation()
+      }
+    })
+  }
+}
+
+function safeClose(ctx: AudioContext): Promise<void> {
+  try {
+    if (typeof ctx.close === 'function' && (ctx.state as string) !== 'closed') {
+      return ctx.close().catch(() => {})
+    }
+  } catch {
+    // Ignore close errors on already-torn-down contexts.
+  }
+  return Promise.resolve()
+}
+
+function safeResume(ctx: AudioContext): Promise<void> {
+  try {
+    return ctx.resume()
+  } catch (err) {
+    return Promise.reject(err)
+  }
+}
+
+function raceWithTimeout(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
+  // Swallow late rejections if the timeout wins so they never surface as unhandled rejections.
+  promise.catch(() => {})
+  return new Promise((resolve) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        resolve()
+      }
+    }, timeoutMs)
+    promise.then(
+      () => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          resolve()
+        }
+      },
+      () => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          resolve()
+        }
+      },
+    )
+  })
+}
+
+function createFreshAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const Ctor =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!Ctor) return null
+  const fresh = new Ctor()
+  if (typeof abcjs.synth.registerAudioContext === 'function') {
+    abcjs.synth.registerAudioContext(fresh)
+  }
+  resetAudioClockConfirmation()
+  observeContext(fresh)
+  return fresh
+}
 
 /**
- * Waits until the audio device is actually rendering, and resolves immediately once it is.
- *
- * A context reports "running" as soon as it is unsuspended, but its clock stays frozen until the
- * output device has finished opening — which on a first sound can take seconds, and longer over
- * Bluetooth. Audio started in that window is not merely late: the context clock jumps forward when
- * the device does open, so the buffer is already that far in and the opening seconds of the tune
- * are gone. Played from the sheet music, the tune becomes audible partway through the melody.
- *
- * Gives up after timeoutMs rather than blocking playback on a device that never reports progress.
+ * True when the active AudioContext currently reports 'running'.
  */
-export async function waitForAudioClock(timeoutMs = 3000): Promise<void> {
-  if (audioClockConfirmed) return
+export function isAudioContextRunning(): boolean {
+  return (activeContext()?.state as string | undefined) === 'running'
+}
+
+/**
+ * True when the active AudioContext is running and was confirmed recently enough that
+ * another frame-wait isn't needed.
+ */
+export function isAudioClockLive(): boolean {
   const ctx = activeContext()
-  if (!ctx) return
-
-  // Nothing else in the app resumes the context, and a suspended one renders nothing at all.
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume()
-    } catch {
-      // Blocked by autoplay policy; fall through and let the clock check decide.
-    }
+  if (!ctx || !audioClockConfirmed) return false
+  if ((ctx.state as string) !== 'running') {
+    resetAudioClockConfirmation()
+    return false
   }
+  return performance.now() - lastConfirmedAtMs < IDLE_REVERIFY_MS
+}
 
+async function waitForClockAdvance(ctx: AudioContext, timeoutMs: number): Promise<boolean> {
   const started = ctx.currentTime
   const deadline = performance.now() + timeoutMs
   while (ctx.currentTime === started && performance.now() < deadline) {
     await new Promise((resolve) => requestAnimationFrame(resolve))
   }
-  audioClockConfirmed = ctx.currentTime > started
+  return ctx.currentTime > started
 }
 
-/** Test seam: forget that the device was seen running. */
-export function resetAudioClockConfirmation() {
-  audioClockConfirmed = false
+async function settleAudioContextRecovery(
+  ctx: AudioContext,
+  resumePromise: Promise<void>,
+  timeoutMs: number,
+): Promise<boolean> {
+  await raceWithTimeout(resumePromise, timeoutMs)
+  if ((ctx.state as string) === 'running') {
+    return true
+  }
+
+  // Context stayed suspended/interrupted or resume() hung — replace the wedged context with a
+  // fresh one rather than letting abcjs's CreateSynth.prime() hang forever on a dead resume().
+  void safeClose(ctx)
+  const fresh = createFreshAudioContext()
+  if (!fresh) return false
+
+  if ((fresh.state as string) !== 'running') {
+    await raceWithTimeout(safeResume(fresh), Math.min(timeoutMs, 1000))
+  }
+  return (fresh.state as string) === 'running'
+}
+
+/**
+ * Ensures abcjs's shared AudioContext exists and is in the 'running' state.
+ *
+ * The synchronous prefix creates/replaces a missing or 'closed' context and triggers
+ * `ctx.resume()` immediately before any `await`, preserving user-gesture activation on
+ * Safari/mobile browsers. If `resume()` rejects or hangs beyond `timeoutMs` (e.g. an
+ * `'interrupted'` or wedged context after long idle), replaces it with a fresh AudioContext.
+ */
+export function ensureAudioContextReady(timeoutMs = 2000): Promise<boolean> {
+  ensureLifecycleListeners()
+  let ctx = activeContext()
+  if (!ctx || (ctx.state as string) === 'closed') {
+    ctx = createFreshAudioContext()
+  }
+  if (!ctx) return Promise.resolve(false)
+  observeContext(ctx)
+
+  if ((ctx.state as string) === 'running') {
+    return Promise.resolve(true)
+  }
+
+  return settleAudioContextRecovery(ctx, safeResume(ctx), timeoutMs)
+}
+
+/**
+ * Waits until the audio device is actually rendering, and resolves immediately once it is.
+ *
+ * A context reports "running" as soon as it is unsuspended, but its clock stays frozen until the
+ * output device has finished opening — which on a first sound (or after waking from sleep/idle)
+ * can take seconds, and longer over Bluetooth. Audio started in that window is not merely late:
+ * the context clock jumps forward when the device does open, so the buffer is already that far in
+ * and the opening seconds of the tune are gone.
+ *
+ * Gives up after timeoutMs rather than blocking playback on a device that never reports progress.
+ */
+export async function waitForAudioClock(timeoutMs = 3000): Promise<void> {
+  ensureLifecycleListeners()
+  let ctx = activeContext()
+  if (!ctx) return
+  observeContext(ctx)
+
+  if (isAudioClockLive()) return
+
+  if ((ctx.state as string) !== 'running') {
+    const ready = await ensureAudioContextReady(Math.min(timeoutMs, 2000))
+    if (!ready) {
+      resetAudioClockConfirmation()
+      return
+    }
+    ctx = activeContext()
+    if (!ctx) return
+  }
+
+  const started = ctx.currentTime
+  if (await waitForClockAdvance(ctx, timeoutMs)) {
+    markAudioClockConfirmed()
+    return
+  }
+
+  // A previously active context (started > 0) reporting 'running' whose clock never ticks has lost
+  // its OS audio stream (common after sleep/wake or route changes). Replace it once and re-check.
+  if (started > 0) {
+    void safeClose(ctx)
+    const fresh = createFreshAudioContext()
+    if (fresh) {
+      if ((fresh.state as string) !== 'running') {
+        await raceWithTimeout(safeResume(fresh), Math.min(timeoutMs, 1500))
+      }
+      if ((fresh.state as string) === 'running' && (await waitForClockAdvance(fresh, Math.min(timeoutMs, 1500)))) {
+        markAudioClockConfirmed()
+        return
+      }
+    }
+  }
+
+  resetAudioClockConfirmation()
 }
 
 /**
@@ -193,6 +393,9 @@ export function anchorTimerToAudio(
 ): number {
   const rawAudioMs = audioPositionMs(synth)
   if (rawAudioMs === null) return 0
+  if (audioClockConfirmed && isAudioContextRunning()) {
+    lastConfirmedAtMs = performance.now()
+  }
   // Before the first sample sounds this reads at or below zero (latency compensation pushes it
   // negative). Hold the cursor at the start rather than letting it run on without the music.
   const audioMs = Math.max(0, rawAudioMs - offsetMs)

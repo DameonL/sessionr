@@ -7,12 +7,17 @@ import {
   anchorTimerToAudio,
   seekAndLatch,
   waitForAudioClock,
+  ensureAudioContextReady,
+  isAudioClockLive,
   resetAudioClockConfirmation,
 } from './audioClock'
 
-const { activeAudioContext } = vi.hoisted(() => ({ activeAudioContext: vi.fn() }))
+const { activeAudioContext, registerAudioContext } = vi.hoisted(() => ({
+  activeAudioContext: vi.fn(),
+  registerAudioContext: vi.fn(),
+}))
 
-vi.mock('abcjs', () => ({ default: { synth: { activeAudioContext } } }))
+vi.mock('abcjs', () => ({ default: { synth: { activeAudioContext, registerAudioContext } } }))
 
 /** Just the two fields audioClock reads off a real AudioContext. */
 function ctx(currentTime: number, latency: Partial<{ outputLatency: number; baseLatency: number }> = {}) {
@@ -34,6 +39,7 @@ function startTimeOf(timer: abcjs.TimingCallbacks): number | null {
 
 beforeEach(() => {
   activeAudioContext.mockReset()
+  registerAudioContext.mockReset()
   vi.spyOn(performance, 'now').mockReturnValue(10_000)
 })
 
@@ -246,16 +252,38 @@ describe('waitForAudioClock', () => {
    * A context whose clock only starts moving after `framesUntilRunning` reads — which is what a
    * real one does between being unsuspended and the output device finishing opening.
    */
-  function openingContext(framesUntilRunning: number, state: AudioContextState = 'running') {
+  function openingContext(
+    framesUntilRunning: number,
+    initialState: AudioContextState = 'running',
+    onResume?: (ctxObj: { state: AudioContextState }) => Promise<void>,
+  ) {
     let reads = 0
-    return {
-      state,
-      resume: vi.fn().mockResolvedValue(undefined),
+    const listeners = new Map<string, Set<() => void>>()
+    const ctxObj = {
+      state: initialState,
+      close: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn((event: string, fn: () => void) => {
+        if (!listeners.has(event)) listeners.set(event, new Set())
+        listeners.get(event)!.add(fn)
+      }),
+      emitState(next: AudioContextState) {
+        ctxObj.state = next
+        for (const fn of listeners.get('statechange') ?? []) fn()
+      },
+      resume: vi.fn(async () => {
+        if (onResume) return onResume(ctxObj)
+        ctxObj.state = 'running'
+      }),
       get currentTime() {
         reads++
         return reads > framesUntilRunning ? reads * 0.01 : 0
       },
-    } as unknown as AudioContext & { resume: ReturnType<typeof vi.fn> }
+    }
+    return ctxObj as unknown as AudioContext & {
+      resume: ReturnType<typeof vi.fn>
+      close: ReturnType<typeof vi.fn>
+      emitState: (next: AudioContextState) => void
+    }
   }
 
   /** performance.now advancing by `stepMs` per read, so a deadline can actually be reached. */
@@ -306,20 +334,162 @@ describe('waitForAudioClock', () => {
     expect(second.currentTime).toBe(0)
   })
 
-  it('costs nothing once the device has been seen running', async () => {
+  it('costs nothing on immediate follow-up plays while the context stays running', async () => {
     advancingClock(16)
-    activeAudioContext.mockReturnValue(openingContext(1))
+    const first = openingContext(1)
+    activeAudioContext.mockReturnValue(first)
     await waitForAudioClock()
+    expect(isAudioClockLive()).toBe(true)
 
-    const later = openingContext(Number.POSITIVE_INFINITY, 'suspended')
+    const later = openingContext(Number.POSITIVE_INFINITY, 'running')
     activeAudioContext.mockReturnValue(later)
     await waitForAudioClock()
 
     expect(later.resume).not.toHaveBeenCalled()
+    expect(later.currentTime).toBe(0)
+  })
+
+  it('re-resumes a context that becomes suspended after being seen running', async () => {
+    advancingClock(16)
+    const first = openingContext(1)
+    activeAudioContext.mockReturnValue(first)
+    await waitForAudioClock()
+
+    const later = openingContext(1, 'suspended')
+    activeAudioContext.mockReturnValue(later)
+    await waitForAudioClock()
+
+    expect(later.resume).toHaveBeenCalled()
+    expect(later.state).toBe('running')
+  })
+
+  it('invalidates confirmation on statechange away from running and on visibilitychange', async () => {
+    advancingClock(16)
+    const ctx = openingContext(1)
+    activeAudioContext.mockReturnValue(ctx)
+    await waitForAudioClock()
+    expect(isAudioClockLive()).toBe(true)
+
+    ctx.emitState('suspended')
+    expect(isAudioClockLive()).toBe(false)
+
+    // Re-confirm, then simulate tab going to background / foreground.
+    ;(ctx as { state: AudioContextState }).state = 'running'
+    await waitForAudioClock()
+    expect(isAudioClockLive()).toBe(true)
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(isAudioClockLive()).toBe(false)
+  })
+
+  it('re-verifies the clock after an idle period even if state stayed running', async () => {
+    let now = 100
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      now += 16
+      return now
+    })
+    const ctx = openingContext(1)
+    activeAudioContext.mockReturnValue(ctx)
+    await waitForAudioClock()
+    expect(isAudioClockLive()).toBe(true)
+
+    // Jump 20s into the future (past IDLE_REVERIFY_MS).
+    now += 20_000
+    expect(isAudioClockLive()).toBe(false)
   })
 
   it('does nothing when no context exists yet', async () => {
     activeAudioContext.mockReturnValue(undefined)
     await expect(waitForAudioClock()).resolves.toBeUndefined()
+  })
+})
+
+describe('ensureAudioContextReady', () => {
+  beforeEach(() => {
+    resetAudioClockConfirmation()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('resumes a suspended or interrupted AudioContext', async () => {
+    const suspended = {
+      state: 'suspended' as AudioContextState,
+      resume: vi.fn(async () => {
+        ;(suspended as { state: AudioContextState }).state = 'running'
+      }),
+    } as unknown as AudioContext
+    activeAudioContext.mockReturnValue(suspended)
+
+    await expect(ensureAudioContextReady()).resolves.toBe(true)
+    expect(suspended.resume).toHaveBeenCalledTimes(1)
+
+    const interrupted = {
+      state: 'interrupted' as unknown as AudioContextState,
+      resume: vi.fn(async () => {
+        ;(interrupted as { state: string }).state = 'running'
+      }),
+    } as unknown as AudioContext
+    activeAudioContext.mockReturnValue(interrupted)
+
+    await expect(ensureAudioContextReady()).resolves.toBe(true)
+    expect(interrupted.resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces a closed AudioContext with a fresh registered instance', async () => {
+    const closedCtx = { state: 'closed' } as unknown as AudioContext
+    const freshCtx = { state: 'running', resume: vi.fn().mockResolvedValue(undefined) }
+    class FakeAudioContext {
+      constructor() {
+        return freshCtx as unknown as FakeAudioContext
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+    activeAudioContext.mockReturnValue(closedCtx)
+
+    await expect(ensureAudioContextReady()).resolves.toBe(true)
+    expect(registerAudioContext).toHaveBeenCalledWith(freshCtx)
+  })
+
+  it('replaces a wedged AudioContext when resume() hangs past the timeout', async () => {
+    vi.useFakeTimers()
+    const wedgedCtx = {
+      state: 'suspended' as AudioContextState,
+      close: vi.fn().mockResolvedValue(undefined),
+      resume: vi.fn(() => new Promise<void>(() => {})),
+    } as unknown as AudioContext
+    const freshCtx = {
+      state: 'running' as AudioContextState,
+      resume: vi.fn().mockResolvedValue(undefined),
+    }
+    class FakeAudioContext {
+      constructor() {
+        return freshCtx as unknown as FakeAudioContext
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+    activeAudioContext.mockImplementation(() =>
+      registerAudioContext.mock.calls.length > 0 ? (freshCtx as unknown as AudioContext) : wedgedCtx,
+    )
+
+    const promise = ensureAudioContextReady(500)
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(promise).resolves.toBe(true)
+
+    expect(wedgedCtx.close).toHaveBeenCalled()
+    expect(registerAudioContext).toHaveBeenCalledWith(freshCtx)
+    vi.useRealTimers()
+  })
+
+  it('returns false without hanging when recovery fails', async () => {
+    const unrecoverable = {
+      state: 'suspended' as AudioContextState,
+      close: vi.fn().mockResolvedValue(undefined),
+      resume: vi.fn().mockRejectedValue(new Error('NotAllowedError')),
+    } as unknown as AudioContext
+    activeAudioContext.mockReturnValue(unrecoverable)
+
+    await expect(ensureAudioContextReady(200)).resolves.toBe(false)
   })
 })

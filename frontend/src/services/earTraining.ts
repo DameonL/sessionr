@@ -1,6 +1,6 @@
 import abcjs from 'abcjs'
 import { LETTER_PITCHES, getDefaultAlteration, parseKeyDetails, parseKeySignature } from './abcTools'
-import { waitForAudioClock } from './audioClock'
+import { ensureAudioContextReady, waitForAudioClock } from './audioClock'
 
 /**
  * Turns a tune's ABC into the material the ear trainer needs: an ordered
@@ -415,9 +415,10 @@ const PROMPT_VOLUME = 85
  * for half its requested length.
  */
 export function playTargetNote(midi: number, durationMs = 600, instrument = 110): Promise<void> {
-  return new Promise((resolve) => {
-    abcjs.synth
-      .playEvent(
+  return ensureAudioContextReady()
+    .then((ready) => {
+      if (!ready) return
+      return abcjs.synth.playEvent(
         [
           {
             pitch: midi,
@@ -431,9 +432,9 @@ export function playTargetNote(midi: number, durationMs = 600, instrument = 110)
         [],
         MS_PER_MEASURE,
       )
-      .then(() => resolve())
-      .catch(() => resolve())
-  })
+    })
+    .then(() => {})
+    .catch(() => {})
 }
 
 export interface NoteStep {
@@ -473,6 +474,11 @@ export async function playNoteSequence(
   steps: NoteStep[],
   instrument = 110,
 ): Promise<SequencePlayback> {
+  const ready = await ensureAudioContextReady()
+  if (!ready) {
+    throw new Error('AudioContext could not be resumed')
+  }
+
   const sequence = new abcjs.synth.SynthSequence()
   // addTrack returns the new track's index at runtime; the typings claim it returns the track.
   const track = sequence.addTrack() as unknown as number

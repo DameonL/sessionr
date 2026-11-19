@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import Link from '@/utils/routerCompat';
 import abcjs from "abcjs";
 import { INSTRUMENTS, loadInstruments, saveInstruments, synthInstrumentOptions } from "./instruments";
-import { anchorTimerToAudio, seekAndLatch, timerDriftMs, waitForAudioClock } from "../services/audioClock";
+import {
+  anchorTimerToAudio,
+  ensureAudioContextReady,
+  isAudioClockLive,
+  isAudioContextRunning,
+  seekAndLatch,
+  timerDriftMs,
+  waitForAudioClock,
+} from "../services/audioClock";
 import { prefersFlats, spellMidiNotes } from "../services/noteSpelling";
 import { showToast } from "../state/appState";
 import { AbcSourceView, type AbcCursorRange } from "./AbcSourceView";
@@ -814,12 +822,15 @@ export function SetPlayer({
     // path playMetronomeClick and playTargetNote use. Passing 1000 as the measure length makes
     // duration read straight through as seconds.
     const instrument = instrumentsRef.current.melody;
-    abcjs.synth
-      .playEvent(
-        pitches.map((pitch) => ({ pitch, volume: 90, start: 0, duration: CLICKED_NOTE_SEC, instrument, gap: 0 })),
-        [],
-        1000,
-      )
+    void ensureAudioContextReady()
+      .then((ready) => {
+        if (!ready) return;
+        return abcjs.synth.playEvent(
+          pitches.map((pitch) => ({ pitch, volume: 90, start: 0, duration: CLICKED_NOTE_SEC, instrument, gap: 0 })),
+          [],
+          1000,
+        );
+      })
       .catch(() => {});
 
     showNoteBadge(index, spellMidiNotes(pitches, prefersFlatsRef.current[index] ?? false), analysis.selectableElement);
@@ -1065,16 +1076,46 @@ export function SetPlayer({
     setStatus("paused");
   }
 
-  function resume() {
+  function startResumedVoices() {
     if (activeIndex === null) return;
-    forEachVoice(activeIndex, (v) => v.resume());
-    const timer = timerRef.current;
-    timer?.start();
-    setStatus("playing");
-    // The synth measured its pause point on the AudioContext clock and the timer measured its own
-    // on performance.now(), so without this the two disagree a little more after every pause.
-    const leader = voicesAt(activeIndex)[0];
-    if (timer && leader) anchorOnNextFrame(timer, leader);
+    try {
+      forEachVoice(activeIndex, (v) => v.resume());
+      const timer = timerRef.current;
+      timer?.start();
+      setStatus("playing");
+      // The synth measured its pause point on the AudioContext clock and the timer measured its own
+      // on performance.now(), so without this the two disagree a little more after every pause.
+      const leader = voicesAt(activeIndex)[0];
+      if (timer && leader) anchorOnNextFrame(timer, leader);
+    } catch {
+      stop(true);
+      setError("Audio unavailable — please try pressing Play again.");
+    }
+  }
+
+  async function resume() {
+    if (activeIndex === null) return;
+    primeMediaSession();
+    setError(null);
+    const audioReadyPromise = ensureAudioContextReady();
+    if (isAudioClockLive()) {
+      startResumedVoices();
+      return;
+    }
+    const mySession = playSessionRef.current;
+    const ready = await audioReadyPromise;
+    if (playSessionRef.current !== mySession || statusRef.current !== "paused") return;
+    if (!ready) {
+      setError("Audio playback was suspended by the browser. Please tap Play again.");
+      return;
+    }
+    await waitForAudioClock();
+    if (playSessionRef.current !== mySession || statusRef.current !== "paused") return;
+    if (!isAudioContextRunning()) {
+      setError("Audio playback was suspended by the browser. Please tap Play again.");
+      return;
+    }
+    startResumedVoices();
   }
 
   function markLoopPoint() {
@@ -1173,7 +1214,16 @@ export function SetPlayer({
     setActiveIndex(targetIndex);
     setActivePass(targetPass);
 
+    const audioReadyPromise = ensureAudioContextReady();
     const mySession = beginNewPlaySession();
+    const audioReady = await audioReadyPromise;
+    if (playSessionRef.current !== mySession) return;
+    if (!audioReady) {
+      stop(true);
+      setError("Audio playback was blocked or suspended by the browser. Please tap Play again.");
+      return;
+    }
+
     const result = await ensureTuneSynths(targetIndex, currentBpm, mySession);
     if (result === "stale") return;
     if (result === "failed") {
@@ -1361,8 +1411,10 @@ export function SetPlayer({
     if (!isReady) return;
     // Spends the user gesture now: the awaits below (soundfont loading) run long enough for the
     // browser to forget the activation, and without an audible media element the OS never routes
-    // headset or media-key presses back to us.
+    // headset or media-key presses back to us. Similarly, wake/resume AudioContext synchronously
+    // here before any await so Safari/mobile browsers don't lose activation or hang inside prime().
     primeMediaSession();
+    const audioReadyPromise = ensureAudioContextReady();
     /*
      * Read through the ref, not the `status` state.
      *
@@ -1383,6 +1435,13 @@ export function SetPlayer({
     }
     setError(null);
     try {
+      const audioReady = await audioReadyPromise;
+      if (playSessionRef.current !== mySession) return;
+      if (!audioReady) {
+        setError("Audio playback was blocked or suspended by the browser. Please tap Play again.");
+        return;
+      }
+
       const activeTrainer = trainerRef.current;
       const startingTrainer = Boolean(activeTrainer?.armed) && wasStopped && trainerPass === undefined;
       let effectiveBpm = targetBpmParam ?? currentBpm;
@@ -1445,7 +1504,9 @@ export function SetPlayer({
       const shouldCountIn = wasStopped && !keepPosition && trainerPass === undefined;
       startTune(targetIndex, effectiveBpm, targetPass, targetOffsetSec, true, true, shouldCountIn);
     } catch {
-      setError("Audio unavailable (soundfont could not be loaded).");
+      if (playSessionRef.current === mySession) {
+        setError("Audio unavailable (soundfont could not be loaded).");
+      }
     }
   }
 
@@ -1677,23 +1738,28 @@ export function SetPlayer({
       : 0;
 
     function beginPlayback() {
-      if (audioStartSec > 0) {
-        // start() below latches the leader's clock; the backers only ever get the seek, so they
-        // have to be latched here or their clocks describe a start they never made.
-        for (const v of voices) seekAndLatch(v, audioStartSec);
+      try {
+        if (audioStartSec > 0) {
+          // start() below latches the leader's clock; the backers only ever get the seek, so they
+          // have to be latched here or their clocks describe a start they never made.
+          for (const v of voices) seekAndLatch(v, audioStartSec);
+        }
+        synth.start();
+        if (audioStartSec === 0) {
+          startBackersStaggered(index, backers);
+        } else {
+          for (const backer of backers) backer.start();
+        }
+        armAudioLoop(index, voices, pass);
+        timer.start(staffStart);
+        // The cursor's zero would otherwise be whenever the first frame after all of the above lands
+        // — the React commit, the scrollIntoView, the SVG layout — leaving it that far behind the
+        // music for the rest of the tune. Anchoring to the audio clock makes the start delay moot.
+        anchorOnNextFrame(timer, synth);
+      } catch {
+        stop(true);
+        setError("Audio unavailable — please try pressing Play again.");
       }
-      synth.start();
-      if (audioStartSec === 0) {
-        startBackersStaggered(index, backers);
-      } else {
-        for (const backer of backers) backer.start();
-      }
-      armAudioLoop(index, voices, pass);
-      timer.start(staffStart);
-      // The cursor's zero would otherwise be whenever the first frame after all of the above lands
-      // — the React commit, the scrollIntoView, the SVG layout — leaving it that far behind the
-      // music for the rest of the tune. Anchoring to the audio clock makes the start delay moot.
-      anchorOnNextFrame(timer, synth);
     }
 
     /**
@@ -1808,10 +1874,15 @@ export function SetPlayer({
       requestAnimationFrame(() => {
         if (!stillCurrent()) return;
         updateVisualsForTime(absoluteSec(index, startPass, startOffsetSec));
-        // Waits for the output device to actually be rendering before making a sound. Resolves at
-        // once on every play after the first, so only the very first start ever pays for it.
+        // Waits for the output device to actually be rendering before making a sound. Re-verifies
+        // automatically if the context was suspended, interrupted, or idle.
         void waitForAudioClock().then(() => {
           if (!stillCurrent()) return;
+          if (!isAudioContextRunning()) {
+            stop(true);
+            setError("Audio playback was suspended by the browser. Please tap Play again.");
+            return;
+          }
           requestAnimationFrame(() => {
             if (!stillCurrent()) return;
             if (countInFirst) countInThenPlay(stillCurrent);
