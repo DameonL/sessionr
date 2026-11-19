@@ -14,11 +14,11 @@ import { NetworkStatusBanner } from './NetworkStatusBanner'
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard' },
-  { href: '/tunes', label: 'Tunes' },
-  { href: '/identify', label: 'Identify' },
   { href: '/repertoire', label: 'Repertoire' },
-  { href: '/sets', label: 'Set Builder' },
-  { href: '/practice', label: 'Practice Room' },
+  { href: '/sets', label: 'Sets' },
+  { href: '/tunes', label: 'Tunes' },
+  { href: '/practice', label: 'Practice' },
+  { href: '/identify', label: 'Identify' },
   { href: '/groups', label: 'Groups' },
 ]
 
