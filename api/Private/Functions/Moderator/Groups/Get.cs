@@ -14,7 +14,7 @@ namespace SessionApp.Api.Functions.Moderator.Groups;
 [RequireModerator]
 public class Get(AppDbContext db)
 {
-    /// <summary>GET /api/moderator/groups — fetch all groups (public and private).</summary>
+    /// <summary>GET /api/moderator/groups — fetch paged groups (public and private).</summary>
     [Function("GetModeratorGroups")]
     public async Task<IActionResult> GetModeratorGroups(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "moderator/groups")] HttpRequest req)
@@ -24,9 +24,20 @@ public class Get(AppDbContext db)
             return Forbidden("Moderator access required.");
         }
 
+        int.TryParse(req.Query["page"], out var page);
+        if (page < 1) page = 1;
+
+        int.TryParse(req.Query["pageSize"], out var pageSize);
+        if (pageSize < 1) pageSize = 50;
+        if (pageSize > 100) pageSize = 100;
+
+        var totalCount = await db.Groups.AsNoTracking().Select(g => g.GroupId).CosmosCountAsync();
+
         var groupEntities = await db.Groups
             .AsNoTracking()
             .OrderByDescending(g => g.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
 
         var groupIds = groupEntities.Select(g => g.GroupId).ToList();
@@ -56,6 +67,7 @@ public class Get(AppDbContext db)
                 memberCountsByGroup.TryGetValue(g.GroupId, out var c) ? c : 0))
             .ToList();
 
-        return new OkObjectResult(groups);
+        var hasMore = (page * pageSize) < totalCount;
+        return new OkObjectResult(new PagedResult<UnreviewedGroups.Get.ModeratorGroupDto>(groups, totalCount, page, pageSize, hasMore));
     }
 }

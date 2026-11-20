@@ -65,6 +65,10 @@ public class TheSessionDatasetCache(IHttpClientFactory httpClientFactory)
     private IReadOnlyList<TheSessionTuneGroup>? _cachedGroups;
     private DateTime _loadedAt = DateTime.MinValue;
 
+    private readonly SemaphoreSlim _unlinkedLock = new(1, 1);
+    private Dictionary<(string TitleLower, string KeyLower), Guid>? _unlinkedByTitleKey;
+    private DateTime _unlinkedLoadedAt = DateTime.MinValue;
+
     public async Task<IReadOnlyList<TheSessionTuneGroup>> GetOrLoadAsync(
         bool forceRefresh = false,
         string? sourceUrl = null,
@@ -98,6 +102,57 @@ public class TheSessionDatasetCache(IHttpClientFactory httpClientFactory)
         {
             _loadLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Caches a lightweight (TitleLower, KeyLower) -> TuneId lookup for tunes with TheSessionId == null
+    /// so chunked migration batches do not re-scan every unlinked Tune document on each 50-tune slice.
+    /// </summary>
+    public async Task<Dictionary<(string TitleLower, string KeyLower), Guid>> GetOrLoadUnlinkedTitleKeysAsync(
+        AppDbContext db,
+        bool forceRefresh = false,
+        CancellationToken ct = default)
+    {
+        if (!forceRefresh && _unlinkedByTitleKey is not null && DateTime.UtcNow - _unlinkedLoadedAt < CacheTtl)
+        {
+            return _unlinkedByTitleKey;
+        }
+
+        await _unlinkedLock.WaitAsync(ct);
+        try
+        {
+            if (!forceRefresh && _unlinkedByTitleKey is not null && DateTime.UtcNow - _unlinkedLoadedAt < CacheTtl)
+            {
+                return _unlinkedByTitleKey;
+            }
+
+            var unlinked = await db.Tunes
+                .AsNoTracking()
+                .Where(t => t.TheSessionId == null)
+                .Select(t => new { t.TuneId, t.Title, t.Key })
+                .ToListAsync(ct);
+
+            var map = new Dictionary<(string TitleLower, string KeyLower), Guid>();
+            foreach (var t in unlinked)
+            {
+                var key = TheSessionDataMigrationService.MakeTitleKey(
+                    TheSessionDataTransformer.NormalizeTitle(t.Title), t.Key);
+                map.TryAdd(key, t.TuneId);
+            }
+
+            _unlinkedByTitleKey = map;
+            _unlinkedLoadedAt = DateTime.UtcNow;
+            return _unlinkedByTitleKey;
+        }
+        finally
+        {
+            _unlinkedLock.Release();
+        }
+    }
+
+    public void RemoveUnlinkedEntry((string TitleLower, string KeyLower) key)
+    {
+        _unlinkedByTitleKey?.Remove(key);
     }
 }
 
@@ -257,8 +312,7 @@ public static partial class TheSessionDataTransformer
 public class TheSessionDataMigrationService(
     AppDbContext db,
     TheSessionDatasetCache datasetCache,
-    TuneHeuristics heuristics,
-    ICloudflareCachePurgeService purgeService)
+    TuneHeuristics heuristics)
 {
     public const int MaxBatchSize = 200;
     public const string MigrationReviewerName = "TheSessionMigration";
@@ -291,7 +345,8 @@ public class TheSessionDataMigrationService(
                 groups.Count, 0, 0, nextAfterTuneId, false, 0, 0, 0, 0, 0, []);
         }
 
-        var (bySessionId, unlinkedByTitleKey) = await LoadExistingMatchesForSliceAsync(slice, request.DryRun, ct);
+        var (bySessionId, unlinkedByTitleKey) = await LoadExistingMatchesForSliceAsync(
+            slice, request.DryRun, request.RefreshDataset, ct);
 
         // First pass: resolve which tunes in this slice already exist (by TheSessionId or fallback Title+Key).
         var matchedByTuneGroupId = new Dictionary<int, Tune>();
@@ -315,6 +370,7 @@ public class TheSessionDataMigrationService(
                 if (!request.DryRun)
                 {
                     unlinked.TheSessionId = group.TuneId;
+                    datasetCache.RemoveUnlinkedEntry(lookupKey);
                 }
                 matchedByTuneGroupId[group.TuneId] = unlinked;
                 tunesSkippedExisting++;
@@ -385,11 +441,6 @@ public class TheSessionDataMigrationService(
             {
                 await LibraryStatsSupport.MarkTunesChangedAsync(db);
             }
-
-            if (!hasMore)
-            {
-                await purgeService.PurgeAllTunesAsync(ct);
-            }
         }
 
         return new MigrateTheSessionBatchResult(
@@ -407,20 +458,17 @@ public class TheSessionDataMigrationService(
     }
 
     private async Task<(Dictionary<int, Tune> BySessionId, Dictionary<(string TitleLower, string KeyLower), Tune> UnlinkedByTitleKey)>
-        LoadExistingMatchesForSliceAsync(List<TheSessionTuneGroup> slice, bool dryRun, CancellationToken ct)
+        LoadExistingMatchesForSliceAsync(List<TheSessionTuneGroup> slice, bool dryRun, bool refreshDataset, CancellationToken ct)
     {
         var batchNullableIds = slice.Select(g => (int?)g.TuneId).ToList();
 
         var matchedQuery = db.Tunes.Where(t => batchNullableIds.Contains(t.TheSessionId));
-        var unlinkedQuery = db.Tunes.Where(t => t.TheSessionId == null);
         if (dryRun)
         {
             matchedQuery = matchedQuery.AsNoTracking();
-            unlinkedQuery = unlinkedQuery.AsNoTracking();
         }
 
         var matchedList = await matchedQuery.ToListAsync(ct);
-        var unlinkedList = await unlinkedQuery.ToListAsync(ct);
 
         var bySessionId = new Dictionary<int, Tune>();
         foreach (var t in matchedList)
@@ -431,11 +479,36 @@ public class TheSessionDataMigrationService(
             }
         }
 
-        var unlinkedByTitleKey = new Dictionary<(string TitleLower, string KeyLower), Tune>();
-        foreach (var t in unlinkedList)
+        var cachedUnlinkedMap = await datasetCache.GetOrLoadUnlinkedTitleKeysAsync(db, refreshDataset, ct);
+        var candidateTuneIds = new List<Guid>();
+        foreach (var group in slice)
         {
-            var key = MakeTitleKey(TheSessionDataTransformer.NormalizeTitle(t.Title), t.Key);
-            unlinkedByTitleKey.TryAdd(key, t);
+            if (bySessionId.ContainsKey(group.TuneId))
+            {
+                continue;
+            }
+            var lookupKey = MakeTitleKey(group.Title, group.Key);
+            if (cachedUnlinkedMap.TryGetValue(lookupKey, out var tuneId))
+            {
+                candidateTuneIds.Add(tuneId);
+            }
+        }
+
+        var unlinkedByTitleKey = new Dictionary<(string TitleLower, string KeyLower), Tune>();
+        if (candidateTuneIds.Count > 0)
+        {
+            var distinctIds = candidateTuneIds.Distinct().ToList();
+            var unlinkedQuery = db.Tunes.Where(t => distinctIds.Contains(t.TuneId) && t.TheSessionId == null);
+            if (dryRun)
+            {
+                unlinkedQuery = unlinkedQuery.AsNoTracking();
+            }
+            var unlinkedList = await unlinkedQuery.ToListAsync(ct);
+            foreach (var t in unlinkedList)
+            {
+                var key = MakeTitleKey(TheSessionDataTransformer.NormalizeTitle(t.Title), t.Key);
+                unlinkedByTitleKey.TryAdd(key, t);
+            }
         }
 
         return (bySessionId, unlinkedByTitleKey);
@@ -574,6 +647,6 @@ public class TheSessionDataMigrationService(
         }
     }
 
-    private static (string TitleLower, string KeyLower) MakeTitleKey(string? title, string? key) =>
+    internal static (string TitleLower, string KeyLower) MakeTitleKey(string? title, string? key) =>
         ((title ?? string.Empty).Trim().ToLowerInvariant(), (key ?? string.Empty).Trim().ToLowerInvariant());
 }

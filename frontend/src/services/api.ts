@@ -376,7 +376,11 @@ export const apiFetch = <T>(path: string, init?: RequestInit, opts?: { skipOffli
   doFetch<T>(API_BASE, path, init, false, opts)
 
 /** Calls the Public API (anonymous-friendly reads + community contributions). */
-export const apiFetchPublic = <T>(path: string, init?: RequestInit) => doFetch<T>(PUBLIC_API_BASE, path, init)
+export const apiFetchPublic = <T>(
+  path: string,
+  init?: RequestInit,
+  opts?: { skipOfflineQueue?: boolean; timeoutMs?: number },
+) => doFetch<T>(PUBLIC_API_BASE, path, init, false, opts)
 
 /**
  * Calls the Public API *with* the bearer token attached, for the few Public routes that
@@ -669,6 +673,9 @@ export const getFullRepertoire = async (): Promise<RepertoireItem[]> => {
   return items
 }
 
+/** Lightweight list of TuneIds currently in the user's repertoire. */
+export const getRepertoireTuneIds = () => apiFetch<string[]>('/repertoire/tune-ids')
+
 /** Lightweight full repertoire (no ABC), all pages — for ID/membership-only checks. */
 export const getFullRepertoireList = async (): Promise<RepertoireListItem[]> => {
   const items: RepertoireListItem[] = []
@@ -731,7 +738,11 @@ export interface TuneMatchResult {
 
 /** Identifies a tune from an ordered sequence of MIDI notes captured live (see tuneMatcher.ts). */
 export const matchTune = (notes: number[]) =>
-  apiFetchPublic<TuneMatchResult>('/tunes/match', { method: 'POST', body: JSON.stringify({ notes }) })
+  apiFetchPublic<TuneMatchResult>(
+    '/tunes/match',
+    { method: 'POST', body: JSON.stringify({ notes }) },
+    { skipOfflineQueue: true, timeoutMs: 45000 },
+  )
 
 export const voteTuneSetting = (settingId: string, value: number) =>
   apiFetch<{ voteScore: number }>(`/tunes/settings/${settingId}/vote`, {
@@ -1488,11 +1499,11 @@ export interface ModeratorUserDetails {
   tuneCount: number
 }
 
-export const getUnreviewedTunes = () =>
-  apiFetch<ModeratorTuneData[]>('/moderator/unreviewed-tunes')
+export const getUnreviewedTunes = (page = 1, pageSize = 25) =>
+  apiFetch<PagedResult<ModeratorTuneData>>(`/moderator/unreviewed-tunes?page=${page}&pageSize=${pageSize}`)
 
-export const getUnreviewedGroups = () =>
-  apiFetch<ModeratorGroupData[]>('/moderator/unreviewed-groups')
+export const getUnreviewedGroups = (page = 1, pageSize = 50) =>
+  apiFetch<PagedResult<ModeratorGroupData>>(`/moderator/unreviewed-groups?page=${page}&pageSize=${pageSize}`)
 
 export const approveTune = (tuneId: string) =>
   apiFetch<ModeratorTuneData>(`/moderator/tunes/${tuneId}/approve`, { method: 'POST' })
@@ -1512,8 +1523,8 @@ export const moderatorDeleteTuneSetting = (settingId: string) =>
 export const moderatorDeleteTuneAlias = (aliasId: string) =>
   apiFetch<void>(`/moderator/tunes/aliases/${aliasId}`, { method: 'DELETE' })
 
-export const getModeratorGroups = () =>
-  apiFetch<ModeratorGroupData[]>('/moderator/groups')
+export const getModeratorGroups = (page = 1, pageSize = 50) =>
+  apiFetch<PagedResult<ModeratorGroupData>>(`/moderator/groups?page=${page}&pageSize=${pageSize}`)
 
 export const getModeratorUserDetails = (userId: string) =>
   apiFetch<ModeratorUserDetails>(`/moderator/users/${userId}`)

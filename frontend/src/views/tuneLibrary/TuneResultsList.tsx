@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
-import { formatTuneType, getFullRepertoireList, type TuneSummary } from '../../services/api'
+import { formatTuneType, getRepertoireTuneIds, type TuneSummary } from '../../services/api'
 import { InfiniteScrollSentinel } from '../../components/InfiniteScrollSentinel'
 import { Spinner } from '../../components/Spinner'
 import { currentUserId, useSignal } from '../../state/appState'
@@ -31,14 +31,13 @@ export function TuneResultsList({
 
   // Browsing the library gave no hint which tunes you already have, so the only way to find out
   // was to open one. Same query as the group repertoire panel, so the two share a cache entry —
-  // and it pages to the end, because the API caps a page at 100 and a partial answer here would
-  // read as "not in your repertoire".
+  // fetching only the user's TuneId list in a single lightweight request.
   const repertoireQuery = useQuery({
-    queryKey: ['repertoire-list-full', userId],
-    queryFn: getFullRepertoireList,
+    queryKey: ['repertoire-tune-ids', userId],
+    queryFn: getRepertoireTuneIds,
     enabled: !!userId,
   })
-  const ownedTuneIds = new Set((repertoireQuery.data ?? []).map((i) => i.tuneId))
+  const ownedTuneIds = new Set(repertoireQuery.data ?? [])
 
   return (
     <>

@@ -357,10 +357,10 @@ public class SetCachePurgeTests
     }
 
     [Fact]
-    public async Task ModeratorTuneEdit_PurgesTheLibraryListAsWellAsTheTunesOwnPage()
+    public async Task ModeratorTuneEdit_PurgesTheTuneWithoutPrefixPurgingAllTunes()
     {
-        // The list and every search result carry the title too; purging only /api/tunes/{id} left
-        // the old title on show for the full edge TTL.
+        // Purging "/api/tunes" by prefix invalidates every "/api/tunes/{id}" detail page in the zone;
+        // list/search responses rely on a short s-maxage instead, so edits only purge the tune itself.
         using var db = SetCacheTestDb.Create();
         var userId = Guid.NewGuid();
         AddUser(db, userId);
@@ -381,7 +381,7 @@ public class SetCachePurgeTests
 
         Assert.IsType<OkObjectResult>(result);
         Assert.Contains($"/api/tunes/{tune.TuneId}", recorder.PurgedPaths);
-        Assert.Contains("/api/tunes", recorder.PurgedPaths);
+        Assert.DoesNotContain("/api/tunes", recorder.PurgedPaths);
     }
 
     [Fact]

@@ -23,7 +23,17 @@ namespace SessionApp.Api.Functions;
 public class PublicHttpCachingMiddleware : IFunctionsWorkerMiddleware
 {
     private const string PublicCacheControl = "public, max-age=0, must-revalidate, s-maxage=2592000";
+    private const string PublicListCacheControl = "public, max-age=0, must-revalidate, s-maxage=300";
     private const string PrivateCacheControl = "private, no-cache, must-revalidate";
+
+    public static string ResolvePublicCacheControl(PathString path)
+    {
+        var isTuneList = string.Equals(
+            path.Value?.TrimEnd('/'),
+            "/api/tunes",
+            StringComparison.OrdinalIgnoreCase);
+        return isTuneList ? PublicListCacheControl : PublicCacheControl;
+    }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
     {
@@ -53,7 +63,7 @@ public class PublicHttpCachingMiddleware : IFunctionsWorkerMiddleware
         }
         else
         {
-            response.Headers["Cache-Control"] = PublicCacheControl;
+            response.Headers["Cache-Control"] = ResolvePublicCacheControl(request.Path);
         }
 
         // Buffer response body stream to compute ETag

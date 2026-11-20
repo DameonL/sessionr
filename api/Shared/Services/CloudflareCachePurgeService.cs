@@ -17,7 +17,6 @@ public interface ICloudflareCachePurgeService
 {
     Task<CloudflarePurgeResult> PurgeUrlsAsync(IEnumerable<string> relativeOrAbsoluteUrls, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeTuneAsync(Guid tuneId, CancellationToken cancellationToken = default);
-    Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupDetailAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<CloudflarePurgeResult> PurgeGroupSetAsync(Guid groupSetId, Guid? groupId = null, CancellationToken cancellationToken = default);
@@ -116,11 +115,6 @@ public class CloudflareCachePurgeService : ICloudflareCachePurgeService
         {
             $"/api/tunes/{tuneId}"
         }, cancellationToken);
-    }
-
-    public Task<CloudflarePurgeResult> PurgeAllTunesAsync(CancellationToken cancellationToken = default)
-    {
-        return PurgeUrlsAsync(new[] { "/api/tunes" }, cancellationToken);
     }
 
     public Task<CloudflarePurgeResult> PurgeGroupAsync(Guid groupId, CancellationToken cancellationToken = default)

@@ -201,6 +201,20 @@ public class MelodyFingerprintTests
     }
 
     [Fact]
+    public void LocalAlign_ConsolidatesThreeIntervalRollIntoASingleCandidateStep()
+    {
+        // Exercises the max k=3 lookback row in the rolling ring buffer (OrnamentConsolidationMax = 3).
+        int[] candidate = [2, 2, 1, 2, 2];
+        int[] rolled = [2, 2, 4, -2, -1, 2, 2]; // 4 + (-2) + (-1) = 1
+
+        var clean = MelodyFingerprint.LocalAlign(candidate, candidate);
+        var result = MelodyFingerprint.LocalAlign(rolled, candidate);
+
+        Assert.Equal(clean.Score, result.Score);
+        Assert.Equal(rolled.Length, result.MatchedLength);
+    }
+
+    [Fact]
     public void LocalAlign_DoesNotGiveFreeCreditToNotesThatDoNotSumToTheCandidateInterval()
     {
         // Same shape as the ornament case, but the two inserted intervals (7, 7) sum to 14 —

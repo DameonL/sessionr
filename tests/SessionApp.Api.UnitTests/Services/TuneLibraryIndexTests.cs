@@ -196,4 +196,21 @@ public class TuneLibraryIndexTests : IDisposable
         Assert.True(paged.HasMore);
         Assert.Equal(["Tune 4", "Tune 3"], paged.Items.Select(t => t.Title));
     }
+
+    [Fact]
+    public async Task SearchAsync_CanceledCallerDoesNotAbortSharedColdRebuild()
+    {
+        AddTune("Cooley's", repertoireCount: 10);
+        var index = NewIndex();
+
+        using var cts = new System.Threading.CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            index.SearchAsync(null, null, null, "popular", 1, 20, cts.Token));
+
+        var healthy = await index.SearchAsync(null, null, null, "popular", 1, 20, TestContext.Current.CancellationToken);
+        Assert.Single(healthy.Items);
+        Assert.Equal("Cooley's", healthy.Items[0].Title);
+    }
 }

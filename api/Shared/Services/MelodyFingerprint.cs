@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -322,111 +323,131 @@ public static class MelodyFingerprint
     /// Gotoh's three-matrix formulation). Local — not global — alignment is what
     /// makes this work for a short excerpt of a longer, possibly multi-part tune:
     /// the unmatched head/tail of the candidate isn't penalized.
+    ///
+    /// Uses a 4-row rolling ring buffer for H/hLen (OrnamentConsolidationMax + 1)
+    /// and a 1-row E buffer rented from <see cref="ArrayPool{T}"/> instead of six
+    /// full 2D matrices, avoiding multi-megabyte GC churn per match request.
     /// </summary>
     public static AlignmentResult LocalAlign(int[] query, int[] candidate)
     {
         if (query.Length == 0 || candidate.Length == 0) return new AlignmentResult(0, 0);
 
+        const int ringRows = OrnamentConsolidationMax + 1;
         var rows = query.Length + 1;
         var cols = candidate.Length + 1;
+        var ringSize = ringRows * cols;
 
-        // H = best score ending in a match/mismatch (or a fresh restart at 0).
-        // E = best score ending in a gap against the candidate (query note with
-        //     no counterpart yet); F = best score ending in a gap against the
-        //     query (candidate note with no counterpart yet).
-        var h = new int[rows, cols];
-        var e = new int[rows, cols];
-        var f = new int[rows, cols];
-        // Length of the alignment ending at each cell for each matrix, tracked
-        // alongside the score so the winning cell's matched span can be
-        // reported without a full traceback.
-        var hLen = new int[rows, cols];
-        var eLen = new int[rows, cols];
-        var fLen = new int[rows, cols];
+        var pool = ArrayPool<int>.Shared;
+        var h = pool.Rent(ringSize);
+        var hLen = pool.Rent(ringSize);
+        var e = pool.Rent(cols);
+        var eLen = pool.Rent(cols);
 
-        // Row/col 0 represent "no notes consumed yet" — a gap can't already be
-        // open there, so extending from it must never look cheaper than opening
-        // a fresh one.
-        const int negInf = int.MinValue / 4;
-        for (var j = 0; j < cols; j++) e[0, j] = negInf;
-        for (var i = 0; i < rows; i++) f[i, 0] = negInf;
-
-        var bestScore = 0;
-        var bestLen = 0;
-
-        for (var i = 1; i < rows; i++)
+        try
         {
-            for (var j = 1; j < cols; j++)
+            Array.Clear(h, 0, ringSize);
+            Array.Clear(hLen, 0, ringSize);
+
+            // Row/col 0 represent "no notes consumed yet" — a gap can't already be
+            // open there, so extending from it must never look cheaper than opening
+            // a fresh one.
+            const int negInf = int.MinValue / 4;
+            Array.Fill(e, negInf, 0, cols);
+            Array.Clear(eLen, 0, cols);
+
+            var bestScore = 0;
+            var bestLen = 0;
+
+            for (var i = 1; i < rows; i++)
             {
-                var eOpen = h[i - 1, j] + GapOpenScore;
-                var eExtend = e[i - 1, j] + GapExtendScore;
-                if (eOpen >= eExtend)
+                var curRow = (i % ringRows) * cols;
+                var prevRow = ((i - 1) % ringRows) * cols;
+                h[curRow] = 0;
+                hLen[curRow] = 0;
+
+                var fVal = negInf;
+                var fLenVal = 0;
+
+                for (var j = 1; j < cols; j++)
                 {
-                    e[i, j] = eOpen;
-                    eLen[i, j] = hLen[i - 1, j] + 1;
-                }
-                else
-                {
-                    e[i, j] = eExtend;
-                    eLen[i, j] = eLen[i - 1, j] + 1;
-                }
+                    var eOpen = h[prevRow + j] + GapOpenScore;
+                    var eExtend = e[j] + GapExtendScore;
+                    if (eOpen >= eExtend)
+                    {
+                        e[j] = eOpen;
+                        eLen[j] = hLen[prevRow + j] + 1;
+                    }
+                    else
+                    {
+                        e[j] = eExtend;
+                        eLen[j] = eLen[j] + 1;
+                    }
 
-                var fOpen = h[i, j - 1] + GapOpenScore;
-                var fExtend = f[i, j - 1] + GapExtendScore;
-                if (fOpen >= fExtend)
-                {
-                    f[i, j] = fOpen;
-                    fLen[i, j] = hLen[i, j - 1] + 1;
-                }
-                else
-                {
-                    f[i, j] = fExtend;
-                    fLen[i, j] = fLen[i, j - 1] + 1;
-                }
+                    var fOpen = h[curRow + j - 1] + GapOpenScore;
+                    var fExtend = fVal + GapExtendScore;
+                    if (fOpen >= fExtend)
+                    {
+                        fVal = fOpen;
+                        fLenVal = hLen[curRow + j - 1] + 1;
+                    }
+                    else
+                    {
+                        fVal = fExtend;
+                        fLenVal++;
+                    }
 
-                var delta = Math.Abs(query[i - 1] - candidate[j - 1]);
-                var subScore = delta == 0 ? ExactMatchScore
-                    : delta == 12 || delta == 24 ? OctaveErrorScore
-                    : delta == 1 ? NearMissScore
-                    : MismatchScore;
-                var diag = h[i - 1, j - 1] + subScore;
+                    var delta = Math.Abs(query[i - 1] - candidate[j - 1]);
+                    var subScore = delta == 0 ? ExactMatchScore
+                        : delta == 12 || delta == 24 ? OctaveErrorScore
+                        : delta == 1 ? NearMissScore
+                        : MismatchScore;
+                    var diag = h[prevRow + j - 1] + subScore;
 
-                var best = 0;
-                var bestCellLen = 0;
-                if (diag > best) { best = diag; bestCellLen = hLen[i - 1, j - 1] + 1; }
-                if (e[i, j] > best) { best = e[i, j]; bestCellLen = eLen[i, j]; }
-                if (f[i, j] > best) { best = f[i, j]; bestCellLen = fLen[i, j]; }
+                    var best = 0;
+                    var bestCellLen = 0;
+                    if (diag > best) { best = diag; bestCellLen = hLen[prevRow + j - 1] + 1; }
+                    if (e[j] > best) { best = e[j]; bestCellLen = eLen[j]; }
+                    if (fVal > best) { best = fVal; bestCellLen = fLenVal; }
 
-                // Ornament consolidation: k consecutive query notes (an
-                // articulated roll/cut/treble with no fingerprint counterpart)
-                // collapsing into the single candidate interval at j, scored
-                // like a normal match/octave step instead of k gap penalties.
-                var ornamentSum = query[i - 1];
-                for (var k = 2; k <= OrnamentConsolidationMax && i - k >= 0; k++)
-                {
-                    ornamentSum += query[i - k];
-                    var ornamentDelta = ornamentSum - candidate[j - 1];
-                    var ornamentScore = ornamentDelta == 0 ? ExactMatchScore
-                        : Math.Abs(ornamentDelta) == 12 || Math.Abs(ornamentDelta) == 24 ? OctaveErrorScore
-                        : (int?)null;
-                    if (ornamentScore is null) continue;
+                    // Ornament consolidation: k consecutive query notes (an
+                    // articulated roll/cut/treble with no fingerprint counterpart)
+                    // collapsing into the single candidate interval at j, scored
+                    // like a normal match/octave step instead of k gap penalties.
+                    var ornamentSum = query[i - 1];
+                    for (var k = 2; k <= OrnamentConsolidationMax && i - k >= 0; k++)
+                    {
+                        ornamentSum += query[i - k];
+                        var ornamentDelta = ornamentSum - candidate[j - 1];
+                        var ornamentScore = ornamentDelta == 0 ? ExactMatchScore
+                            : Math.Abs(ornamentDelta) == 12 || Math.Abs(ornamentDelta) == 24 ? OctaveErrorScore
+                            : (int?)null;
+                        if (ornamentScore is null) continue;
 
-                    var ornamentVal = h[i - k, j - 1] + ornamentScore.Value;
-                    if (ornamentVal > best) { best = ornamentVal; bestCellLen = hLen[i - k, j - 1] + k; }
-                }
+                        var kRow = ((i - k) % ringRows) * cols;
+                        var ornamentVal = h[kRow + j - 1] + ornamentScore.Value;
+                        if (ornamentVal > best) { best = ornamentVal; bestCellLen = hLen[kRow + j - 1] + k; }
+                    }
 
-                h[i, j] = best;
-                hLen[i, j] = best == 0 ? 0 : bestCellLen;
+                    h[curRow + j] = best;
+                    hLen[curRow + j] = best == 0 ? 0 : bestCellLen;
 
-                if (best > bestScore)
-                {
-                    bestScore = best;
-                    bestLen = bestCellLen;
+                    if (best > bestScore)
+                    {
+                        bestScore = best;
+                        bestLen = bestCellLen;
+                    }
                 }
             }
-        }
 
-        return new AlignmentResult(bestScore, bestLen);
+            return new AlignmentResult(bestScore, bestLen);
+        }
+        finally
+        {
+            pool.Return(h);
+            pool.Return(hLen);
+            pool.Return(e);
+            pool.Return(eLen);
+        }
     }
 
     /// <summary>

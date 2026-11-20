@@ -18,7 +18,7 @@ namespace SessionApp.Api.Services;
 /// </summary>
 internal sealed class LibraryChangeStampChecker(IServiceScopeFactory scopeFactory, string callerName)
 {
-    private static readonly TimeSpan StampCheckInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan StampCheckInterval = TimeSpan.FromSeconds(30);
     private DateTime _lastStampCheck = DateTime.MinValue;
 
     public async Task<bool> HasChangedSinceAsync(DateTime builtAt, CancellationToken ct)
@@ -73,11 +73,14 @@ public class TuneLibraryIndex(IServiceScopeFactory scopeFactory)
         IReadOnlyList<IndexEntry> ByNewest,
         DateTime BuiltAt);
 
-    // Shorter than TuneMatchIndex's 30-minute TTL because RepertoireCount updates from
-    // AddToRepertoire/RemoveRepertoireItem deliberately do not stamp LibraryStats.TunesChangedAt.
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(5);
+    // Longer background TTL for RepertoireCount updates because AddToRepertoire/RemoveRepertoireItem
+    // deliberately do not stamp LibraryStats.TunesChangedAt; structural tune edits still invalidate
+    // via LibraryStats.TunesChangedAt within StampCheckInterval.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan RebuildTimeout = TimeSpan.FromSeconds(120);
 
-    private readonly SemaphoreSlim _rebuildLock = new(1, 1);
+    private readonly object _rebuildGate = new();
+    private Task? _inflightRebuild;
     private readonly LibraryChangeStampChecker _stampChecker = new(scopeFactory, nameof(TuneLibraryIndex));
     private volatile Snapshot _snapshot = new([], [], [], DateTime.MinValue);
 
@@ -181,92 +184,126 @@ public class TuneLibraryIndex(IServiceScopeFactory scopeFactory)
         }
     }
 
+    /// <summary>
+    /// Shares one in-flight rebuild task across concurrent callers and decouples the DB queries
+    /// from any single caller's <see cref="CancellationToken"/> so a client timeout cannot abort
+    /// a cold rebuild mid-flight and strand subsequent requests.
+    /// </summary>
     private async Task RebuildAsync(CancellationToken ct, bool force)
     {
-        await _rebuildLock.WaitAsync(ct);
+        Task rebuildTask;
+        lock (_rebuildGate)
+        {
+            if (_inflightRebuild is { IsCompleted: false } existing)
+            {
+                rebuildTask = existing;
+            }
+            else
+            {
+                var current = _snapshot;
+                if (!force && current.BuiltAt != DateTime.MinValue && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
+                {
+                    return;
+                }
+
+                rebuildTask = Task.Run(ExecuteRebuildAndClearAsync);
+                _inflightRebuild = rebuildTask;
+            }
+        }
+
+        await rebuildTask.WaitAsync(ct);
+    }
+
+    private async Task ExecuteRebuildAndClearAsync()
+    {
         try
         {
-            var current = _snapshot;
-            if (!force && current.BuiltAt != DateTime.MinValue && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
-            {
-                return;
-            }
-
-            using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            // Project only browse/search metadata and cast numeric/date fields added after initial
-            // launch to nullable so Cosmos's projection shaper doesn't throw "Nullable object must
-            // have a value" on legacy schemaless documents while skipping MasterAbcText and fingerprints.
-            var rawTunes = await db.Tunes
-                .AsNoTracking()
-                .Select(t => new
-                {
-                    t.TuneId,
-                    t.Title,
-                    t.TuneType,
-                    t.Key,
-                    RepertoireCount = (int?)t.RepertoireCount,
-                    Difficulty = (int?)t.Difficulty,
-                    CreatedAt = (DateTime?)t.CreatedAt,
-                })
-                .ToListAsync(ct);
-
-            var rawAliases = await db.TuneAliases
-                .AsNoTracking()
-                .Select(a => new { a.TuneId, a.Name })
-                .ToListAsync(ct);
-
-            var aliasesByTuneId = new Dictionary<Guid, List<string>>();
-            foreach (var a in rawAliases)
-            {
-                if (string.IsNullOrWhiteSpace(a.Name)) continue;
-                if (!aliasesByTuneId.TryGetValue(a.TuneId, out var list))
-                {
-                    list = [];
-                    aliasesByTuneId[a.TuneId] = list;
-                }
-                list.Add(a.Name);
-            }
-
-            var entries = new List<IndexEntry>(rawTunes.Count);
-            foreach (var t in rawTunes)
-            {
-                var title = t.Title ?? string.Empty;
-                var aliases = aliasesByTuneId.TryGetValue(t.TuneId, out var aliasList)
-                    ? aliasList.ToArray()
-                    : [];
-
-                entries.Add(new IndexEntry(
-                    t.TuneId,
-                    title,
-                    TitleSort.Key(title),
-                    t.TuneType,
-                    t.TuneType.ToString(),
-                    t.Key ?? string.Empty,
-                    t.RepertoireCount ?? 0,
-                    t.Difficulty ?? 0,
-                    t.CreatedAt ?? DateTime.MinValue,
-                    aliases));
-            }
-
-            var byTitle = entries
-                .OrderBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var byPopular = entries
-                .OrderByDescending(e => e.RepertoireCount)
-                .ThenBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var byNewest = entries
-                .OrderByDescending(e => e.CreatedAt)
-                .ThenBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            _snapshot = new Snapshot(byTitle, byPopular, byNewest, DateTime.UtcNow);
+            await ExecuteRebuildAsync();
         }
         finally
         {
-            _rebuildLock.Release();
+            lock (_rebuildGate)
+            {
+                _inflightRebuild = null;
+            }
         }
+    }
+
+    private async Task ExecuteRebuildAsync()
+    {
+        using var timeoutCts = new CancellationTokenSource(RebuildTimeout);
+        var rebuildCt = timeoutCts.Token;
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Project only browse/search metadata and cast numeric/date fields added after initial
+        // launch to nullable so Cosmos's projection shaper doesn't throw "Nullable object must
+        // have a value" on legacy schemaless documents while skipping MasterAbcText and fingerprints.
+        var rawTunes = await db.Tunes
+            .AsNoTracking()
+            .Select(t => new
+            {
+                t.TuneId,
+                t.Title,
+                t.TuneType,
+                t.Key,
+                RepertoireCount = (int?)t.RepertoireCount,
+                Difficulty = (int?)t.Difficulty,
+                CreatedAt = (DateTime?)t.CreatedAt,
+            })
+            .ToListAsync(rebuildCt);
+
+        var rawAliases = await db.TuneAliases
+            .AsNoTracking()
+            .Select(a => new { a.TuneId, a.Name })
+            .ToListAsync(rebuildCt);
+
+        var aliasesByTuneId = new Dictionary<Guid, List<string>>();
+        foreach (var a in rawAliases)
+        {
+            if (string.IsNullOrWhiteSpace(a.Name)) continue;
+            if (!aliasesByTuneId.TryGetValue(a.TuneId, out var list))
+            {
+                list = [];
+                aliasesByTuneId[a.TuneId] = list;
+            }
+            list.Add(a.Name);
+        }
+
+        var entries = new List<IndexEntry>(rawTunes.Count);
+        foreach (var t in rawTunes)
+        {
+            var title = t.Title ?? string.Empty;
+            var aliases = aliasesByTuneId.TryGetValue(t.TuneId, out var aliasList)
+                ? aliasList.ToArray()
+                : [];
+
+            entries.Add(new IndexEntry(
+                t.TuneId,
+                title,
+                TitleSort.Key(title),
+                t.TuneType,
+                t.TuneType.ToString(),
+                t.Key ?? string.Empty,
+                t.RepertoireCount ?? 0,
+                t.Difficulty ?? 0,
+                t.CreatedAt ?? DateTime.MinValue,
+                aliases));
+        }
+
+        var byTitle = entries
+            .OrderBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var byPopular = entries
+            .OrderByDescending(e => e.RepertoireCount)
+            .ThenBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var byNewest = entries
+            .OrderByDescending(e => e.CreatedAt)
+            .ThenBy(e => e.TitleSortKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _snapshot = new Snapshot(byTitle, byPopular, byNewest, DateTime.UtcNow);
     }
 }

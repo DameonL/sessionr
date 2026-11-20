@@ -32,27 +32,36 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         string Key, int Difficulty, int[] Intervals, double[]? PitchClassProfile);
 
     /// <summary>
-    /// Entries and their shingle index are always read and replaced together
-    /// as one immutable unit. They used to be two separate fields swapped by
-    /// two separate statements at the end of a rebuild — a concurrent reader
-    /// landing between those two writes could see a new entry list paired
-    /// with a stale shingle index (or vice versa), risking a wrong-tune match
-    /// or an out-of-range lookup. Bundling them here makes that impossible:
-    /// a reference write is atomic, so any reader sees either the fully-old
-    /// or fully-new pair, never a mix.
+    /// Entries and their shingle indexes are always read and replaced together
+    /// as one immutable unit so concurrent readers never see mismatched pairs.
     /// </summary>
-    private sealed record Snapshot(IReadOnlyList<IndexEntry> Entries, Dictionary<long, List<int>> ShingleIndex, DateTime BuiltAt);
+    private sealed record Snapshot(
+        IReadOnlyList<IndexEntry> Entries,
+        Dictionary<long, List<int>> ShingleIndex,
+        Dictionary<long, List<int>> FallbackShingleIndex,
+        DateTime BuiltAt);
 
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan RebuildTimeout = TimeSpan.FromSeconds(120);
     private const int ShingleLength = 5;
+    private const int ShingleLengthFallback = 3;
     private const int MaxShortlist = 150;
+    private const int MaxFallbackShortlist = 300;
     private const int FullSweepThreshold = 200;
 
-    private readonly SemaphoreSlim _rebuildLock = new(1, 1);
+    private readonly object _rebuildGate = new();
+    private Task? _inflightRebuild;
     private readonly LibraryChangeStampChecker _stampChecker = new(scopeFactory, nameof(TuneMatchIndex));
     // volatile so a rebuild published on one thread is visible to readers on
     // another without them needing to take a lock.
-    private volatile Snapshot _snapshot = new([], new Dictionary<long, List<int>>(), DateTime.MinValue);
+    private volatile Snapshot _snapshot = new(
+        [],
+        new Dictionary<long, List<int>>(),
+        new Dictionary<long, List<int>>(),
+        DateTime.MinValue);
+
+    /// <summary>Warms the index if cold or stale. Used by host startup background warmup.</summary>
+    public Task WarmupAsync(CancellationToken ct = default) => EnsureFreshAsync(ct);
 
     /// <summary>Rebuilds the index now, regardless of the TTL. Used by the moderator refresh endpoint.</summary>
     public Task ForceRefreshAsync(CancellationToken ct = default) => RebuildAsync(ct, force: true);
@@ -75,7 +84,7 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
             return [];
         }
 
-        var shortlist = BuildShortlist(snapshot, queryIntervals);
+        var shortlist = BuildShortlist(snapshot, queryIntervals, queryPitchClasses);
 
         var scored = shortlist
             // Tiled so a query spanning more than one pass of a short tune can align
@@ -101,40 +110,75 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         return scored;
     }
 
-    private static IEnumerable<IndexEntry> BuildShortlist(Snapshot snapshot, int[] queryIntervals)
+    private static IEnumerable<IndexEntry> BuildShortlist(
+        Snapshot snapshot,
+        int[] queryIntervals,
+        double[]? queryPitchClasses)
     {
-        if (snapshot.Entries.Count <= FullSweepThreshold || queryIntervals.Length < ShingleLength)
+        if (snapshot.Entries.Count <= FullSweepThreshold)
         {
             return snapshot.Entries;
         }
 
-        var votes = new Dictionary<int, int>();
-        foreach (var hash in MelodyFingerprint.Shingles(queryIntervals, ShingleLength))
+        if (queryIntervals.Length >= ShingleLength)
         {
-            if (!snapshot.ShingleIndex.TryGetValue(hash, out var indices)) continue;
+            var votes = VoteByShingles(snapshot.ShingleIndex, queryIntervals, ShingleLength);
+            if (votes.Count > 0)
+            {
+                return TopVotedEntries(snapshot.Entries, votes, MaxShortlist);
+            }
+        }
+
+        if (queryIntervals.Length >= ShingleLengthFallback)
+        {
+            var fallbackVotes = VoteByShingles(snapshot.FallbackShingleIndex, queryIntervals, ShingleLengthFallback);
+            if (fallbackVotes.Count > 0)
+            {
+                return TopVotedEntries(snapshot.Entries, fallbackVotes, MaxShortlist);
+            }
+        }
+
+        if (queryPitchClasses is not null)
+        {
+            return snapshot.Entries
+                .Where(e => e.PitchClassProfile is not null)
+                .OrderByDescending(e => MelodyFingerprint.PitchClassSimilarity(queryPitchClasses, e.PitchClassProfile!))
+                .Take(MaxFallbackShortlist);
+        }
+
+        return snapshot.Entries.Take(MaxFallbackShortlist);
+    }
+
+    private static Dictionary<int, int> VoteByShingles(
+        Dictionary<long, List<int>> index,
+        int[] queryIntervals,
+        int shingleLength)
+    {
+        var votes = new Dictionary<int, int>();
+        foreach (var hash in MelodyFingerprint.Shingles(queryIntervals, shingleLength))
+        {
+            if (!index.TryGetValue(hash, out var indices)) continue;
             foreach (var idx in indices)
             {
                 votes[idx] = votes.GetValueOrDefault(idx) + 1;
             }
         }
-
-        if (votes.Count == 0)
-        {
-            // No shingle overlap at all — fall back to a full sweep rather than
-            // returning nothing (a noisy query might not share a single 5-gram).
-            return snapshot.Entries;
-        }
-
-        return votes
-            .OrderByDescending(kv => kv.Value)
-            .Take(MaxShortlist)
-            .Select(kv => snapshot.Entries[kv.Key]);
+        return votes;
     }
+
+    private static IEnumerable<IndexEntry> TopVotedEntries(
+        IReadOnlyList<IndexEntry> entries,
+        Dictionary<int, int> votes,
+        int limit) =>
+        votes
+            .OrderByDescending(kv => kv.Value)
+            .Take(limit)
+            .Select(kv => entries[kv.Key]);
 
     private async Task EnsureFreshAsync(CancellationToken ct)
     {
         var snapshot = _snapshot;
-        if (snapshot.Entries.Count == 0 || DateTime.UtcNow - snapshot.BuiltAt >= RefreshInterval)
+        if (snapshot.BuiltAt == DateTime.MinValue || DateTime.UtcNow - snapshot.BuiltAt >= RefreshInterval)
         {
             await RebuildAsync(ct, force: false);
             return;
@@ -151,88 +195,155 @@ public class TuneMatchIndex(IServiceScopeFactory scopeFactory)
         }
     }
 
-    /// <param name="force">
-    /// Skips the "someone else just rebuilt" short-circuit. A TTL-driven rebuild wants that
-    /// short-circuit — several requests arriving on a cold index should produce one rebuild, not
-    /// one each. An explicit refresh must not take it: the caller is asking precisely because the
-    /// library changed underneath a snapshot that is still, by the clock, perfectly fresh.
-    /// </param>
+    /// <summary>
+    /// Shares one in-flight rebuild task across concurrent callers and decouples the DB queries
+    /// from any single caller's <see cref="CancellationToken"/> so a client timeout cannot abort
+    /// a cold rebuild mid-flight and strand subsequent requests with an empty snapshot.
+    /// </summary>
     private async Task RebuildAsync(CancellationToken ct, bool force)
     {
-        await _rebuildLock.WaitAsync(ct);
+        Task rebuildTask;
+        lock (_rebuildGate)
+        {
+            if (_inflightRebuild is { IsCompleted: false } existing)
+            {
+                rebuildTask = existing;
+            }
+            else
+            {
+                var current = _snapshot;
+                if (!force && current.BuiltAt != DateTime.MinValue && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
+                {
+                    return;
+                }
+
+                rebuildTask = ExecuteRebuildAndClearAsync();
+                _inflightRebuild = rebuildTask;
+            }
+        }
+
+        await rebuildTask.WaitAsync(ct);
+    }
+
+    private async Task ExecuteRebuildAndClearAsync()
+    {
         try
         {
-            // Another caller may have just finished a rebuild while we waited.
-            var current = _snapshot;
-            if (!force && current.Entries.Count > 0 && DateTime.UtcNow - current.BuiltAt < RefreshInterval)
-            {
-                return;
-            }
-
-            using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            // Materialize full entities rather than projecting the handful of fields we need:
-            // tune documents created before Difficulty existed on the model don't carry that
-            // property in Cosmos (schemaless), and the Cosmos provider's projection shaper throws
-            // "Nullable object must have a value" reading a missing property into a non-nullable
-            // int. Plain entity materialization defaults missing properties instead. Same reason
-            // Public/Functions/Tunes/Get.cs materializes before building its DTOs — don't turn
-            // either back into a projection for the RU saving.
-            var tunes = await db.Tunes.AsNoTracking().ToListAsync(ct);
-            var settings = await db.TuneSettings.AsNoTracking().ToListAsync(ct);
-
-            // Last-wins rather than ToDictionary: a duplicate TuneId across Cosmos partitions is
-            // a data anomaly, not a reason to leave the whole endpoint without an index.
-            var tuneById = new Dictionary<Guid, Tune>();
-            foreach (var t in tunes)
-            {
-                tuneById[t.TuneId] = t;
-            }
-
-            var entries = new List<IndexEntry>();
-
-            foreach (var t in tunes)
-            {
-                var intervals = MelodyFingerprint.ParseIntervalString(t.FingerprintIntervals);
-                if (intervals.Length == 0) continue;
-                entries.Add(new IndexEntry(
-                    t.TuneId, null, t.Title ?? string.Empty, t.TuneType.ToString(),
-                    t.Key ?? string.Empty, t.Difficulty, intervals,
-                    MelodyFingerprint.ParsePitchClassProfile(t.PitchClassProfile)));
-            }
-
-            foreach (var s in settings)
-            {
-                if (!tuneById.TryGetValue(s.TuneId, out var tune)) continue;
-                var intervals = MelodyFingerprint.ParseIntervalString(s.FingerprintIntervals);
-                if (intervals.Length == 0) continue;
-                entries.Add(new IndexEntry(
-                    s.TuneId, s.TuneSettingId, tune.Title ?? string.Empty, tune.TuneType.ToString(),
-                    s.Key ?? string.Empty, tune.Difficulty, intervals,
-                    MelodyFingerprint.ParsePitchClassProfile(s.PitchClassProfile)));
-            }
-
-            var shingleIndex = new Dictionary<long, List<int>>();
-            for (var i = 0; i < entries.Count; i++)
-            {
-                foreach (var hash in MelodyFingerprint.Shingles(entries[i].Intervals, ShingleLength))
-                {
-                    if (!shingleIndex.TryGetValue(hash, out var list))
-                    {
-                        list = [];
-                        shingleIndex[hash] = list;
-                    }
-                    list.Add(i);
-                }
-            }
-
-            // Single atomic swap: readers always see a matched Entries/ShingleIndex pair.
-            _snapshot = new Snapshot(entries, shingleIndex, DateTime.UtcNow);
+            await ExecuteRebuildAsync();
         }
         finally
         {
-            _rebuildLock.Release();
+            lock (_rebuildGate)
+            {
+                _inflightRebuild = null;
+            }
         }
+    }
+
+    private async Task ExecuteRebuildAsync()
+    {
+        using var timeoutCts = new CancellationTokenSource(RebuildTimeout);
+        var rebuildCt = timeoutCts.Token;
+
+        // Project only the fingerprint/metadata fields needed for matching and cast Difficulty to
+        // nullable so Cosmos's projection shaper doesn't throw on legacy documents while skipping
+        // MasterAbcText and AbcText. Load Tunes and TuneSettings concurrently across separate
+        // scopes (EF DbContext is not thread-safe) to halve Cosmos Gateway round-trip latency.
+        var tunesTask = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await db.Tunes
+                .AsNoTracking()
+                .Select(t => new
+                {
+                    t.TuneId,
+                    t.Title,
+                    t.TuneType,
+                    t.Key,
+                    Difficulty = (int?)t.Difficulty,
+                    t.FingerprintIntervals,
+                    t.PitchClassProfile,
+                })
+                .ToListAsync(rebuildCt);
+        }, rebuildCt);
+
+        var settingsTask = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await db.TuneSettings
+                .AsNoTracking()
+                .Select(s => new
+                {
+                    s.TuneId,
+                    s.TuneSettingId,
+                    s.Key,
+                    s.FingerprintIntervals,
+                    s.PitchClassProfile,
+                })
+                .ToListAsync(rebuildCt);
+        }, rebuildCt);
+
+        await Task.WhenAll(tunesTask, settingsTask);
+        var tunes = await tunesTask;
+        var settings = await settingsTask;
+
+        // Last-wins rather than ToDictionary: a duplicate TuneId across Cosmos partitions is
+        // a data anomaly, not a reason to leave the whole endpoint without an index.
+        var tuneById = new Dictionary<Guid, (string Title, string TuneType, int Difficulty)>(tunes.Count);
+        var entries = new List<IndexEntry>(tunes.Count + settings.Count);
+
+        foreach (var t in tunes)
+        {
+            var title = t.Title ?? string.Empty;
+            var tuneType = t.TuneType.ToString();
+            var difficulty = t.Difficulty ?? 0;
+            tuneById[t.TuneId] = (title, tuneType, difficulty);
+
+            var intervals = MelodyFingerprint.ParseIntervalString(t.FingerprintIntervals);
+            if (intervals.Length == 0) continue;
+            entries.Add(new IndexEntry(
+                t.TuneId, null, title, tuneType,
+                t.Key ?? string.Empty, difficulty, intervals,
+                MelodyFingerprint.ParsePitchClassProfile(t.PitchClassProfile)));
+        }
+
+        foreach (var s in settings)
+        {
+            if (!tuneById.TryGetValue(s.TuneId, out var tune)) continue;
+            var intervals = MelodyFingerprint.ParseIntervalString(s.FingerprintIntervals);
+            if (intervals.Length == 0) continue;
+            entries.Add(new IndexEntry(
+                s.TuneId, s.TuneSettingId, tune.Title, tune.TuneType,
+                s.Key ?? string.Empty, tune.Difficulty, intervals,
+                MelodyFingerprint.ParsePitchClassProfile(s.PitchClassProfile)));
+        }
+
+        var shingleIndex = BuildShingleIndex(entries, ShingleLength);
+        var fallbackShingleIndex = BuildShingleIndex(entries, ShingleLengthFallback);
+
+        // Single atomic swap: readers always see a matched Entries/ShingleIndex pair.
+        _snapshot = new Snapshot(entries, shingleIndex, fallbackShingleIndex, DateTime.UtcNow);
+    }
+
+    private static Dictionary<long, List<int>> BuildShingleIndex(
+        IReadOnlyList<IndexEntry> entries,
+        int shingleLength)
+    {
+        var index = new Dictionary<long, List<int>>();
+        for (var i = 0; i < entries.Count; i++)
+        {
+            foreach (var hash in MelodyFingerprint.Shingles(entries[i].Intervals, shingleLength))
+            {
+                if (!index.TryGetValue(hash, out var list))
+                {
+                    list = [];
+                    index[hash] = list;
+                }
+                list.Add(i);
+            }
+        }
+        return index;
     }
 }

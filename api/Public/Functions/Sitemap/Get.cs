@@ -16,8 +16,8 @@ public class Get(AppDbContext db)
 {
     private const string SiteOrigin = "https://sessionr.org";
     private const string SitemapNamespace = "http://www.sitemaps.org/schemas/sitemap/0.9";
-    private const int MaxUrlsPerSitemap = 45000;
-    private const string SitemapCacheControl = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+    private const int MaxUrlsPerSitemap = 5000;
+    private const string SitemapCacheControl = "public, max-age=300, s-maxage=86400, stale-while-revalidate=86400";
 
     /// <summary>GET /api/sitemap.xml — sitemap index pointing to static, tune, group, and set sitemaps.</summary>
     [Function("GetSitemapIndex")]
@@ -56,18 +56,24 @@ public class Get(AppDbContext db)
         int.TryParse(req.Query["page"], out var page);
         if (page < 1) page = 1;
 
-        // Materialize full Tune entities so schemaless Cosmos documents missing CreatedAt/ReviewedAt
-        // fall back to CLR defaults cleanly instead of throwing during projection.
+        // Project only IDs and timestamps with nullable casts so schemaless Cosmos documents
+        // missing CreatedAt/ReviewedAt fall back cleanly without pulling MasterAbcText or fingerprints.
         var tunes = await db.Tunes
             .AsNoTracking()
             .OrderBy(t => t.TuneId)
             .Skip((page - 1) * MaxUrlsPerSitemap)
             .Take(MaxUrlsPerSitemap)
+            .Select(t => new
+            {
+                t.TuneId,
+                ReviewedAt = (DateTime?)t.ReviewedAt,
+                CreatedAt = (DateTime?)t.CreatedAt,
+            })
             .ToListAsync();
 
         var entries = tunes.Select(t =>
         {
-            var lastMod = t.ReviewedAt ?? (t.CreatedAt > DateTime.MinValue ? t.CreatedAt : (DateTime?)null);
+            var lastMod = t.ReviewedAt ?? (t.CreatedAt is { } created && created > DateTime.MinValue ? created : (DateTime?)null);
             return ($"{SiteOrigin}/tunes/{t.TuneId}", lastMod, "weekly", "0.7");
         });
 
@@ -81,18 +87,24 @@ public class Get(AppDbContext db)
     {
         ApplySitemapCaching(req);
 
-        // Materialize first and filter !g.IsPrivate in C# for Cosmos schemaless safety.
+        // Project scalar fields and filter !IsPrivate in C# for Cosmos schemaless safety, bounded to MaxUrlsPerSitemap.
         var groups = await db.Groups
             .AsNoTracking()
-            .ToListAsync();
-
-        var entries = groups
             .Where(g => !g.IsPrivate)
             .OrderBy(g => g.GroupId)
             .Take(MaxUrlsPerSitemap)
+            .Select(g => new
+            {
+                g.GroupId,
+                ReviewedAt = (DateTime?)g.ReviewedAt,
+                CreatedAt = (DateTime?)g.CreatedAt,
+            })
+            .ToListAsync();
+
+        var entries = groups
             .Select(g =>
             {
-                var lastMod = g.ReviewedAt ?? (g.CreatedAt > DateTime.MinValue ? g.CreatedAt : (DateTime?)null);
+                var lastMod = g.ReviewedAt ?? (g.CreatedAt is { } created && created > DateTime.MinValue ? created : (DateTime?)null);
                 return ($"{SiteOrigin}/group/{g.GroupId}", lastMod, "weekly", "0.7");
             });
 
@@ -111,6 +123,9 @@ public class Get(AppDbContext db)
 
         var sets = await db.Sets
             .AsNoTracking()
+            .OrderBy(s => s.SetId)
+            .Take(MaxUrlsPerSitemap)
+            .Select(s => new { s.SetId, s.UserId })
             .ToListAsync();
 
         if (sets.Count == 0)
@@ -119,21 +134,27 @@ public class Get(AppDbContext db)
         }
 
         var ownerIds = sets.Select(s => s.UserId).Distinct().ToList();
-        var owners = await db.Users
-            .AsNoTracking()
-            .Where(u => ownerIds.Contains(u.UserId))
-            .ToListAsync();
+        var publicOwnerIds = new HashSet<Guid>();
+        foreach (var chunk in ownerIds.Chunk(100))
+        {
+            var chunkIds = chunk.ToList();
+            var owners = await db.Users
+                .AsNoTracking()
+                .Where(u => chunkIds.Contains(u.UserId))
+                .Select(u => new { u.UserId, IsProfilePrivate = (bool?)u.IsProfilePrivate })
+                .ToListAsync();
 
-        // Filter !u.IsProfilePrivate in memory (see ProfileVisibility for why).
-        var publicOwnerIds = owners
-            .Where(u => !u.IsProfilePrivate)
-            .Select(u => u.UserId)
-            .ToHashSet();
+            foreach (var u in owners)
+            {
+                if (u.IsProfilePrivate != true)
+                {
+                    publicOwnerIds.Add(u.UserId);
+                }
+            }
+        }
 
         var entries = sets
             .Where(s => publicOwnerIds.Contains(s.UserId))
-            .OrderBy(s => s.SetId)
-            .Take(MaxUrlsPerSitemap)
             .Select(s => ($"{SiteOrigin}/set/{s.SetId}", (DateTime?)null, "monthly", "0.5"));
 
         return XmlResult(BuildUrlSet(entries));

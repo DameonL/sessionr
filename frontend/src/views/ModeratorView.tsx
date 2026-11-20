@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from '@/utils/routerCompat'
 import {
   getUnreviewedTunes,
@@ -34,23 +34,35 @@ export function ModeratorView() {
   const [editKey, setEditKey] = useState('')
   const [editAbc, setEditAbc] = useState('')
 
-  const unreviewedTunes = useQuery({
+  const unreviewedTunes = useInfiniteQuery({
     queryKey: ['moderator-unreviewed-tunes'],
-    queryFn: getUnreviewedTunes,
+    queryFn: ({ pageParam = 1 }) => getUnreviewedTunes(pageParam, 25),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
     enabled: !!profile?.isModerator,
   })
 
-  const unreviewedGroups = useQuery({
+  const unreviewedGroups = useInfiniteQuery({
     queryKey: ['moderator-unreviewed-groups'],
-    queryFn: getUnreviewedGroups,
+    queryFn: ({ pageParam = 1 }) => getUnreviewedGroups(pageParam, 50),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
     enabled: !!profile?.isModerator,
   })
 
-  const allGroups = useQuery({
+  const allGroups = useInfiniteQuery({
     queryKey: ['moderator-all-groups'],
-    queryFn: getModeratorGroups,
+    queryFn: ({ pageParam = 1 }) => getModeratorGroups(pageParam, 50),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    initialPageParam: 1,
     enabled: !!profile?.isModerator && activeTab === 'all-groups',
   })
+
+  const unreviewedTuneItems = unreviewedTunes.data?.pages.flatMap((p) => p.items) ?? []
+  const unreviewedTunesTotal = unreviewedTunes.data?.pages[0]?.totalCount ?? 0
+  const unreviewedGroupItems = unreviewedGroups.data?.pages.flatMap((p) => p.items) ?? []
+  const unreviewedGroupsTotal = unreviewedGroups.data?.pages[0]?.totalCount ?? 0
+  const allGroupItems = allGroups.data?.pages.flatMap((p) => p.items) ?? []
 
   const approveTuneMutation = useMutation({
     mutationFn: (tuneId: string) => approveTune(tuneId),
@@ -301,14 +313,14 @@ export function ModeratorView() {
           onClick={() => setActiveTab('tunes')}
           style={{ cursor: 'pointer' }}
         >
-          🎵 Unreviewed Tunes ({unreviewedTunes.data?.length ?? 0})
+          🎵 Unreviewed Tunes ({unreviewedTunesTotal})
         </button>
         <button
           className={`nav-pill ${activeTab === 'groups' ? 'active' : ''}`}
           onClick={() => setActiveTab('groups')}
           style={{ cursor: 'pointer' }}
         >
-          👥 Unreviewed Groups ({unreviewedGroups.data?.length ?? 0})
+          👥 Unreviewed Groups ({unreviewedGroupsTotal})
         </button>
         <button
           className={`nav-pill ${activeTab === 'all-groups' ? 'active' : ''}`}
@@ -333,13 +345,13 @@ export function ModeratorView() {
             <div className="spinner-row"><Spinner /></div>
           ) : unreviewedTunes.isError ? (
             <p className="error">Failed to load unreviewed tunes.</p>
-          ) : unreviewedTunes.data?.length === 0 ? (
+          ) : unreviewedTuneItems.length === 0 ? (
             <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
               <p style={{ fontSize: '1.1rem', margin: 0 }}>🎉 All submitted tunes have been reviewed!</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {unreviewedTunes.data?.map((tune) => (
+              {unreviewedTuneItems.map((tune) => (
                 <div key={tune.tuneId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--rust)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
@@ -386,6 +398,16 @@ export function ModeratorView() {
                   </div>
                 </div>
               ))}
+              {unreviewedTunes.hasNextPage && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => unreviewedTunes.fetchNextPage()}
+                  disabled={unreviewedTunes.isFetchingNextPage}
+                >
+                  {unreviewedTunes.isFetchingNextPage ? 'Loading more…' : 'Load more unreviewed tunes'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -398,13 +420,13 @@ export function ModeratorView() {
             <div className="spinner-row"><Spinner /></div>
           ) : unreviewedGroups.isError ? (
             <p className="error">Failed to load unreviewed groups.</p>
-          ) : unreviewedGroups.data?.length === 0 ? (
+          ) : unreviewedGroupItems.length === 0 ? (
             <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
               <p style={{ fontSize: '1.1rem', margin: 0 }}>🎉 All newly created groups have been reviewed!</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {unreviewedGroups.data?.map((group) => (
+              {unreviewedGroupItems.map((group) => (
                 <div key={group.groupId} className="card" style={{ padding: '1.25rem', borderLeft: '4px solid var(--brand-2)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
@@ -439,6 +461,16 @@ export function ModeratorView() {
                   )}
                 </div>
               ))}
+              {unreviewedGroups.hasNextPage && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => unreviewedGroups.fetchNextPage()}
+                  disabled={unreviewedGroups.isFetchingNextPage}
+                >
+                  {unreviewedGroups.isFetchingNextPage ? 'Loading more…' : 'Load more unreviewed groups'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -453,7 +485,7 @@ export function ModeratorView() {
             <p className="error">Failed to load groups directory.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {allGroups.data?.map((group) => (
+              {allGroupItems.map((group) => (
                 <div key={group.groupId} className="card" style={{ padding: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
@@ -473,6 +505,16 @@ export function ModeratorView() {
                   </div>
                 </div>
               ))}
+              {allGroups.hasNextPage && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => allGroups.fetchNextPage()}
+                  disabled={allGroups.isFetchingNextPage}
+                >
+                  {allGroups.isFetchingNextPage ? 'Loading more…' : 'Load more groups'}
+                </button>
+              )}
             </div>
           )}
         </div>

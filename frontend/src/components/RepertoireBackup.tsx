@@ -375,6 +375,7 @@ export function RepertoireBackup({ userId, onImported }: RepertoireBackupProps) 
 
         // Finished
         queryClient.invalidateQueries({ queryKey: ['repertoire-full', userId] })
+        queryClient.invalidateQueries({ queryKey: ['repertoire-tune-ids', userId] })
         onImported()
       } catch (err) {
         setError(`Failed to read or parse file: ${(err as Error).message}`)

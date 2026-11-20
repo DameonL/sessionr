@@ -49,8 +49,7 @@ public class TheSessionDataMigrationServiceTests
             Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json"),
         });
         var cache = new TheSessionDatasetCache(factory);
-        var purge = new CloudflareCachePurgeService(new HttpClient(), NullLogger<CloudflareCachePurgeService>.Instance);
-        return new TheSessionDataMigrationService(db, cache, new TuneHeuristics(), purge);
+        return new TheSessionDataMigrationService(db, cache, new TuneHeuristics());
     }
 
     [Theory]

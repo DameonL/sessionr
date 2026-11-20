@@ -115,6 +115,7 @@ export function TuneView({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
+      queryClient.invalidateQueries({ queryKey: ['repertoire-tune-ids', userId] })
       if (isPage) setAddedMessage('Added to your repertoire!')
       onApplied?.()
     },

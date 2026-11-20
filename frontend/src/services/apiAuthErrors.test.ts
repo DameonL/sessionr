@@ -177,4 +177,10 @@ describe('authenticated Public API calls', () => {
     await expect(moderatorRefreshMatchIndex()).rejects.toBeInstanceOf(UnauthenticatedError)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('does not queue matchTune into the offline mutation queue when unreachable', async () => {
+    fetchMock.mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError'))
+
+    await expect(matchTune([60, 62, 64])).rejects.toThrow(/could not be completed/i)
+  })
 })

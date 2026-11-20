@@ -391,4 +391,53 @@ public class TuneMatchIndexTests : IDisposable
 
         Assert.All(results, r => Assert.Equal(cooleys.TuneId, r[0].TuneId));
     }
+
+    [Fact]
+    public async Task MatchAsync_FallsBackToThreeGramShinglesOnLargeLibraryWhenFiveGramsMiss()
+    {
+        // Seed > FullSweepThreshold (200) entries so BuildShortlist uses shingle indexes.
+        using (var scope = _services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            for (var i = 0; i < 210; i++)
+            {
+                var decoy = new Tune
+                {
+                    Title = $"Decoy {i}",
+                    Key = "D",
+                    TuneType = TuneType.Reel,
+                    MasterAbcText = "K:D\nDEFG ABcd|",
+                    FingerprintIntervals = $"1,2,1,{(i % 7) + 3},-2,-1,2,3",
+                };
+                db.Tunes.Add(decoy);
+            }
+            db.SaveChanges();
+        }
+
+        var cooleys = AddTune("Cooley's", CooleysAbc);
+        var index = NewIndex();
+
+        // A 4-interval snippet cannot hit the 5-gram index, so it must fall back to 3-grams.
+        var shortQuery = FingerprintOf(CooleysAbc).Take(4).ToArray();
+        var result = await index.MatchAsync(shortQuery);
+
+        Assert.Contains(result, r => r.TuneId == cooleys.TuneId);
+    }
+
+    [Fact]
+    public async Task MatchAsync_CanceledCallerDoesNotAbortSharedColdRebuild()
+    {
+        var cooleys = AddTune("Cooley's", CooleysAbc);
+        var index = NewIndex();
+        var query = FingerprintOf(CooleysAbc);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => index.MatchAsync(query, ct: cts.Token));
+
+        // A subsequent healthy caller must still get results from the completed index.
+        var result = await index.MatchAsync(query);
+        Assert.Equal(cooleys.TuneId, result[0].TuneId);
+    }
 }

@@ -57,6 +57,7 @@ export function TuneDetail({ userTuneId }: { userTuneId?: string }) {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['repertoire-item', id] })
     queryClient.invalidateQueries({ queryKey: ['repertoire', userId] })
+    queryClient.invalidateQueries({ queryKey: ['repertoire-tune-ids', userId] })
     queryClient.invalidateQueries({ queryKey: ['practice-queue', userId] })
   }
 

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getFullRepertoireList,
+  getRepertoireTuneIds,
   addToRepertoire,
   addGroupTune,
   formatTuneType,
@@ -19,19 +19,19 @@ export function GroupRepertoirePanel() {
 
   // The viewer's own repertoire (tune IDs) to flag tunes they already hold.
   const repertoireQuery = useQuery({
-    queryKey: ['repertoire-list-full', userId],
-    queryFn: getFullRepertoireList,
+    queryKey: ['repertoire-tune-ids', userId],
+    queryFn: getRepertoireTuneIds,
     enabled: !!userId,
   })
 
   const addTuneMutation = useMutation({
     mutationFn: (tuneId: string) => addToRepertoire(tuneId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['repertoire-list-full', userId] })
+      queryClient.invalidateQueries({ queryKey: ['repertoire-tune-ids', userId] })
     },
   })
 
-  const userTuneIds = new Set(repertoireQuery.data?.map((t) => t.tuneId) ?? [])
+  const userTuneIds = new Set(repertoireQuery.data ?? [])
   const masterTuneIds = new Set(details.masterTunes.map((t) => t.tuneId))
 
   return (
