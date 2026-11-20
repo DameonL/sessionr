@@ -264,6 +264,23 @@ export function requiredStableFrames(clarity: number): number {
   return Math.round(STABLE_FRAMES_MAX - t * (STABLE_FRAMES_MAX - STABLE_FRAMES_MIN))
 }
 
+/**
+ * Opens a microphone stream with voice-processing DSP disabled (echo
+ * cancellation and noise suppression mangle instrument harmonics) while
+ * leaving browser AGC enabled so quiet microphones are boosted.
+ */
+function openMicStream(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: true,
+    },
+  })
+}
+
+const LIVE_HIGHPASS_HZ = 110
+
 /** Opens the mic and runs `onFrame` for every analyzed 4096-sample window until `stop()`. */
 function startMicFrameLoop(onFrame: (frame: PitchFrame) => void): {
   start(): Promise<void>
@@ -271,32 +288,34 @@ function startMicFrameLoop(onFrame: (frame: PitchFrame) => void): {
 } {
   let ctx: AudioContext | null = null
   let stream: MediaStream | null = null
+  let highpass: BiquadFilterNode | null = null
   let analyser: AnalyserNode | null = null
   let rafId = 0
   let stopped = false
 
   return {
     async start() {
-      // Disable browser voice processing — it mangles instrument harmonics.
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      })
+      stream = await openMicStream()
       if (stopped) {
         stream.getTracks().forEach((t) => t.stop())
         return
       }
       ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
+      // Strip DC offset, 50/60Hz mains hum, and low-frequency room rumble
+      // (especially when browser AGC boosts quiet rooms) without attenuating
+      // a fiddle's low G (196Hz) or voice/humming down to MIN_HZ (130Hz).
+      highpass = ctx.createBiquadFilter()
+      highpass.type = 'highpass'
+      highpass.frequency.value = LIVE_HIGHPASS_HZ
+      highpass.Q.value = Math.SQRT1_2
       analyser = ctx.createAnalyser()
       // YIN's difference function only integrates over the first half of the
       // buffer (see detectHz), so this needs to be double the old ACF window
       // to keep the same effective integration length at MIN_HZ.
       analyser.fftSize = 4096
-      source.connect(analyser)
+      source.connect(highpass)
+      highpass.connect(analyser)
       const buf = new Float32Array(analyser.fftSize)
 
       const tick = () => {
@@ -311,29 +330,29 @@ function startMicFrameLoop(onFrame: (frame: PitchFrame) => void): {
     stop() {
       stopped = true
       cancelAnimationFrame(rafId)
+      highpass?.disconnect()
       stream?.getTracks().forEach((t) => t.stop())
       ctx?.close().catch(() => {})
       stream = null
       ctx = null
+      highpass = null
       analyser = null
     },
   }
 }
 
-// Static live gate for EarTrainer's real-time path — same rms value the
-// pre-hardening baseline used (never implicated in the noise-floor bug),
-// with clarity loosened from an earlier, unvalidated 0.45: a note's attack
-// is briefly low-clarity even when clean, and EarTrainer's downstream check
-// (pitch-class equality against one known target) tolerates an occasional
-// stray frame far better than it tolerates missing the note entirely.
+// Static live gate for EarTrainer/IntervalTrainer's real-time path — lowered
+// from 0.01 (-40 dBFS) to 0.002 (-54 dBFS) so quiet microphones and devices
+// that ignore browser AGC still register, paired with the 110Hz high-pass
+// filter above and clarity/stability gating to reject ambient room noise.
 // Not adaptive — deliberately, so it can't reproduce the old feedback loop.
-const LIVE_RMS_GATE = 0.01
+export const LIVE_RMS_GATE = 0.002
 const LIVE_CLARITY_GATE = 0.3
 // Brief mute after start() to let audio hardware settle (avoids a stream-init
 // pop/click reading as a spurious frame) — unrelated to noise-floor gating.
 const STARTUP_MUTE_MS = 300
 
-function passesLiveGate(frame: PitchFrame): boolean {
+export function passesLiveGate(frame: PitchFrame): boolean {
   return frame.hz !== null && frame.rms >= LIVE_RMS_GATE && (frame.clarity ?? 0) >= LIVE_CLARITY_GATE
 }
 
@@ -422,17 +441,35 @@ export interface RawFrame {
 }
 
 // Inlined as a Blob URL rather than a separate file so the worklet needs no
-// bundler/asset-path configuration to find it.
+// bundler/asset-path configuration to find it. Averages all input channels so
+// multi-channel USB interfaces with a mic on input 2+ are captured cleanly.
 const PCM_WORKLET_SOURCE = `
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   process(inputs) {
-    const channel = inputs[0] && inputs[0][0]
-    if (channel && channel.length) this.port.postMessage(channel.slice())
+    const channels = inputs[0]
+    if (!channels || !channels.length || !channels[0].length) return true
+    if (channels.length === 1) {
+      this.port.postMessage(channels[0].slice())
+      return true
+    }
+    const len = channels[0].length
+    const mixed = new Float32Array(len)
+    const inv = 1 / channels.length
+    for (let c = 0; c < channels.length; c++) {
+      const ch = channels[c]
+      for (let i = 0; i < len; i++) mixed[i] += ch[i] * inv
+    }
+    this.port.postMessage(mixed)
     return true
   }
 }
 registerProcessor('pcm-capture', PcmCaptureProcessor)
 `
+
+export type PcmCaptureFactory = (onChunk: (chunk: Float32Array, sampleRate: number) => void) => {
+  start(): Promise<void>
+  stop(): void
+}
 
 /**
  * Opens the mic and hands every block of raw PCM to `onChunk`, until `stop()`.
@@ -452,14 +489,7 @@ function startMicPcmCapture(onChunk: (chunk: Float32Array, sampleRate: number) =
 
   return {
     async start() {
-      // Disable browser voice processing — it mangles instrument harmonics.
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      })
+      stream = await openMicStream()
       if (stopped) {
         stream.getTracks().forEach((t) => t.stop())
         return
@@ -556,11 +586,42 @@ const ANALYSIS_WINDOW = 4096
  */
 const ANALYSIS_HOP = 256
 
+const DIGITAL_SILENCE_RMS = 1e-5
+const TARGET_CLIP_RMS = 0.1
+const MAX_CLIP_GAIN = 200
+
 /**
- * Offline pass over a finished clip: band-limit, then measure pitch at a fixed
- * hop. Separated from capture so it is directly testable, and so the whole
- * clip's audio is available at once (which is what lets the high-pass be
- * zero-phase rather than causal).
+ * Scales a quiet clip up toward a nominal RMS level so external mics/interfaces
+ * that bypass browser AGC still sit comfortably above downstream silence
+ * floors. Never amplifies true digital silence (< 1e-5 RMS), never attenuates
+ * louder clips, and caps peak amplitude at 0.9.
+ */
+export function normalizeClipGain(samples: Float32Array): Float32Array {
+  if (samples.length === 0) return samples
+  let sumSq = 0
+  let maxAbs = 0
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i]
+    sumSq += v * v
+    const abs = Math.abs(v)
+    if (abs > maxAbs) maxAbs = abs
+  }
+  const rms = Math.sqrt(sumSq / samples.length)
+  if (rms < DIGITAL_SILENCE_RMS || maxAbs === 0) return samples
+
+  const gain = Math.min(MAX_CLIP_GAIN, Math.max(1, TARGET_CLIP_RMS / rms), 0.9 / maxAbs)
+  if (gain <= 1) return samples
+
+  const out = new Float32Array(samples.length)
+  for (let i = 0; i < samples.length; i++) out[i] = samples[i] * gain
+  return out
+}
+
+/**
+ * Offline pass over a finished clip: band-limit, normalize quiet clips, then
+ * measure pitch at a fixed hop. Separated from capture so it is directly
+ * testable, and so the whole clip's audio is available at once (which is what
+ * lets the high-pass be zero-phase rather than causal).
  */
 export function analyzeClipFrames(
   samples: Float32Array,
@@ -573,7 +634,8 @@ export function analyzeClipFrames(
     maxHz = MAX_HZ,
   } = options
 
-  const source = highPassHz > 0 ? highPassZeroPhase(samples, sampleRate, highPassHz) : samples
+  const filtered = highPassHz > 0 ? highPassZeroPhase(samples, sampleRate, highPassHz) : samples
+  const source = normalizeClipGain(filtered)
   const frames: RawFrame[] = []
   for (let start = 0; start + ANALYSIS_WINDOW <= source.length; start += ANALYSIS_HOP) {
     const window = source.subarray(start, start + ANALYSIS_WINDOW)
@@ -593,14 +655,22 @@ export function analyzeClipFrames(
 // Discards the first audio outright rather than recording it — hardware
 // settling protection only (a stream-init pop/click).
 const RECORDER_STARTUP_MUTE_MS = 150
+// Window length for UI level/elapsed updates (~20fps instead of ~344fps worklet churn).
+const PROGRESS_INTERVAL_MS = 50
 
-export function createSampleRecorder(durationMs: number): SampleRecorder {
+export function createSampleRecorder(
+  durationMs: number,
+  startCapture: PcmCaptureFactory = startMicPcmCapture,
+): SampleRecorder {
   const chunks: Float32Array[] = []
+  let seenSamples = 0
   let captured = 0
   let sampleRate = 44100
   let done = false
-  let capture: ReturnType<typeof startMicPcmCapture> | null = null
+  let capture: ReturnType<PcmCaptureFactory> | null = null
   let cachedFrames: RawFrame[] | null = null
+  let progressSumSq = 0
+  let progressSamples = 0
 
   const concat = (): Float32Array => {
     const out = new Float32Array(captured)
@@ -614,18 +684,21 @@ export function createSampleRecorder(durationMs: number): SampleRecorder {
 
   return {
     async start(onProgress) {
-      capture = startMicPcmCapture((chunk, rate) => {
+      capture = startCapture((chunk, rate) => {
         if (done) return
         sampleRate = rate
-        const elapsedBefore = (captured / rate) * 1000
-        // Drop the settling window, then keep everything until we have the
-        // full duration — trimming the tail so the clip is exactly as long as
-        // asked for regardless of the audio callback's block size.
-        if (elapsedBefore >= RECORDER_STARTUP_MUTE_MS - (chunk.length / rate) * 1000) {
+        const muteSamples = Math.round((RECORDER_STARTUP_MUTE_MS / 1000) * rate)
+        // Skip the settling window using seenSamples (separate from captured,
+        // which stays 0 until the mute window passes), then trim the tail to
+        // match durationMs regardless of audio callback block size.
+        const skip = Math.max(0, muteSamples - seenSamples)
+        seenSamples += chunk.length
+        if (skip < chunk.length) {
+          const active = skip > 0 ? chunk.subarray(skip) : chunk
           const remaining = Math.ceil((durationMs / 1000) * rate) - captured
-          const take = Math.min(chunk.length, Math.max(0, remaining))
+          const take = Math.min(active.length, Math.max(0, remaining))
           if (take > 0) {
-            chunks.push(take === chunk.length ? chunk : chunk.subarray(0, take))
+            chunks.push(take === active.length ? active : active.subarray(0, take))
             captured += take
           }
         }
@@ -634,9 +707,15 @@ export function createSampleRecorder(durationMs: number): SampleRecorder {
           done = true
           capture?.stop()
         }
-        let rms = 0
-        for (let i = 0; i < chunk.length; i++) rms += chunk[i] * chunk[i]
-        onProgress?.(elapsed, Math.sqrt(rms / Math.max(1, chunk.length)), durationMs)
+        for (let i = 0; i < chunk.length; i++) progressSumSq += chunk[i] * chunk[i]
+        progressSamples += chunk.length
+        const progressWindowSamples = Math.round((PROGRESS_INTERVAL_MS / 1000) * rate)
+        if (done || progressSamples >= progressWindowSamples) {
+          const rms = Math.sqrt(progressSumSq / Math.max(1, progressSamples))
+          progressSumSq = 0
+          progressSamples = 0
+          onProgress?.(elapsed, rms, durationMs)
+        }
       })
       await capture.start()
     },

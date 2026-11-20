@@ -44,7 +44,17 @@ const MIN_CLARITY = 0.3
  * Digital-silence guard only — a muted mic or an all-zero buffer, not a
  * perceptual gate. Deliberately far below any real playing level.
  */
-const ABSOLUTE_RMS_FLOOR = 0.002
+const ABSOLUTE_RMS_FLOOR = 0.0001
+/**
+ * Relative-to-playing room-noise floor (post-processing for AGC): when a clip
+ * contains clear playing (`clarity >= 0.5`), faint stationary room hum / bleed
+ * more than ~24 dB quieter than the 75th percentile of clearly pitched frames
+ * is rejected. Using high-clarity frames as the reference preserves 100% of
+ * frames in wall-to-wall pub sessions where there are no silent pauses.
+ */
+const HIGH_CLARITY_REF = 0.5
+const MIN_REF_FRAMES = 10
+const RELATIVE_NOISE_RATIO = 0.06
 /**
  * Width of the median filter over the MIDI track (in frames, so ~29ms at the
  * analysis hop). At the fixed dense hop each note spans plenty of frames, and
@@ -76,13 +86,28 @@ function median(values: number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
+function percentile(values: number[], pct: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const idx = Math.min(sorted.length - 1, Math.floor((pct / 100) * sorted.length))
+  return sorted[idx]
+}
+
 /**
  * Phase B, step 1: per-frame accept/reject. Pure function — no mic/UI
  * plumbing — so it's directly testable with synthetic fixtures.
  */
 export function classifyClip(frames: RawFrame[]): ClassifiedFrame[] {
+  const refRms = frames
+    .filter((f) => f.hz !== null && (f.clarity ?? 0) >= HIGH_CLARITY_REF)
+    .map((f) => f.rms)
+  const threshold =
+    refRms.length >= MIN_REF_FRAMES
+      ? Math.max(ABSOLUTE_RMS_FLOOR, percentile(refRms, 75) * RELATIVE_NOISE_RATIO)
+      : ABSOLUTE_RMS_FLOOR
+
   return frames.map((f) => {
-    const accepted = f.hz !== null && f.rms >= ABSOLUTE_RMS_FLOOR && (f.clarity ?? 0) >= MIN_CLARITY
+    const accepted = f.hz !== null && f.rms >= threshold && (f.clarity ?? 0) >= MIN_CLARITY
     return { ...f, accepted, midi: accepted && f.hz !== null ? hzToMidi(f.hz) : null }
   })
 }

@@ -72,9 +72,36 @@ describe('classifyClip', () => {
   })
 
   it('rejects frames quieter than the absolute floor', () => {
-    const classified = classify([frame({ tMs: 0, rms: 0.001 })])
+    const classified = classify([frame({ tMs: 0, rms: 0.00005 })])
 
     expect(classified.at(-1)!.accepted).toBe(false)
+  })
+
+  it('accepts quiet-but-clear frames from low-gain microphones', () => {
+    const classified = classifyClip([frame({ tMs: 0, rms: 0.0003, clarity: 0.85 })])
+
+    expect(classified[0].accepted).toBe(true)
+    expect(classified[0].midi).toBe(69)
+  })
+
+  it('rejects faint AGC-boosted stationary room hum when active playing is much louder', () => {
+    const activePlaying = steadyNote(0, A4_HZ, 15, 0.9).map((f) => ({ ...f, rms: 0.25 }))
+    const faintRoomHum = Array.from({ length: 10 }, (_, i) =>
+      frame({ tMs: 300 + i * FRAME_MS, rms: 0.005, clarity: 0.4, hz: G4_HZ }),
+    )
+    const classified = classifyClip([...activePlaying, ...faintRoomHum])
+
+    expect(classified.slice(0, 15).every((f) => f.accepted)).toBe(true)
+    expect(classified.slice(15).every((f) => !f.accepted)).toBe(true)
+  })
+
+  it('preserves a wall-to-wall loud pub session with realistic dynamic spread', () => {
+    const frames = Array.from({ length: 40 }, (_, i) =>
+      frame({ tMs: i * FRAME_MS, rms: i % 2 === 0 ? 0.111 : 0.229, clarity: 0.75 }),
+    )
+    const classified = classifyClip(frames)
+
+    expect(classified.every((f) => f.accepted)).toBe(true)
   })
 
   it('rejects loud but tonally unclear frames — a table bang or chair scrape', () => {

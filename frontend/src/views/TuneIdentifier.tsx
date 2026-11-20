@@ -12,6 +12,10 @@ import { Spinner } from '../components/Spinner'
 
 type Phase = 'idle' | 'listening' | 'matching' | 'results'
 
+// Server requires at least 2 notes to form an interval; fewer notes short-circuit
+// locally with a mic/quiet-playing hint instead of issuing an invalid API call.
+const MIN_NOTES_TO_MATCH = 2
+
 // Purely informational — a low capture count just yields a lower-confidence
 // server result (already handled by the "no confident match" messaging), so
 // this never blocks submission, only adds a hint on the results screen.
@@ -20,6 +24,16 @@ const MIN_NOTES_ADVISORY = 4
 // Recording can be stopped early once this much has elapsed, rather than
 // always waiting the full sample duration.
 const EARLY_STOP_MIN_MS = 5000
+
+const METER_MIN_DB = -80
+const METER_MAX_DB = -6
+
+/** Maps raw frame RMS to a 0-100% dBFS bar width so quiet mics remain visible. */
+function rmsToMeterPercent(rms: number): number {
+  if (rms <= 0) return 0
+  const db = 20 * Math.log10(rms)
+  return Math.max(0, Math.min(100, ((db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB)) * 100))
+}
 
 interface TuneIdDebug {
   simulate(midis: number[], opts?: { autoSubmit?: boolean }): void
@@ -107,6 +121,11 @@ export function TuneIdentifier() {
 
   function runMatch(notes: number[]) {
     setCapturedCount(notes.length)
+    if (notes.length < MIN_NOTES_TO_MATCH) {
+      matchMutation.reset()
+      setPhaseBoth('results')
+      return
+    }
     setPhaseBoth('matching')
     matchMutation.mutate(notes, {
       onSettled: () => setPhaseBoth('results'),
@@ -223,11 +242,7 @@ export function TuneIdentifier() {
             />
           </div>
           <div className="progress-bar-container">
-            {/* sqrt scale, not linear: real mic RMS for normal playing runs much
-                lower than a linear bar would suggest, which read as "silence"
-                even during legitimate playing. This just needs to move visibly
-                across realistic input levels, not be a calibrated meter. */}
-            <div className="progress-bar" style={{ width: `${Math.min(100, Math.sqrt(level) * 150)}%` }} />
+            <div className="progress-bar" style={{ width: `${rmsToMeterPercent(level)}%` }} />
           </div>
           <div className="detail-controls">
             <button onClick={finishRecording} disabled={!canStopEarly}>
@@ -259,14 +274,29 @@ export function TuneIdentifier() {
             </p>
           )}
 
-          {!matchMutation.isError && capturedCount < MIN_NOTES_ADVISORY && (
+          {!matchMutation.isError && capturedCount === 0 && (
             <p className="tune-meta">
-              Very few clear notes detected — try recording in a quieter spot or playing
-              closer to the mic.
+              No clear playing detected — check that your microphone is unmuted or try
+              playing closer to the mic.
             </p>
           )}
 
-          {!matchMutation.isError && candidates.length === 0 && (
+          {!matchMutation.isError && capturedCount > 0 && capturedCount < MIN_NOTES_TO_MATCH && (
+            <p className="tune-meta">
+              Only 1 clear note detected — play at least 2 notes to identify a tune.
+            </p>
+          )}
+
+          {!matchMutation.isError &&
+            capturedCount >= MIN_NOTES_TO_MATCH &&
+            capturedCount < MIN_NOTES_ADVISORY && (
+              <p className="tune-meta">
+                Very few clear notes detected — try recording in a quieter spot or playing
+                closer to the mic.
+              </p>
+            )}
+
+          {!matchMutation.isError && capturedCount >= MIN_NOTES_TO_MATCH && candidates.length === 0 && (
             <p className="badge badge-queue">
               Nothing in the library came close — try playing a longer or cleaner excerpt.
             </p>
